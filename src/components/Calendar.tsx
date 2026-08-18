@@ -7,32 +7,15 @@ import {
   doc,
   onSnapshot,
   query,
-  where,
   orderBy,
   serverTimestamp,
-  Timestamp,
 } from "firebase/firestore";
 import { db } from "../lib/firebase";
+import type { CalendarEvent, CalendarTask } from "../types";
 
-// ─────────────────────────────────────────
-// 型定義
-// ─────────────────────────────────────────
-interface CalendarEvent {
-  id: string;
-  title: string;
-  date: string;       // "YYYY-MM-DD"
-  startTime: string;  // "HH:MM" または ""
-  endTime: string;    // "HH:MM" または ""
-  note: string;
-  createdAt: Timestamp | null;
-}
+// CalendarTask を Calendar モジュール内では Task と呼ぶ
+type Task = CalendarTask;
 
-interface Task {
-  id: string;
-  title: string;
-  dueDate: string | null;
-  completed: boolean;
-}
 
 // ─────────────────────────────────────────
 // ユーティリティ
@@ -292,10 +275,10 @@ function EventRow({
         transition: "opacity 0.2s",
         flexShrink: 0,
       }}>
-        <button onClick={startEdit} style={iconBtnStyle("#C0BEB8")} title="編集">
+        <button onClick={startEdit} style={iconBtnStyle("#C0BEB8")} title="編集" data-testid="event-edit-btn">
           <PencilIcon />
         </button>
-        <button onClick={() => onDelete(event.id)} style={iconBtnStyle("#C0BEB8")} title="削除">
+        <button onClick={() => onDelete(event.id)} style={iconBtnStyle("#C0BEB8")} title="削除" data-testid="event-delete-btn">
           <TrashIcon />
         </button>
       </div>

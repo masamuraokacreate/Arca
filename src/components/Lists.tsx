@@ -8,7 +8,6 @@ import {
   query,
   orderBy,
   serverTimestamp,
-  Timestamp,
 } from "firebase/firestore";
 import { db } from "../lib/firebase";
 import { useGoogleAuth } from "../hooks/useGoogleAuth";
@@ -20,29 +19,11 @@ import {
   type GTaskList,
 } from "../lib/googleTasks";
 import { suggestCategory } from "../lib/aetherCore";
+import type { ListItem, SyncStatus, SuggestionState } from "../types";
 
 // ---------- 定数 ----------
 const TASKLIST_NAME = "買い物リスト";
 const COLOR_SAGE    = "#52796F";
-
-// ---------- 型 ----------
-interface ListItem {
-  id: string;
-  text: string;
-  completed: boolean;
-  createdAt: Timestamp | null;
-  googleTaskId?: string;
-  category?: string;           // Aether Core が推論・ユーザーが採用したカテゴリ
-}
-
-type SyncStatus = "idle" | "syncing" | "done" | "error";
-
-// カテゴリ提案の状態
-type SuggestionState =
-  | { phase: "idle" }
-  | { phase: "thinking" }
-  | { phase: "ready"; category: string }
-  | { phase: "accepted"; category: string };
 
 // ---------- アイコン ----------
 function CheckIcon({ completed }: { completed: boolean }) {
@@ -444,8 +425,7 @@ export default function Lists() {
         try {
           googleTaskId = await gAddTask(token, listId, trimmed);
           finishSync();
-        } catch (e) {
-          console.warn("Google Tasks追加失敗（Firestoreのみ保存）:", e);
+        } catch {
           setSyncStatus("error");
         }
       }
@@ -483,8 +463,7 @@ export default function Lists() {
       try {
         await updateTaskStatus(token, listId, item.googleTaskId, newCompleted);
         finishSync();
-      } catch (e) {
-        console.warn("Google Tasks更新失敗:", e);
+      } catch {
         setSyncStatus("error");
       }
     }

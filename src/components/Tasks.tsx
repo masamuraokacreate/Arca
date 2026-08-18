@@ -1,4 +1,4 @@
-﻿import { useState, useEffect, useRef, useCallback } from "react";
+import { useState, useEffect, useRef, useCallback } from "react";
 import {
   collection,
   addDoc,
@@ -9,18 +9,13 @@ import {
   query,
   orderBy,
   serverTimestamp,
-  Timestamp,
 } from "firebase/firestore";
 import { db } from "../lib/firebase";
+import type { TaskItem } from "../types";
 
-// ---------- 型 ----------
-interface Task {
-  id: string;
-  title: string;
-  dueDate: string | null;   // "YYYY-MM-DD" または null
-  completed: boolean;
-  createdAt: Timestamp | null;
-}
+// ---------- 型エイリアス (後方互換) ----------
+// TaskItem を Tasks モジュール内では Task と呼ぶ
+type Task = TaskItem;
 
 // ---------- ユーティリティ ----------
 
