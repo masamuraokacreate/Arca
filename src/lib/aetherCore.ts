@@ -7,6 +7,8 @@
  *   - ユーザーの許可なくデータを書き換える処理は一切持たない
  */
 
+import type { CalendarEvent, TaskItem, ListItem } from "../types";
+
 const API_KEY = import.meta.env.VITE_GEMINI_API_KEY as string | undefined;
 
 // Gemini Flash-Lite Latest — 安定版エイリアス（軽量・低レイテンシ）
@@ -83,3 +85,38 @@ export async function suggestCategory(item: string): Promise<string | null> {
     clearTimeout(timer);
   }
 }
+
+/**
+ * 現在のデータ状況から Aether Briefing（静的なサジェスト文）を生成する。
+ * 将来的にはここを LLM で動的に生成する設計。
+ */
+export function generateBriefing(
+  events: CalendarEvent[],
+  tasks: TaskItem[],
+  lists: ListItem[]
+): string {
+  const eventCount = events.length;
+  const taskCount = tasks.length;
+  const listCount = lists.length;
+
+  if (eventCount === 0 && taskCount === 0 && listCount === 0) {
+    return "今日は予定もタスクもありません。心静かな一日をお過ごしください。";
+  }
+
+  const parts = [];
+  if (eventCount > 0) parts.push(`${eventCount}件の予定`);
+  if (taskCount > 0) parts.push(`${taskCount}件のタスク`);
+  
+  let msg = parts.length > 0 ? `本日は${parts.join("と")}があります。` : "";
+
+  if (listCount > 0) {
+    msg += msg ? `買い物リストにも${listCount}件の未購入アイテムがあります。` : `買い物リストに${listCount}件の未購入アイテムがあります。`;
+  } else if (taskCount > 0) {
+    msg += "一つずつ、自分のペースで進めていきましょう。";
+  } else if (eventCount > 0) {
+    msg += "次の予定に備えて、少し余白の時間を。";
+  }
+
+  return msg || "今日も穏やかな一日を。";
+}
+

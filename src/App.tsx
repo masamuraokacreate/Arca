@@ -2,14 +2,18 @@ import { useState } from "react";
 import Lists from "./components/Lists";
 import Tasks from "./components/Tasks";
 import Calendar from "./components/Calendar";
+import Dashboard from "./components/Dashboard";
+import Notes from "./components/Notes";
 
 // ---------- ナビゲーション定義 ----------
-type Module = "tasks" | "lists" | "calendar";
+type Module = "dashboard" | "tasks" | "lists" | "calendar" | "notes";
 
 const NAV_ITEMS: { id: Module; label: string; sub: string }[] = [
+  { id: "dashboard", label: "Home",     sub: "ホーム" },
   { id: "tasks",    label: "Tasks",    sub: "タスク" },
   { id: "lists",    label: "Lists",    sub: "買い物" },
   { id: "calendar", label: "Calendar", sub: "カレンダー" },
+  { id: "notes",    label: "Notes",    sub: "記録" },
 ];
 
 // ---------- ナビゲーションバー ----------
@@ -94,7 +98,7 @@ function NavBar({
 
 // ---------- App ----------
 function App() {
-  const [activeModule, setActiveModule] = useState<Module>("tasks");
+  const [activeModule, setActiveModule] = useState<Module>("dashboard");
 
   return (
     <>
@@ -108,9 +112,11 @@ function App() {
           key={activeModule}
           style={{ animation: "arca-module-in 0.25s ease" }}
         >
+          {activeModule === "dashboard" && <Dashboard />}
           {activeModule === "tasks"    && <Tasks />}
           {activeModule === "lists"    && <Lists />}
           {activeModule === "calendar" && <Calendar />}
+          {activeModule === "notes"    && <Notes />}
         </div>
       </div>
 

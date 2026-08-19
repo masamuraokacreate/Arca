@@ -1,20 +1,18 @@
 <!doctype html>
 <html lang="ja">
-  <head>
-    <meta charset="UTF-8" />
-    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Arca</title>
-    <!-- Google Identity Services: 直接配置することでタイミング問題を回避 -->
-    <script
-      src="https://accounts.google.com/gsi/client"
-      async
-      defer
-      onload="window.dispatchEvent(new Event('gsi-loaded'))"
-    ></script>
-  </head>
-  <body>
-    <div id="root"></div>
-    <script type="module" src="/src/main.tsx"></script>
-  </body>
+
+<head>
+  <meta charset="UTF-8" />
+  <link rel="icon" type="image/png" href="/Arca_icon.png?v=2" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Arca</title>
+  <script src="https://accounts.google.com/gsi/client" async defer
+    onload="window.dispatchEvent(new Event('gsi-loaded'))"></script>
+</head>
+
+<body>
+  <div id="root"></div>
+  <script type="module" src="/src/main.tsx"></script>
+</body>
+
 </html>

@@ -86,3 +86,23 @@ export interface AetherEvent {
   payload: string;
   confidence: number; // 0.0 〜 1.0
 }
+
+// ─────────────────────────────────────────
+// Notes / Knowledge モジュール
+// ─────────────────────────────────────────
+
+/** メモ1件（Step 1: ローカルステート用。Step 2でFirestore Timestampに移行予定） */
+export interface NoteItem {
+  id: string;
+  title: string;
+  /** Markdownフォーマットの本文 */
+  content: string;
+  /** タグのリスト（例: ["日記", "アイデア"]） */
+  tags: string[];
+  /** 作成日時（ISO 8601文字列） */
+  createdAt: string;
+  /** 最終更新日時（ISO 8601文字列） */
+  updatedAt: string;
+  /** 論理削除フラグ */
+  isDeleted?: boolean;
+}
