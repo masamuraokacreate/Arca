@@ -1,15 +1,143 @@
 @import "tailwindcss";
 
 @theme {
-  --color-base: #F5F5F0;
+  --color-base: #FAF8F5;
+  --color-base-ivory: #F5F0E8;
   --color-text: #2C2C2E;
+  --color-text-mid: #5A5A57;
+  --color-text-light: #8E8E93;
   --color-accent: #C5A059;
+  --color-accent-dark: #A8863D;
+  --color-sage: #52796F;
 }
 
 @layer base {
-  body {
+  * {
+    box-sizing: border-box;
+  }
+
+  html, body {
+    margin: 0;
+    padding: 0;
+    min-height: 100vh;
     background-color: var(--color-base);
+    background-image: linear-gradient(155deg, #FAF8F5 0%, #F5F0E8 50%, #F0EAE0 100%);
+    background-attachment: fixed;
     color: var(--color-text);
-    @apply m-0 p-0 font-sans antialiased;
+    font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "SF Pro Display", "Hiragino Sans", "Hiragino Kaku Gothic ProN", "Segoe UI", Roboto, sans-serif;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+    text-rendering: optimizeLegibility;
   }
 }
+
+/* ── 共通カードスタイル（枠線完全排除・浮遊感） ── */
+.arca-card {
+  background: rgba(255, 255, 255, 0.72);
+  backdrop-filter: blur(16px) saturate(180%);
+  -webkit-backdrop-filter: blur(16px) saturate(180%);
+  border-radius: 20px;
+  box-shadow: 0 2px 16px rgba(0, 0, 0, 0.04), 0 1px 2px rgba(0, 0, 0, 0.02);
+  border: none !important;
+  transition: transform 0.22s ease, box-shadow 0.22s ease, background 0.22s ease;
+}
+
+.arca-card-interactive:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 6px 28px rgba(0, 0, 0, 0.07), 0 2px 6px rgba(0, 0, 0, 0.03);
+  background: rgba(255, 255, 255, 0.88);
+}
+
+.arca-card-interactive:active {
+  transform: translateY(0);
+}
+
+/* ── Aether Briefing カード ── */
+.arca-briefing-card {
+  background: rgba(197, 160, 89, 0.045);
+  backdrop-filter: blur(20px) saturate(160%);
+  -webkit-backdrop-filter: blur(20px) saturate(160%);
+  border-radius: 20px;
+  box-shadow: 0 4px 32px rgba(197, 160, 89, 0.10), 0 1px 4px rgba(0, 0, 0, 0.02);
+  border: none !important;
+}
+
+/* ── スクロールバー非表示 ── */
+.no-scrollbar::-webkit-scrollbar {
+  display: none;
+}
+.no-scrollbar {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+}
+
+/* ── アニメーション ── */
+@keyframes arca-module-in {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes toast-in {
+  from {
+    opacity: 0;
+    transform: translate(-50%, 16px) scale(0.96);
+  }
+  to {
+    opacity: 1;
+    transform: translate(-50%, 0) scale(1);
+  }
+}
+
+@keyframes toast-out {
+  from {
+    opacity: 1;
+    transform: translate(-50%, 0) scale(1);
+  }
+  to {
+    opacity: 0;
+    transform: translate(-50%, 12px) scale(0.96);
+  }
+}
+
+.arca-toast {
+  animation: toast-in 0.22s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}
+.arca-toast.leaving {
+  animation: toast-out 0.18s ease forwards;
+}
+
+@keyframes aether-pulse {
+  0%, 100% {
+    transform: scale(0.9);
+    opacity: 0.3;
+  }
+  50% {
+    transform: scale(1.15);
+    opacity: 0.9;
+  }
+}
+
+@keyframes aether-fadein {
+  from {
+    opacity: 0;
+    transform: translateY(2px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+/* ── ナビゲーションバーのレスポンシブ ── */
+@media (max-width: 640px) {
+  .arca-nav-desktop-spacer {
+    display: none !important;
+  }
+}
+

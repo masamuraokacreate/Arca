@@ -3,7 +3,7 @@
  * Calendar ユーティリティ関数の単体テスト
  * （純粋関数のみ → モック不要）
  */
-import { describe, it, expect, beforeAll, afterAll, vi } from "vitest";
+import { describe, it, expect } from "vitest";
 
 // ─── テスト対象の純粋関数（コンポーネント外から取り出してテスト）───
 

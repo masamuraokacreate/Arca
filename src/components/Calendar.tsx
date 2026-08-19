@@ -1,3 +1,8 @@
+/**
+ * src/components/Calendar.tsx
+ * Arca — Calendar / カレンダー (Apple HIG × Arca 準拠)
+ */
+
 import { useState, useEffect, useCallback, useRef } from "react";
 import {
   collection,
@@ -12,10 +17,11 @@ import {
 } from "firebase/firestore";
 import { db } from "../lib/firebase";
 import type { CalendarEvent, CalendarTask } from "../types";
+import { C } from "../lib/designSystem";
+import { useUndoToast } from "../hooks/useUndoToast";
+import { UndoToast } from "./common/UndoToast";
 
-// CalendarTask を Calendar モジュール内では Task と呼ぶ
 type Task = CalendarTask;
-
 
 // ─────────────────────────────────────────
 // ユーティリティ
@@ -41,35 +47,30 @@ function monthMeta(year: number, month: number) {
 }
 
 const WEEKDAYS = ["日", "月", "火", "水", "木", "金", "土"] as const;
-const MONTHS_JA = ["1月","2月","3月","4月","5月","6月","7月","8月","9月","10月","11月","12月"] as const;
+const MONTHS_JA = ["1月", "2月", "3月", "4月", "5月", "6月", "7月", "8月", "9月", "10月", "11月", "12月"] as const;
 
 // ─────────────────────────────────────────
 // SVG アイコン
 // ─────────────────────────────────────────
 function PencilIcon() {
   return (
-    <svg viewBox="0 0 24 24" fill="none" strokeWidth={1.5} stroke="currentColor"
-      style={{ width: "0.85rem", height: "0.85rem" }}>
-      <path strokeLinecap="round" strokeLinejoin="round"
-        d="m16.862 4.487 1.687-1.688a1.875 1.875 0 1 1 2.652 2.652L10.582 16.07a4.5 4.5 0 0 1-1.897 1.13L6 18l.8-2.685a4.5 4.5 0 0 1 1.13-1.897l8.932-8.931Zm0 0L19.5 7.125" />
+    <svg viewBox="0 0 24 24" fill="none" strokeWidth={1.75} stroke="currentColor" style={{ width: "0.85rem", height: "0.85rem" }}>
+      <path strokeLinecap="round" strokeLinejoin="round" d="m16.862 4.487 1.687-1.688a1.875 1.875 0 1 1 2.652 2.652L10.582 16.07a4.5 4.5 0 0 1-1.897 1.13L6 18l.8-2.685a4.5 4.5 0 0 1 1.13-1.897l8.932-8.931Zm0 0L19.5 7.125" />
     </svg>
   );
 }
 
 function TrashIcon() {
   return (
-    <svg viewBox="0 0 24 24" fill="none" strokeWidth={1.5} stroke="currentColor"
-      style={{ width: "0.85rem", height: "0.85rem" }}>
-      <path strokeLinecap="round" strokeLinejoin="round"
-        d="m14.74 9-.346 9m-4.788 0L9.26 9m9.968-3.21c.342.052.682.107 1.022.166m-1.022-.165L18.16 19.673a2.25 2.25 0 0 1-2.244 2.077H8.084a2.25 2.25 0 0 1-2.244-2.077L4.772 5.79m14.456 0a48.108 48.108 0 0 0-3.478-.397m-12 .562c.34-.059.68-.114 1.022-.165m0 0a48.11 48.11 0 0 1 3.478-.397m7.5 0v-.916c0-1.18-.91-2.164-2.09-2.201a51.964 51.964 0 0 0-3.32 0c-1.18.037-2.09 1.022-2.09 2.201v.916m7.5 0a48.667 48.667 0 0 0-7.5 0" />
+    <svg viewBox="0 0 24 24" fill="none" strokeWidth={1.75} stroke="currentColor" style={{ width: "0.85rem", height: "0.85rem" }}>
+      <path strokeLinecap="round" strokeLinejoin="round" d="M3 6h18m-2 0v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6m3 0V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2" />
     </svg>
   );
 }
 
 function CheckIcon() {
   return (
-    <svg viewBox="0 0 24 24" fill="none" strokeWidth={1.5} stroke="currentColor"
-      style={{ width: "0.85rem", height: "0.85rem" }}>
+    <svg viewBox="0 0 24 24" fill="none" strokeWidth={2} stroke="currentColor" style={{ width: "0.85rem", height: "0.85rem" }}>
       <path strokeLinecap="round" strokeLinejoin="round" d="m4.5 12.75 6 6 9-13.5" />
     </svg>
   );
@@ -77,8 +78,7 @@ function CheckIcon() {
 
 function XIcon() {
   return (
-    <svg viewBox="0 0 24 24" fill="none" strokeWidth={1.5} stroke="currentColor"
-      style={{ width: "0.85rem", height: "0.85rem" }}>
+    <svg viewBox="0 0 24 24" fill="none" strokeWidth={2} stroke="currentColor" style={{ width: "0.85rem", height: "0.85rem" }}>
       <path strokeLinecap="round" strokeLinejoin="round" d="M6 18 18 6M6 6l12 12" />
     </svg>
   );
@@ -86,8 +86,7 @@ function XIcon() {
 
 function ChevronLeft() {
   return (
-    <svg viewBox="0 0 24 24" fill="none" strokeWidth={1.5} stroke="currentColor"
-      style={{ width: "1rem", height: "1rem" }}>
+    <svg viewBox="0 0 24 24" fill="none" strokeWidth={2} stroke="currentColor" style={{ width: "1rem", height: "1rem" }}>
       <path strokeLinecap="round" strokeLinejoin="round" d="M15.75 19.5 8.25 12l7.5-7.5" />
     </svg>
   );
@@ -95,8 +94,7 @@ function ChevronLeft() {
 
 function ChevronRight() {
   return (
-    <svg viewBox="0 0 24 24" fill="none" strokeWidth={1.5} stroke="currentColor"
-      style={{ width: "1rem", height: "1rem" }}>
+    <svg viewBox="0 0 24 24" fill="none" strokeWidth={2} stroke="currentColor" style={{ width: "1rem", height: "1rem" }}>
       <path strokeLinecap="round" strokeLinejoin="round" d="m8.25 4.5 7.5 7.5-7.5 7.5" />
     </svg>
   );
@@ -111,7 +109,7 @@ function EventRow({
   onUpdate,
 }: {
   event: CalendarEvent;
-  onDelete: (id: string) => void;
+  onDelete: (event: CalendarEvent) => void;
   onUpdate: (id: string, data: Partial<Omit<CalendarEvent, "id" | "createdAt">>) => void;
 }) {
   const [hovered, setHovered] = useState(false);
@@ -148,8 +146,8 @@ function EventRow({
     return (
       <li
         style={{
-          padding: "0.9rem 0",
-          borderBottom: "1px solid rgba(0,0,0,0.04)",
+          padding: "0.85rem 0",
+          borderBottom: "1px solid rgba(0, 0, 0, 0.035)",
           animation: "arca-module-in 0.15s ease",
         }}
       >
@@ -167,44 +165,55 @@ function EventRow({
             width: "100%",
             background: "transparent",
             border: "none",
-            borderBottom: "1px solid rgba(197,160,89,0.4)",
+            borderBottom: `1px solid ${C.gold}`,
             outline: "none",
             fontSize: "0.875rem",
-            color: "var(--color-text)",
+            color: C.charcoal,
             paddingBottom: "0.25rem",
             marginBottom: "0.6rem",
           }}
         />
         {/* 時刻 */}
         <div style={{ display: "flex", gap: "0.5rem", marginBottom: "0.5rem", alignItems: "center" }}>
-          <span style={{ fontSize: "0.65rem", color: "#C0BEB8", letterSpacing: "0.06em" }}>開始</span>
-          <input type="time" value={editStart} onChange={(e) => setEditStart(e.target.value)}
-            style={timeInputStyle} />
-          <span style={{ fontSize: "0.65rem", color: "#C0BEB8", letterSpacing: "0.06em" }}>終了</span>
-          <input type="time" value={editEnd} onChange={(e) => setEditEnd(e.target.value)}
-            style={timeInputStyle} />
+          <span style={{ fontSize: "0.68rem", color: C.charcoalLight }}>開始</span>
+          <input
+            type="time"
+            value={editStart}
+            onChange={(e) => setEditStart(e.target.value)}
+            style={timeInputStyle}
+          />
+          <span style={{ fontSize: "0.68rem", color: C.charcoalLight }}>終了</span>
+          <input
+            type="time"
+            value={editEnd}
+            onChange={(e) => setEditEnd(e.target.value)}
+            style={timeInputStyle}
+          />
         </div>
         {/* メモ */}
-        <input type="text" value={editNote} onChange={(e) => setEditNote(e.target.value)}
+        <input
+          type="text"
+          value={editNote}
+          onChange={(e) => setEditNote(e.target.value)}
           placeholder="メモ（任意）"
           style={{
             width: "100%",
             background: "transparent",
             border: "none",
-            borderBottom: "1px solid rgba(0,0,0,0.06)",
+            borderBottom: "1px solid rgba(0, 0, 0, 0.05)",
             outline: "none",
             fontSize: "0.75rem",
-            color: "var(--color-text)",
+            color: C.charcoal,
             paddingBottom: "0.2rem",
             marginBottom: "0.7rem",
           }}
         />
         {/* 保存 / キャンセル */}
-        <div style={{ display: "flex", gap: "0.75rem", justifyContent: "flex-end" }}>
-          <button onClick={cancelEdit} style={iconBtnStyle("#B0AFA8")} title="キャンセル">
+        <div style={{ display: "flex", gap: "0.6rem", justifyContent: "flex-end" }}>
+          <button onClick={cancelEdit} style={iconBtnStyle(C.charcoalLight)} title="キャンセル">
             <XIcon />
           </button>
-          <button onClick={saveEdit} style={iconBtnStyle("var(--color-accent)")} title="保存">
+          <button onClick={saveEdit} style={iconBtnStyle(C.gold)} title="保存">
             <CheckIcon />
           </button>
         </div>
@@ -219,45 +228,51 @@ function EventRow({
       style={{
         display: "flex",
         alignItems: "flex-start",
-        gap: "0.75rem",
-        padding: "0.8rem 0",
-        borderBottom: "1px solid rgba(0,0,0,0.04)",
-        transition: "background 0.2s",
+        gap: "0.85rem",
+        padding: "0.75rem 0",
+        borderBottom: "1px solid rgba(0, 0, 0, 0.035)",
+        transition: "background 0.15s ease",
       }}
     >
       {/* タイムライン的な左アクセント */}
-      <div style={{
-        width: "2px",
-        minHeight: "1.2rem",
-        height: "100%",
-        background: "rgba(197,160,89,0.35)",
-        borderRadius: "2px",
-        flexShrink: 0,
-        alignSelf: "stretch",
-        marginTop: "0.15rem",
-      }} />
+      <div
+        style={{
+          width: "2.5px",
+          minHeight: "1.2rem",
+          height: "100%",
+          background: C.gold,
+          borderRadius: "9999px",
+          flexShrink: 0,
+          alignSelf: "stretch",
+          marginTop: "0.15rem",
+        }}
+      />
 
       {/* 本文 */}
       <div style={{ flex: 1, minWidth: 0 }}>
-        <p style={{
-          margin: 0,
-          fontSize: "0.875rem",
-          fontWeight: 300,
-          color: "var(--color-text)",
-          letterSpacing: "0.01em",
-          whiteSpace: "nowrap",
-          overflow: "hidden",
-          textOverflow: "ellipsis",
-        }}>
+        <p
+          style={{
+            margin: 0,
+            fontSize: "0.875rem",
+            fontWeight: 450,
+            color: C.charcoal,
+            letterSpacing: "0.01em",
+            whiteSpace: "nowrap",
+            overflow: "hidden",
+            textOverflow: "ellipsis",
+          }}
+        >
           {event.title}
         </p>
         {(event.startTime || event.note) && (
-          <p style={{
-            margin: "0.2rem 0 0",
-            fontSize: "0.68rem",
-            color: "#B0AFA8",
-            letterSpacing: "0.04em",
-          }}>
+          <p
+            style={{
+              margin: "0.2rem 0 0",
+              fontSize: "0.72rem",
+              color: C.charcoalLight,
+              letterSpacing: "0.02em",
+            }}
+          >
             {event.startTime && (
               <span>{event.startTime}{event.endTime ? ` – ${event.endTime}` : ""}</span>
             )}
@@ -268,17 +283,19 @@ function EventRow({
       </div>
 
       {/* アクションボタン（ホバー時のみ） */}
-      <div style={{
-        display: "flex",
-        gap: "0.25rem",
-        opacity: hovered ? 1 : 0,
-        transition: "opacity 0.2s",
-        flexShrink: 0,
-      }}>
-        <button onClick={startEdit} style={iconBtnStyle("#C0BEB8")} title="編集" data-testid="event-edit-btn">
+      <div
+        style={{
+          display: "flex",
+          gap: "0.25rem",
+          opacity: hovered ? 1 : 0,
+          transition: "opacity 0.15s ease",
+          flexShrink: 0,
+        }}
+      >
+        <button onClick={startEdit} style={iconBtnStyle(C.charcoalLight)} title="編集" data-testid="event-edit-btn">
           <PencilIcon />
         </button>
-        <button onClick={() => onDelete(event.id)} style={iconBtnStyle("#C0BEB8")} title="削除" data-testid="event-delete-btn">
+        <button onClick={() => onDelete(event)} style={iconBtnStyle(C.charcoalLight)} title="削除" data-testid="event-delete-btn">
           <TrashIcon />
         </button>
       </div>
@@ -291,37 +308,43 @@ function EventRow({
 // ─────────────────────────────────────────
 function TaskDueRow({ task }: { task: Task }) {
   return (
-    <li style={{
-      display: "flex",
-      alignItems: "center",
-      gap: "0.75rem",
-      padding: "0.7rem 0",
-      borderBottom: "1px solid rgba(0,0,0,0.04)",
-      opacity: task.completed ? 0.4 : 1,
-    }}>
-      {/* タスク左アクセント（グレー：予定のゴールドと区別） */}
-      <div style={{
-        width: "2px",
-        minHeight: "1.1rem",
-        background: "rgba(160,160,155,0.4)",
-        borderRadius: "2px",
-        flexShrink: 0,
-        alignSelf: "stretch",
-        marginTop: "0.15rem",
-      }} />
-      <p style={{
-        margin: 0,
-        flex: 1,
-        fontSize: "0.83rem",
-        fontWeight: 300,
-        color: "var(--color-text)",
-        letterSpacing: "0.01em",
-        textDecoration: task.completed ? "line-through" : "none",
-      }}>
+    <li
+      style={{
+        display: "flex",
+        alignItems: "center",
+        gap: "0.85rem",
+        padding: "0.65rem 0",
+        borderBottom: "1px solid rgba(0, 0, 0, 0.035)",
+        opacity: task.completed ? 0.45 : 1,
+      }}
+    >
+      {/* タスク左アクセント（グレー：予定のゴールドと優しく区別） */}
+      <div
+        style={{
+          width: "2.5px",
+          minHeight: "1.1rem",
+          background: C.charcoalXLight,
+          borderRadius: "9999px",
+          flexShrink: 0,
+          alignSelf: "stretch",
+          marginTop: "0.15rem",
+        }}
+      />
+      <p
+        style={{
+          margin: 0,
+          flex: 1,
+          fontSize: "0.83rem",
+          fontWeight: 400,
+          color: C.charcoal,
+          letterSpacing: "0.01em",
+          textDecoration: task.completed ? "line-through" : "none",
+        }}
+      >
         {task.title}
       </p>
       {task.completed && (
-        <span style={{ fontSize: "0.6rem", color: "#B0AFA8", letterSpacing: "0.06em" }}>完了済み</span>
+        <span style={{ fontSize: "0.65rem", color: C.charcoalLight, letterSpacing: "0.04em" }}>完了済み</span>
       )}
     </li>
   );
@@ -345,16 +368,27 @@ function AddEventForm({
   const [saving, setSaving] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
 
-  const reset = () => {
+  const reset = useCallback(() => {
     setTitle("");
     setStartTime("");
     setEndTime("");
     setNote("");
     setOpen(false);
-  };
+  }, []);
+
+  useEffect(() => {
+    if (!open) return;
+    const handleKeyDown = (e: globalThis.KeyboardEvent) => {
+      if (e.key === "Escape") {
+        reset();
+      }
+    };
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [open, reset]);
 
   const handleAdd = async () => {
-    if (!title.trim()) return;
+    if (!title.trim() || saving) return;
     setSaving(true);
     try {
       await onAdd({ title: title.trim(), date: selectedDate, startTime, endTime, note });
@@ -369,63 +403,70 @@ function AddEventForm({
       <button
         onClick={() => {
           setOpen(true);
-          requestAnimationFrame(() => inputRef.current?.focus());
+          setTimeout(() => inputRef.current?.focus(), 0);
         }}
         style={{
           display: "flex",
           alignItems: "center",
-          gap: "0.5rem",
+          gap: "0.45rem",
           background: "none",
           border: "none",
-          padding: "0.7rem 0",
+          padding: "0.65rem 0",
           cursor: "pointer",
           fontSize: "0.78rem",
-          color: "#B0AFA8",
-          letterSpacing: "0.06em",
-          transition: "color 0.2s",
+          color: C.charcoalLight,
+          letterSpacing: "0.02em",
+          fontWeight: 500,
+          transition: "color 0.15s ease",
           width: "100%",
         }}
-        onMouseEnter={(e) => (e.currentTarget.style.color = "var(--color-accent)")}
-        onMouseLeave={(e) => (e.currentTarget.style.color = "#B0AFA8")}
+        onMouseEnter={(e) => (e.currentTarget.style.color = C.gold)}
+        onMouseLeave={(e) => (e.currentTarget.style.color = C.charcoalLight)}
       >
-        <span style={{ fontSize: "1rem", lineHeight: 1 }}>+</span>
+        <span style={{ fontSize: "1.05rem", lineHeight: 1 }}>+</span>
         <span>予定を追加</span>
       </button>
     );
   }
 
   return (
-    <div style={{
-      background: "rgba(255,255,255,0.72)",
-      borderRadius: "12px",
-      padding: "1rem 1.1rem",
-      boxShadow: "0 2px 16px rgba(0,0,0,0.06)",
-      backdropFilter: "blur(8px)",
-      animation: "arca-module-in 0.18s ease",
-    }}>
+    <div
+      className="arca-card"
+      onKeyDown={(e) => {
+        if (e.key === "Escape") reset();
+      }}
+      style={{
+        padding: "1rem 1.15rem",
+        marginTop: "0.5rem",
+        animation: "arca-module-in 0.18s ease",
+      }}
+    >
       {/* タイトル */}
       <input
         ref={inputRef}
         type="text"
         value={title}
         onChange={(e) => setTitle(e.target.value)}
-        onKeyDown={(e) => { if (e.key === "Enter") handleAdd(); if (e.key === "Escape") reset(); }}
+        onKeyDown={(e) => {
+          if (e.key === "Enter") handleAdd();
+          if (e.key === "Escape") reset();
+        }}
         placeholder="予定のタイトル…"
         style={{
           width: "100%",
           background: "transparent",
           border: "none",
-          borderBottom: "1px solid rgba(197,160,89,0.3)",
+          borderBottom: `1px solid ${C.gold}`,
           outline: "none",
           fontSize: "0.875rem",
-          color: "var(--color-text)",
+          color: C.charcoal,
           paddingBottom: "0.4rem",
           marginBottom: "0.75rem",
           boxSizing: "border-box",
         }}
       />
       {/* 時刻 */}
-      <div style={{ display: "flex", gap: "0.75rem", marginBottom: "0.6rem", alignItems: "center", flexWrap: "wrap" }}>
+      <div style={{ display: "flex", gap: "0.75rem", marginBottom: "0.65rem", alignItems: "center", flexWrap: "wrap" }}>
         <label style={labelStyle}>開始</label>
         <input type="time" value={startTime} onChange={(e) => setStartTime(e.target.value)} style={timeInputStyle} />
         <label style={labelStyle}>終了</label>
@@ -441,10 +482,10 @@ function AddEventForm({
           width: "100%",
           background: "transparent",
           border: "none",
-          borderBottom: "1px solid rgba(0,0,0,0.05)",
+          borderBottom: "1px solid rgba(0, 0, 0, 0.05)",
           outline: "none",
           fontSize: "0.75rem",
-          color: "var(--color-text)",
+          color: C.charcoal,
           paddingBottom: "0.3rem",
           marginBottom: "0.85rem",
           boxSizing: "border-box",
@@ -452,32 +493,33 @@ function AddEventForm({
       />
       {/* アクション */}
       <div style={{ display: "flex", justifyContent: "flex-end", gap: "0.75rem" }}>
-        <button onClick={reset} style={{
-          background: "none",
-          border: "none",
-          fontSize: "0.7rem",
-          color: "#B0AFA8",
-          cursor: "pointer",
-          letterSpacing: "0.06em",
-          padding: "0.2rem 0.4rem",
-        }}>
+        <button
+          onClick={reset}
+          style={{
+            background: "none",
+            border: "none",
+            fontSize: "0.72rem",
+            color: C.charcoalLight,
+            cursor: "pointer",
+            letterSpacing: "0.02em",
+            padding: "0.25rem 0.5rem",
+          }}
+        >
           キャンセル
         </button>
         <button
           onClick={handleAdd}
           disabled={saving || !title.trim()}
           style={{
-            background: "none",
+            background: title.trim() ? C.gold : "rgba(0, 0, 0, 0.06)",
+            color: title.trim() ? "#FDFCFA" : C.charcoalXLight,
             border: "none",
-            fontSize: "0.7rem",
-            fontWeight: 500,
-            letterSpacing: "0.12em",
-            textTransform: "uppercase",
-            color: "var(--color-accent)",
-            cursor: "pointer",
-            opacity: saving || !title.trim() ? 0.3 : 1,
-            transition: "opacity 0.2s",
-            padding: "0.2rem 0.4rem",
+            borderRadius: "8px",
+            fontSize: "0.72rem",
+            fontWeight: 600,
+            cursor: title.trim() ? "pointer" : "default",
+            transition: "all 0.15s ease",
+            padding: "0.3rem 0.8rem",
           }}
         >
           {saving ? "…" : "追加"}
@@ -518,16 +560,13 @@ function MonthGrid({
   for (let i = 0; i < 42; i++) {
     const offset = i - firstDay;
     if (offset < 0) {
-      // 前月
       const d = daysInPrev + offset + 1;
       const prevMonth = month === 0 ? 11 : month - 1;
       const prevYear = month === 0 ? year - 1 : year;
       cells.push({ dateStr: toDateStr(prevYear, prevMonth, d), day: d, inMonth: false });
     } else if (offset < daysInMonth) {
-      // 当月
       cells.push({ dateStr: toDateStr(year, month, offset + 1), day: offset + 1, inMonth: true });
     } else {
-      // 翌月
       const d = offset - daysInMonth + 1;
       const nextMonth = month === 11 ? 0 : month + 1;
       const nextYear = month === 11 ? year + 1 : year;
@@ -536,27 +575,28 @@ function MonthGrid({
   }
 
   return (
-    <div style={{
-      background: "rgba(255,255,255,0.60)",
-      borderRadius: "16px",
-      padding: "1.5rem",
-      boxShadow: "0 2px 20px rgba(0,0,0,0.055)",
-      backdropFilter: "blur(8px)",
-    }}>
+    <div
+      className="arca-card"
+      style={{
+        padding: "1.5rem",
+      }}
+    >
       {/* 月ナビゲーション */}
       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: "1.25rem" }}>
-        <button onClick={onPrevMonth} style={navBtnStyle}>
+        <button onClick={onPrevMonth} style={navBtnStyle} title="前月">
           <ChevronLeft />
         </button>
-        <span style={{
-          fontSize: "0.85rem",
-          fontWeight: 400,
-          letterSpacing: "0.1em",
-          color: "var(--color-text)",
-        }}>
+        <span
+          style={{
+            fontSize: "0.92rem",
+            fontWeight: 650,
+            letterSpacing: "0.02em",
+            color: C.charcoal,
+          }}
+        >
           {year}年 {MONTHS_JA[month]}
         </span>
-        <button onClick={onNextMonth} style={navBtnStyle}>
+        <button onClick={onNextMonth} style={navBtnStyle} title="翌月">
           <ChevronRight />
         </button>
       </div>
@@ -564,21 +604,24 @@ function MonthGrid({
       {/* 曜日ヘッダー */}
       <div style={{ display: "grid", gridTemplateColumns: "repeat(7, 1fr)", marginBottom: "0.4rem" }}>
         {WEEKDAYS.map((w, i) => (
-          <div key={w} style={{
-            textAlign: "center",
-            fontSize: "0.62rem",
-            fontWeight: 500,
-            letterSpacing: "0.08em",
-            color: i === 0 ? "#E07070" : i === 6 ? "rgba(100,130,200,0.7)" : "#C0BEB8",
-            paddingBottom: "0.5rem",
-          }}>
+          <div
+            key={w}
+            style={{
+              textAlign: "center",
+              fontSize: "0.68rem",
+              fontWeight: 600,
+              letterSpacing: "0.04em",
+              color: i === 0 ? C.danger : i === 6 ? "#5A7DA0" : C.charcoalLight,
+              paddingBottom: "0.5rem",
+            }}
+          >
             {w}
           </div>
         ))}
       </div>
 
       {/* 日付グリッド */}
-      <div style={{ display: "grid", gridTemplateColumns: "repeat(7, 1fr)", gap: "2px" }}>
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(7, 1fr)", gap: "3px" }}>
         {cells.map(({ dateStr, day, inMonth }, idx) => {
           const isToday = dateStr === today;
           const isSelected = dateStr === selectedDate;
@@ -597,80 +640,73 @@ function MonthGrid({
                 flexDirection: "column",
                 alignItems: "center",
                 justifyContent: "center",
-                padding: "0.45rem 0.2rem 0.5rem",
-                background: isToday
-                  ? "rgba(197,160,89,0.10)"
-                  : isSelected
-                  ? "rgba(197,160,89,0.06)"
+                padding: "0.5rem 0.2rem 0.55rem",
+                background: isSelected
+                  ? C.gold
+                  : isToday
+                  ? C.goldFaint2
                   : "transparent",
                 border: "none",
-                borderRadius: "8px",
+                borderRadius: "10px",
                 cursor: "pointer",
-                transition: "background 0.15s",
+                transition: "all 0.15s ease",
                 outline: "none",
               }}
               onMouseEnter={(e) => {
-                if (!isToday && !isSelected)
-                  e.currentTarget.style.background = "rgba(0,0,0,0.03)";
+                if (!isSelected && !isToday) {
+                  e.currentTarget.style.background = "rgba(0, 0, 0, 0.04)";
+                }
               }}
               onMouseLeave={(e) => {
-                if (!isToday && !isSelected)
+                if (!isSelected && !isToday) {
                   e.currentTarget.style.background = "transparent";
+                }
               }}
             >
               {/* 日付数字 */}
-              <span style={{
-                fontSize: "0.78rem",
-                fontWeight: isToday ? 500 : 300,
-                color: !inMonth
-                  ? "rgba(0,0,0,0.18)"
-                  : isToday
-                  ? "var(--color-accent)"
-                  : isSun
-                  ? "rgba(200,100,100,0.7)"
-                  : isSat
-                  ? "rgba(100,130,200,0.7)"
-                  : "var(--color-text)",
-                lineHeight: 1,
-              }}>
+              <span
+                style={{
+                  fontSize: "0.82rem",
+                  fontWeight: isSelected ? 700 : isToday ? 650 : 400,
+                  color: isSelected
+                    ? "#FDFCFA"
+                    : !inMonth
+                    ? C.charcoalXLight
+                    : isToday
+                    ? C.goldDark
+                    : isSun
+                    ? C.danger
+                    : isSat
+                    ? "#5A7DA0"
+                    : C.charcoal,
+                  lineHeight: 1,
+                }}
+              >
                 {day}
               </span>
 
-              {/* 選択インジケーター（下線） */}
-              {isSelected && (
-                <span style={{
-                  position: "absolute",
-                  bottom: "3px",
-                  left: "50%",
-                  transform: "translateX(-50%)",
-                  width: "14px",
-                  height: "1.5px",
-                  background: "var(--color-accent)",
-                  borderRadius: "1px",
-                }} />
-              )}
-
               {/* イベント・タスクドット */}
-              {(hasEvent || hasTask) && !isSelected && (
-                <div style={{
-                  position: "absolute",
-                  bottom: "4px",
-                  display: "flex",
-                  gap: "2px",
-                }}>
+              {(hasEvent || hasTask) && (
+                <div style={{ position: "absolute", bottom: "3px", display: "flex", gap: "2px" }}>
                   {hasEvent && (
-                    <span style={{
-                      width: "4px", height: "4px",
-                      borderRadius: "50%",
-                      background: "rgba(197,160,89,0.6)",
-                    }} />
+                    <span
+                      style={{
+                        width: "4px",
+                        height: "4px",
+                        borderRadius: "50%",
+                        background: isSelected ? "#FDFCFA" : C.gold,
+                      }}
+                    />
                   )}
                   {hasTask && (
-                    <span style={{
-                      width: "4px", height: "4px",
-                      borderRadius: "50%",
-                      background: "rgba(160,160,155,0.5)",
-                    }} />
+                    <span
+                      style={{
+                        width: "4px",
+                        height: "4px",
+                        borderRadius: "50%",
+                        background: isSelected ? "rgba(255,255,255,0.7)" : C.charcoalLight,
+                      }}
+                    />
                   )}
                 </div>
               )}
@@ -689,27 +725,28 @@ const timeInputStyle: React.CSSProperties = {
   background: "transparent",
   border: "none",
   outline: "none",
-  fontSize: "0.72rem",
-  color: "var(--color-text)",
-  letterSpacing: "0.04em",
+  fontSize: "0.75rem",
+  color: C.charcoal,
+  letterSpacing: "0.02em",
   cursor: "pointer",
+  fontFamily: "-apple-system, sans-serif",
 };
 
 const labelStyle: React.CSSProperties = {
-  fontSize: "0.62rem",
-  color: "#C0BEB8",
-  letterSpacing: "0.08em",
+  fontSize: "0.68rem",
+  color: C.charcoalLight,
+  letterSpacing: "0.02em",
 };
 
 const navBtnStyle: React.CSSProperties = {
   background: "none",
   border: "none",
   cursor: "pointer",
-  color: "#B0AFA8",
-  padding: "0.25rem",
-  borderRadius: "6px",
+  color: C.charcoalLight,
+  padding: "0.3rem",
+  borderRadius: "8px",
   lineHeight: 0,
-  transition: "color 0.15s",
+  transition: "all 0.15s ease",
 };
 
 function iconBtnStyle(color: string): React.CSSProperties {
@@ -718,10 +755,10 @@ function iconBtnStyle(color: string): React.CSSProperties {
     border: "none",
     cursor: "pointer",
     color,
-    padding: "0.2rem",
+    padding: "0.25rem",
     lineHeight: 0,
-    borderRadius: "4px",
-    transition: "color 0.15s",
+    borderRadius: "6px",
+    transition: "color 0.15s ease",
   };
 }
 
@@ -737,12 +774,11 @@ export default function Calendar() {
   const [events, setEvents] = useState<CalendarEvent[]>([]);
   const [tasks, setTasks] = useState<Task[]>([]);
 
+  const { toast, showUndoToast, dismissToast, triggerUndo } = useUndoToast<CalendarEvent>();
+
   // ── Firestore: events リアルタイム購読 ──
   useEffect(() => {
-    const q = query(
-      collection(db, "events"),
-      orderBy("createdAt", "asc")
-    );
+    const q = query(collection(db, "events"), orderBy("createdAt", "asc"));
     return onSnapshot(q, (snap) => {
       setEvents(
         snap.docs.map((d) => ({
@@ -772,13 +808,15 @@ export default function Calendar() {
 
   // ── カレンダー用のドットセット ──
   const eventDates = new Set(events.map((e) => e.date));
-  const taskDueDates = new Set(
-    tasks.filter((t) => t.dueDate).map((t) => t.dueDate as string)
-  );
+  const taskDueDates = new Set(tasks.filter((t) => t.dueDate).map((t) => t.dueDate as string));
 
   // ── 予定追加 ──
   const handleAddEvent = useCallback(async (data: {
-    title: string; date: string; startTime: string; endTime: string; note: string;
+    title: string;
+    date: string;
+    startTime: string;
+    endTime: string;
+    note: string;
   }) => {
     await addDoc(collection(db, "events"), {
       ...data,
@@ -786,10 +824,29 @@ export default function Calendar() {
     });
   }, []);
 
-  // ── 予定削除 ──
-  const handleDeleteEvent = useCallback(async (id: string) => {
-    await deleteDoc(doc(db, "events", id));
-  }, []);
+  // ── 予定削除（Undo対応） ──
+  const handleDeleteEvent = useCallback(async (event: CalendarEvent) => {
+    try {
+      await deleteDoc(doc(db, "events", event.id));
+
+      showUndoToast({
+        message: `予定「${event.title}」を削除しました`,
+        item: event,
+        onUndo: async (restoredEvent) => {
+          await addDoc(collection(db, "events"), {
+            title: restoredEvent.title,
+            date: restoredEvent.date,
+            startTime: restoredEvent.startTime || "",
+            endTime: restoredEvent.endTime || "",
+            note: restoredEvent.note || "",
+            createdAt: serverTimestamp(),
+          });
+        },
+      });
+    } catch (e) {
+      console.error("Delete event failed", e);
+    }
+  }, [showUndoToast]);
 
   // ── 予定更新 ──
   const handleUpdateEvent = useCallback(async (
@@ -802,14 +859,20 @@ export default function Calendar() {
   // ── 月ナビゲーション ──
   const goPrevMonth = useCallback(() => {
     setViewMonth((m) => {
-      if (m === 0) { setViewYear((y) => y - 1); return 11; }
+      if (m === 0) {
+        setViewYear((y) => y - 1);
+        return 11;
+      }
       return m - 1;
     });
   }, []);
 
   const goNextMonth = useCallback(() => {
     setViewMonth((m) => {
-      if (m === 11) { setViewYear((y) => y + 1); return 0; }
+      if (m === 11) {
+        setViewYear((y) => y + 1);
+        return 0;
+      }
       return m + 1;
     });
   }, []);
@@ -822,31 +885,26 @@ export default function Calendar() {
   })();
 
   return (
-    <div
-      className="w-full max-w-xl mx-auto"
-      style={{ padding: "3rem 1.5rem 5rem" }}
-    >
+    <div className="w-full max-w-xl mx-auto" style={{ padding: "2.8rem 1.5rem 6rem", boxSizing: "border-box" }}>
+      
       {/* ─── ヘッダー ─── */}
-      <div style={{ marginBottom: "2.5rem" }}>
+      <div style={{ marginBottom: "2rem", padding: "0 0.25rem" }}>
         <p style={{
-          fontSize: "0.7rem",
+          fontSize: "0.68rem",
           fontWeight: 600,
-          letterSpacing: "0.2em",
+          letterSpacing: "0.18em",
           textTransform: "uppercase",
-          color: "var(--color-accent)",
-          marginBottom: "0.5rem",
+          color: C.gold,
+          marginBottom: "0.4rem",
         }}>
           Arca / Calendar
         </p>
-        <h2 style={{
-          fontSize: "1.5rem",
-          fontWeight: 300,
-          letterSpacing: "0.03em",
-          color: "var(--color-text)",
-          margin: 0,
-        }}>
+        <h1 style={{ fontSize: "1.75rem", fontWeight: 750, color: C.charcoal, margin: 0, letterSpacing: "-0.03em" }}>
           カレンダー
-        </h2>
+        </h1>
+        <p style={{ fontSize: "0.78rem", color: C.charcoalLight, margin: "0.3rem 0 0", letterSpacing: "0.01em" }}>
+          予定とタスク期限の統合ビュー
+        </p>
       </div>
 
       {/* ─── 月間グリッド ─── */}
@@ -866,39 +924,35 @@ export default function Calendar() {
       <div
         key={selectedDate}
         style={{
-          marginTop: "2rem",
+          marginTop: "2.2rem",
           animation: "arca-module-in 0.22s ease",
         }}
       >
         {/* 日付ラベル */}
-        <div style={{ marginBottom: "1.25rem", display: "flex", alignItems: "baseline", gap: "0.5rem" }}>
-          <p style={{
-            fontSize: "0.95rem",
-            fontWeight: 400,
-            color: "var(--color-text)",
-            margin: 0,
-            letterSpacing: "0.02em",
-          }}>
+        <div style={{ marginBottom: "1rem", display: "flex", alignItems: "center", gap: "0.6rem", padding: "0 0.25rem" }}>
+          <h2 style={{ fontSize: "1.1rem", fontWeight: 650, color: C.charcoal, margin: 0, letterSpacing: "-0.015em" }}>
             {selectedLabel}
-          </p>
+          </h2>
           {selectedDate === today && (
-            <span style={{
-              fontSize: "0.6rem",
-              fontWeight: 600,
-              letterSpacing: "0.12em",
-              textTransform: "uppercase",
-              color: "var(--color-accent)",
-              background: "rgba(197,160,89,0.12)",
-              padding: "0.15rem 0.5rem",
-              borderRadius: "4px",
-            }}>
+            <span
+              style={{
+                fontSize: "0.65rem",
+                fontWeight: 600,
+                letterSpacing: "0.08em",
+                textTransform: "uppercase",
+                color: C.gold,
+                background: C.goldFaint2,
+                padding: "0.15rem 0.5rem",
+                borderRadius: "9999px",
+              }}
+            >
               Today
             </span>
           )}
         </div>
 
         {/* ── 予定セクション ── */}
-        <section style={{ marginBottom: dayTasks.length > 0 ? "1.5rem" : 0 }}>
+        <div className="arca-card" style={{ padding: "1.15rem 1.4rem", marginBottom: dayTasks.length > 0 ? "1.5rem" : 0 }}>
           <p style={sectionLabelStyle}>予定</p>
 
           {dayEvents.length === 0 ? (
@@ -917,54 +971,27 @@ export default function Calendar() {
           )}
 
           {/* 追加フォーム */}
-          <div style={{ marginTop: "0.5rem" }}>
+          <div style={{ marginTop: "0.4rem" }}>
             <AddEventForm selectedDate={selectedDate} onAdd={handleAddEvent} />
           </div>
-        </section>
+        </div>
 
         {/* ── タスク期限セクション（あれば表示） ── */}
         {dayTasks.length > 0 && (
-          <section>
-            {/* セクション区切り */}
-            <div style={{
-              display: "flex",
-              alignItems: "center",
-              gap: "0.75rem",
-              margin: "0.25rem 0 1rem",
-            }}>
-              <div style={{ flex: 1, height: "1px", background: "rgba(0,0,0,0.06)" }} />
-              <p style={{
-                margin: 0,
-                fontSize: "0.62rem",
-                fontWeight: 500,
-                letterSpacing: "0.14em",
-                textTransform: "uppercase",
-                color: "#B0AFA8",
-                flexShrink: 0,
-              }}>
-                タスク期限
-              </p>
-              <div style={{ flex: 1, height: "1px", background: "rgba(0,0,0,0.06)" }} />
-            </div>
+          <div className="arca-card" style={{ padding: "1.15rem 1.4rem", marginTop: "1.2rem" }}>
+            <p style={sectionLabelStyle}>タスク期限</p>
 
             <ul style={{ listStyle: "none", padding: 0, margin: 0 }}>
               {dayTasks.map((task) => (
                 <TaskDueRow key={task.id} task={task} />
               ))}
             </ul>
-
-            <p style={{
-              fontSize: "0.62rem",
-              color: "#C0BEB8",
-              marginTop: "0.75rem",
-              letterSpacing: "0.04em",
-              textAlign: "right",
-            }}>
-              タスクの管理は Tasks モジュールで行えます
-            </p>
-          </section>
+          </div>
         )}
       </div>
+
+      {/* ─── 共通 Undo トースト ─── */}
+      <UndoToast toast={toast} onUndo={triggerUndo} onDismiss={dismissToast} />
     </div>
   );
 }
@@ -973,18 +1000,18 @@ export default function Calendar() {
 // セクションラベル・空表示スタイル定数
 // ─────────────────────────────────────────
 const sectionLabelStyle: React.CSSProperties = {
-  fontSize: "0.62rem",
-  fontWeight: 600,
-  letterSpacing: "0.18em",
+  fontSize: "0.68rem",
+  fontWeight: 650,
+  letterSpacing: "0.08em",
   textTransform: "uppercase",
-  color: "#C0BEB8",
-  margin: "0 0 0.75rem",
+  color: C.charcoalLight,
+  margin: "0 0 0.65rem",
 };
 
 const emptyStyle: React.CSSProperties = {
-  fontSize: "0.8rem",
-  color: "#C0BEB8",
-  margin: "0.25rem 0",
-  letterSpacing: "0.02em",
-  fontWeight: 300,
+  fontSize: "0.82rem",
+  color: C.charcoalLight,
+  margin: "0.5rem 0",
+  letterSpacing: "0.01em",
+  fontWeight: 400,
 };

@@ -1,8 +1,14 @@
-import { useState, useEffect, useRef, useCallback } from "react";
+/**
+ * src/components/Lists.tsx
+ * Arca — Lists / 買い物リスト (Apple HIG × Arca 準拠)
+ */
+
+import { useState, useEffect, useRef } from "react";
 import {
   collection,
   addDoc,
   updateDoc,
+  deleteDoc,
   doc,
   onSnapshot,
   query,
@@ -20,10 +26,12 @@ import {
 } from "../lib/googleTasks";
 import { suggestCategory } from "../lib/aetherCore";
 import type { ListItem, SyncStatus, SuggestionState } from "../types";
+import { C } from "../lib/designSystem";
+import { useUndoToast } from "../hooks/useUndoToast";
+import { UndoToast } from "./common/UndoToast";
 
 // ---------- 定数 ----------
 const TASKLIST_NAME = "買い物リスト";
-const COLOR_SAGE    = "#52796F";
 
 // ---------- アイコン ----------
 function CheckIcon({ completed }: { completed: boolean }) {
@@ -32,13 +40,17 @@ function CheckIcon({ completed }: { completed: boolean }) {
       xmlns="http://www.w3.org/2000/svg"
       viewBox="0 0 24 24"
       fill="none"
-      strokeWidth={1.5}
-      className="w-5 h-5 flex-shrink-0 transition-all duration-300"
-      style={{ stroke: completed ? "var(--color-accent)" : "#C8C8C0" }}
+      strokeWidth={1.75}
+      style={{
+        width: "1.25rem",
+        height: "1.25rem",
+        stroke: completed ? C.gold : C.charcoalXLight,
+        transition: "stroke 0.25s ease, transform 0.15s ease",
+        flexShrink: 0,
+      }}
     >
       {completed ? (
-        <path strokeLinecap="round" strokeLinejoin="round"
-          d="M9 12.75 11.25 15 15 9.75M21 12a9 9 0 1 1-18 0 9 9 0 0 1 18 0Z" />
+        <path strokeLinecap="round" strokeLinejoin="round" d="M9 12.75 11.25 15 15 9.75M21 12a9 9 0 1 1-18 0 9 9 0 0 1 18 0Z" />
       ) : (
         <circle cx="12" cy="12" r="9" />
       )}
@@ -46,9 +58,31 @@ function CheckIcon({ completed }: { completed: boolean }) {
   );
 }
 
+function TrashIcon() {
+  return (
+    <svg
+      viewBox="0 0 24 24"
+      fill="none"
+      strokeWidth={1.75}
+      stroke="currentColor"
+      style={{ width: "0.95rem", height: "0.95rem" }}
+    >
+      <path
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        d="M3 6h18m-2 0v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6m3 0V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2"
+      />
+    </svg>
+  );
+}
+
 // ---------- Google 同期バッジ ----------
 function SyncBadge({
-  isReady, isSignedIn, syncStatus, onSignIn, onSignOut,
+  isReady,
+  isSignedIn,
+  syncStatus,
+  onSignIn,
+  onSignOut,
 }: {
   isReady: boolean;
   isSignedIn: boolean;
@@ -62,15 +96,26 @@ function SyncBadge({
     return (
       <button
         onClick={onSignIn}
-        className="flex items-center gap-1.5 text-xs tracking-wider transition-opacity duration-200 hover:opacity-70 active:opacity-50"
-        style={{ color: "#B0AFA8" }}
+        style={{
+          display: "flex",
+          alignItems: "center",
+          gap: "0.4rem",
+          background: "transparent",
+          border: "none",
+          cursor: "pointer",
+          fontSize: "0.75rem",
+          color: C.charcoalLight,
+          letterSpacing: "0.02em",
+          transition: "opacity 0.2s",
+          padding: 0,
+        }}
         title="Googleでログインして同期を有効にする"
       >
-        <svg className="w-3.5 h-3.5" viewBox="0 0 24 24">
-          <path d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09Z" fill="#B0AFA8" />
-          <path d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23Z" fill="#B0AFA8" />
-          <path d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l2.85-2.22.81-.62Z" fill="#B0AFA8" />
-          <path d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53Z" fill="#B0AFA8" />
+        <svg style={{ width: "0.85rem", height: "0.85rem" }} viewBox="0 0 24 24">
+          <path d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09Z" fill={C.charcoalLight} />
+          <path d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23Z" fill={C.charcoalLight} />
+          <path d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l2.85-2.22.81-.62Z" fill={C.charcoalLight} />
+          <path d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53Z" fill={C.charcoalLight} />
         </svg>
         Google同期
       </button>
@@ -78,29 +123,32 @@ function SyncBadge({
   }
 
   const statusLabel =
-    syncStatus === "syncing" ? "同期中…"   :
-    syncStatus === "done"    ? "同期完了"   :
-    syncStatus === "error"   ? "同期エラー" :
+    syncStatus === "syncing" ? "同期中…" :
+    syncStatus === "done" ? "同期完了" :
+    syncStatus === "error" ? "同期エラー" :
     "Google同期有効";
 
   const statusColor =
-    syncStatus === "syncing" ? "var(--color-accent)" :
-    syncStatus === "done"    ? COLOR_SAGE             :
-    syncStatus === "error"   ? "#E07070"              :
-    "var(--color-accent)";
+    syncStatus === "syncing" ? C.gold :
+    syncStatus === "done" ? C.sage :
+    syncStatus === "error" ? C.danger :
+    C.gold;
 
   return (
-    <div className="flex flex-col items-end gap-1">
-      <span
-        className="text-xs tracking-wider transition-colors duration-500"
-        style={{ color: statusColor }}
-      >
+    <div style={{ display: "flex", flexDirection: "column", alignItems: "flex-end", gap: "0.2rem" }}>
+      <span style={{ fontSize: "0.72rem", color: statusColor, fontWeight: 500, letterSpacing: "0.02em" }}>
         {statusLabel}
       </span>
       <button
         onClick={onSignOut}
-        className="text-xs tracking-wider transition-opacity duration-200 hover:opacity-60"
-        style={{ color: "#C0BEB8" }}
+        style={{
+          background: "transparent",
+          border: "none",
+          cursor: "pointer",
+          fontSize: "0.68rem",
+          color: C.charcoalXLight,
+          padding: 0,
+        }}
       >
         ログアウト
       </button>
@@ -116,18 +164,9 @@ function CategorySuggestion({
   state: SuggestionState;
   onAccept: (category: string) => void;
 }) {
-  // thinking 状態の点滅ドット（存在感を主張しすぎない微細アニメ）
   if (state.phase === "thinking") {
     return (
-      <div
-        style={{
-          height: "1.75rem",
-          display: "flex",
-          alignItems: "center",
-          paddingLeft: "0.25rem",
-          gap: "4px",
-        }}
-      >
+      <div style={{ height: "1.75rem", display: "flex", alignItems: "center", paddingLeft: "0.25rem", gap: "4px" }}>
         {[0, 1, 2].map((i) => (
           <span
             key={i}
@@ -136,8 +175,8 @@ function CategorySuggestion({
               width: "4px",
               height: "4px",
               borderRadius: "50%",
-              backgroundColor: "var(--color-accent)",
-              opacity: 0.4,
+              backgroundColor: C.gold,
+              opacity: 0.5,
               animation: `aether-pulse 1.2s ease-in-out ${i * 0.2}s infinite`,
             }}
           />
@@ -148,22 +187,8 @@ function CategorySuggestion({
 
   if (state.phase === "ready") {
     return (
-      <div
-        style={{
-          display: "flex",
-          alignItems: "center",
-          gap: "0.5rem",
-          height: "1.75rem",
-          animation: "aether-fadein 0.3s ease",
-        }}
-      >
-        <span
-          style={{
-            fontSize: "0.65rem",
-            color: "#B8B0A0",
-            letterSpacing: "0.08em",
-          }}
-        >
+      <div style={{ display: "flex", alignItems: "center", gap: "0.45rem", height: "1.75rem", animation: "aether-fadein 0.25s ease" }}>
+        <span style={{ fontSize: "0.68rem", color: C.gold, letterSpacing: "0.04em", fontWeight: 600 }}>
           ✦ Aether
         </span>
         <button
@@ -171,32 +196,26 @@ function CategorySuggestion({
           title="クリックしてカテゴリを採用"
           style={{
             fontSize: "0.72rem",
-            color: "var(--color-accent)",
-            background: "rgba(197, 160, 89, 0.08)",
+            color: C.gold,
+            background: C.goldFaint2,
             border: "none",
-            borderRadius: "20px",
+            borderRadius: "9999px",
             padding: "0.2rem 0.65rem",
             cursor: "pointer",
-            letterSpacing: "0.05em",
-            boxShadow: "0 1px 6px rgba(197,160,89,0.12)",
-            transition: "background 0.2s, box-shadow 0.2s",
+            letterSpacing: "0.02em",
+            fontWeight: 500,
+            transition: "all 0.15s ease",
           }}
           onMouseEnter={(e) => {
-            (e.currentTarget as HTMLButtonElement).style.background =
-              "rgba(197, 160, 89, 0.16)";
-            (e.currentTarget as HTMLButtonElement).style.boxShadow =
-              "0 2px 10px rgba(197,160,89,0.22)";
+            (e.currentTarget as HTMLButtonElement).style.background = C.goldFaint3;
           }}
           onMouseLeave={(e) => {
-            (e.currentTarget as HTMLButtonElement).style.background =
-              "rgba(197, 160, 89, 0.08)";
-            (e.currentTarget as HTMLButtonElement).style.boxShadow =
-              "0 1px 6px rgba(197,160,89,0.12)";
+            (e.currentTarget as HTMLButtonElement).style.background = C.goldFaint2;
           }}
         >
           {state.category}
         </button>
-        <span style={{ fontSize: "0.65rem", color: "#C0BEB8" }}>
+        <span style={{ fontSize: "0.68rem", color: C.charcoalLight }}>
           はいかがですか？
         </span>
       </div>
@@ -205,23 +224,16 @@ function CategorySuggestion({
 
   if (state.phase === "accepted") {
     return (
-      <div
-        style={{
-          display: "flex",
-          alignItems: "center",
-          gap: "0.5rem",
-          height: "1.75rem",
-          animation: "aether-fadein 0.2s ease",
-        }}
-      >
+      <div style={{ display: "flex", alignItems: "center", gap: "0.45rem", height: "1.75rem", animation: "aether-fadein 0.2s ease" }}>
         <span
           style={{
             fontSize: "0.72rem",
-            color: COLOR_SAGE,
-            background: "rgba(82, 121, 111, 0.08)",
-            borderRadius: "20px",
+            color: C.sage,
+            background: C.sageFaint,
+            borderRadius: "9999px",
             padding: "0.2rem 0.65rem",
-            letterSpacing: "0.05em",
+            letterSpacing: "0.02em",
+            fontWeight: 500,
           }}
         >
           ✓ {state.category}
@@ -230,431 +242,453 @@ function CategorySuggestion({
     );
   }
 
-  // idle: 高さだけ確保してレイアウトを安定させる
   return <div style={{ height: "1.75rem" }} />;
 }
 
 // ---------- メインコンポーネント ----------
 export default function Lists() {
-  const [items, setItems]         = useState<ListItem[]>([]);
+  const [items, setItems] = useState<ListItem[]>([]);
   const [inputValue, setInputValue] = useState("");
-  const [isAdding, setIsAdding]   = useState(false);
+  const [isAdding, setIsAdding] = useState(false);
   const [syncStatus, setSyncStatus] = useState<SyncStatus>("idle");
 
-  // Aether Core 提案ステート
   const [suggestion, setSuggestion] = useState<SuggestionState>({ phase: "idle" });
-  // debounce タイマー ref
   const debounceTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  // 進行中の推論を識別するトークン（古い結果を捨てるため）
   const suggestionTokenRef = useRef(0);
 
-  const inputRef       = useRef<HTMLInputElement>(null);
-  // 同期を一度だけ実行するためのフラグ（Reactのレンダリングサイクルに左右されない）
-  const syncStartedRef = useRef(false);
-  // コールバック内でstateのstale closureを避けるためのrefミラー
-  const accessTokenRef = useRef<string | null>(null);
-  const tasklistIdRef  = useRef<string | null>(null);
+  const inputRef = useRef<HTMLInputElement>(null);
+  const listRef = useRef<HTMLUListElement>(null);
+  const gTaskListIdRef = useRef<string | null>(null);
 
-  // ---------- 同期完了ハンドラ ----------
-  const finishSync = useCallback(() => {
-    setSyncStatus("done");
-  }, []);
+  const { isReady, isSignedIn, accessToken, signIn, signOut } = useGoogleAuth();
+  const { toast, showUndoToast, dismissToast, triggerUndo } = useUndoToast<ListItem>();
 
-  // ---------- 同期本体（命令型呼び出し・依存配列なし） ----------
-  //
-  // ★ 設計原則:
-  //   この関数は useEffect の dep 変化で呼ばれるのではなく、
-  //   「マウント時」または「ログイン成功コールバック」から直接（命令型で）呼ばれる。
-  //   これにより syncStatus の変化が再実行を引き起こすループを根本から防ぐ。
-  //
-  const performSync = useCallback(async (token: string) => {
-    // フラグを同期的に立てる（StrictMode の二重実行や、誤った二重呼び出しをブロック）
-    if (syncStartedRef.current) return;
-    syncStartedRef.current = true;
-
-    setSyncStatus("syncing");
-    try {
-      const lists: GTaskList[] = await getTaskLists(token);
-      const found = lists.find((l) => l.title === TASKLIST_NAME) ?? lists[0];
-
-      if (!found) {
-        setSyncStatus("idle");
-        return;
-      }
-
-      tasklistIdRef.current = found.id;
-
-      const gTasks = await getTasks(token, found.id);
-
-      // Firestore の現在値を一度だけ取得
-      const currentItems = await new Promise<ListItem[]>((resolve) => {
-        const q = query(collection(db, "lists"), orderBy("createdAt", "asc"));
-        const unsub = onSnapshot(q, (snap) => {
-          unsub(); // 一度読んだら即解除
-          resolve(snap.docs.map((d) => ({
-            id: d.id,
-            ...(d.data() as Omit<ListItem, "id">),
-          })));
-        });
-      });
-
-      const existingGIds = new Set(
-        currentItems.filter((i) => i.googleTaskId).map((i) => i.googleTaskId)
-      );
-      const toImport = gTasks.filter((t) => !existingGIds.has(t.id));
-
-      await Promise.all(
-        toImport.map((t) =>
-          addDoc(collection(db, "lists"), {
-            text: t.title,
-            completed: t.status === "completed",
-            createdAt: serverTimestamp(),
-            googleTaskId: t.id,
-          })
-        )
-      );
-
-      finishSync();
-    } catch (e) {
-      console.error("Google Tasks同期エラー:", e);
-      setSyncStatus("error");
-    }
-  }, [finishSync]); // finishSync は useCallback([]) で安定
-
-  // ---------- 認証フック（onLogin コールバック経由でログイン後の同期をトリガー） ----------
-  const { accessToken, isSignedIn, isReady, signIn, signOut } =
-    useGoogleAuth(performSync);
-
-  // accessToken が変わるたびに ref を更新（handlers 内での stale closure 防止）
-  useEffect(() => {
-    accessTokenRef.current = accessToken;
-  }, [accessToken]);
-
-  // ---------- マウント時同期（localStorage からトークンが復元済みの場合） ----------
-  //
-  // ★ 依存配列は意図的に [] — accessToken はマウント時点の値をキャプチャして使用。
-  //    ログイン後の同期は上記 onLogin コールバックが担当するため、ここでは不要。
-  //
-  useEffect(() => {
-    const token = accessTokenRef.current; // マウント時点の値
-    if (token) performSync(token);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
-
-  // ---------- Firestore リアルタイム購読 ----------
+  // Firestore リアルタイム同期
   useEffect(() => {
     const q = query(collection(db, "lists"), orderBy("createdAt", "asc"));
     return onSnapshot(q, (snapshot) => {
-      setItems(snapshot.docs.map((d) => ({
-        id: d.id,
-        ...(d.data() as Omit<ListItem, "id">),
-      })));
+      setItems(
+        snapshot.docs.map((d) => ({
+          id: d.id,
+          ...(d.data() as Omit<ListItem, "id">),
+        }))
+      );
     });
   }, []);
 
-  // ---------- ログアウト（同期フラグもリセット） ----------
-  const handleSignOut = useCallback(() => {
-    syncStartedRef.current = false; // 次のログイン時に再同期できるようリセット
-    tasklistIdRef.current  = null;
-    setSyncStatus("idle");
-    signOut();
-  }, [signOut]);
-
-  // ---------- Aether Core: 入力値の debounce 推論 ----------
+  // Google Tasks 初期同期
   useEffect(() => {
-    // debounce タイマーをクリア
+    if (!isSignedIn || !accessToken) return;
+    let isCancelled = false;
+
+    async function initGoogleTasks() {
+      try {
+        setSyncStatus("syncing");
+        const lists = await getTaskLists(accessToken!);
+        let target = lists.find((l: GTaskList) => l.title === TASKLIST_NAME);
+        if (!target) {
+          target = lists[0];
+        }
+        if (!target) {
+          setSyncStatus("error");
+          return;
+        }
+
+        gTaskListIdRef.current = target.id;
+        const gTasks = await getTasks(accessToken!, target.id);
+        if (isCancelled) return;
+
+        for (const gTask of gTasks) {
+          const exists = items.some((item) => item.googleTaskId === gTask.id);
+          if (!exists) {
+            await addDoc(collection(db, "lists"), {
+              text: gTask.title,
+              completed: gTask.status === "completed",
+              googleTaskId: gTask.id,
+              createdAt: serverTimestamp(),
+            });
+          }
+        }
+
+        setSyncStatus("done");
+        setTimeout(() => {
+          if (!isCancelled) setSyncStatus("idle");
+        }, 3000);
+      } catch (err) {
+        console.error("Google Tasks sync error:", err);
+        if (!isCancelled) setSyncStatus("error");
+      }
+    }
+
+    initGoogleTasks();
+    return () => {
+      isCancelled = true;
+    };
+  }, [isSignedIn, accessToken]);
+
+  // 入力時のカテゴリ提案
+  const handleInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const val = e.target.value;
+    setInputValue(val);
+
     if (debounceTimerRef.current) clearTimeout(debounceTimerRef.current);
-
-    const trimmed = inputValue.trim();
-
-    // 入力がなければ提案をリセット
-    if (!trimmed) {
+    if (!val.trim()) {
       setSuggestion({ phase: "idle" });
       return;
     }
 
-    // accepted 状態の場合、入力が変わったらリセット
-    setSuggestion((prev) =>
-      prev.phase === "accepted" ? { phase: "idle" } : prev
-    );
+    setSuggestion({ phase: "thinking" });
+    const currentToken = ++suggestionTokenRef.current;
 
-    // 600ms debounce で推論開始
     debounceTimerRef.current = setTimeout(async () => {
-      const token = ++suggestionTokenRef.current; // このリクエストのトークン
-      setSuggestion({ phase: "thinking" });
-
-      const result = await suggestCategory(trimmed);
-
-      // トークンが一致する場合のみ状態を更新（古い結果を捨てる）
-      if (suggestionTokenRef.current !== token) return;
-
-      if (result) {
-        setSuggestion({ phase: "ready", category: result });
-      } else {
-        setSuggestion({ phase: "idle" });
+      const category = await suggestCategory(val);
+      if (suggestionTokenRef.current === currentToken) {
+        if (category) {
+          setSuggestion({ phase: "ready", category });
+        } else {
+          setSuggestion({ phase: "idle" });
+        }
       }
     }, 600);
+  };
 
-    return () => {
-      if (debounceTimerRef.current) clearTimeout(debounceTimerRef.current);
-    };
-  }, [inputValue]);
-
-  // ---------- カテゴリ採用ハンドラ ----------
-  const handleAcceptCategory = useCallback((category: string) => {
+  const handleAcceptSuggestion = (category: string) => {
     setSuggestion({ phase: "accepted", category });
-  }, []);
+    inputRef.current?.focus();
+  };
 
-  // ---------- アイテム追加 ----------
-  const handleAdd = useCallback(async () => {
-    const trimmed = inputValue.trim();
-    if (!trimmed) return;
-
-    // 現時点での採用カテゴリを取得（クロージャではなく最新の suggestion state を参照）
-    const adoptedCategory =
-      suggestion.phase === "accepted" ? suggestion.category : undefined;
+  // アイテム追加
+  const handleAdd = async () => {
+    const text = inputValue.trim();
+    if (!text || isAdding) return;
 
     setIsAdding(true);
-    try {
-      const token   = accessTokenRef.current;
-      const listId  = tasklistIdRef.current;
-      let googleTaskId: string | undefined;
+    const category =
+      suggestion.phase === "accepted"
+        ? suggestion.category
+        : suggestion.phase === "ready"
+        ? suggestion.category
+        : undefined;
 
-      if (token && listId) {
-        setSyncStatus("syncing");
+    try {
+      let googleTaskId: string | undefined;
+      if (isSignedIn && accessToken && gTaskListIdRef.current) {
         try {
-          googleTaskId = await gAddTask(token, listId, trimmed);
-          finishSync();
-        } catch {
-          setSyncStatus("error");
+          const gTaskId = await gAddTask(accessToken, gTaskListIdRef.current, text);
+          googleTaskId = gTaskId;
+        } catch (gErr) {
+          console.error("Failed to add to Google Tasks:", gErr);
         }
       }
 
       await addDoc(collection(db, "lists"), {
-        text: trimmed,
+        text,
         completed: false,
+        category: category || null,
+        googleTaskId: googleTaskId || null,
         createdAt: serverTimestamp(),
-        ...(googleTaskId    ? { googleTaskId }    : {}),
-        ...(adoptedCategory ? { category: adoptedCategory } : {}),
       });
 
       setInputValue("");
       setSuggestion({ phase: "idle" });
-      suggestionTokenRef.current++; // 保留中の推論を無効化
-      requestAnimationFrame(() => inputRef.current?.focus());
+      requestAnimationFrame(() => {
+        inputRef.current?.focus();
+        listRef.current?.scrollTo({ top: 0, behavior: "smooth" });
+      });
+    } catch (err) {
+      console.error("Failed to add item:", err);
     } finally {
       setIsAdding(false);
     }
-  }, [inputValue, suggestion, finishSync]);
+  };
+
+  // 完了トグル
+  const handleToggle = async (item: ListItem) => {
+    const next = !item.completed;
+    try {
+      await updateDoc(doc(db, "lists", item.id), { completed: next });
+      if (isSignedIn && accessToken && gTaskListIdRef.current && item.googleTaskId) {
+        await updateTaskStatus(
+          accessToken,
+          gTaskListIdRef.current,
+          item.googleTaskId,
+          next
+        );
+      }
+    } catch (err) {
+      console.error("Failed to toggle item:", err);
+    }
+  };
+
+  // 削除（Undo対応）
+  const handleDelete = async (item: ListItem) => {
+    try {
+      await deleteDoc(doc(db, "lists", item.id));
+
+      showUndoToast({
+        message: `「${item.text}」を削除しました`,
+        item,
+        onUndo: async (restoredItem) => {
+          await addDoc(collection(db, "lists"), {
+            text: restoredItem.text,
+            completed: restoredItem.completed,
+            category: restoredItem.category || null,
+            googleTaskId: restoredItem.googleTaskId || null,
+            createdAt: serverTimestamp(),
+          });
+        },
+      });
+    } catch (err) {
+      console.error("Failed to delete item:", err);
+    }
+  };
 
   const handleKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
     if (e.key === "Enter") handleAdd();
   };
 
-  // ---------- 完了トグル ----------
-  const handleToggle = useCallback(async (item: ListItem) => {
-    const newCompleted = !item.completed;
-    await updateDoc(doc(db, "lists", item.id), { completed: newCompleted });
-
-    const token  = accessTokenRef.current;
-    const listId = tasklistIdRef.current;
-    if (token && listId && item.googleTaskId) {
-      setSyncStatus("syncing");
-      try {
-        await updateTaskStatus(token, listId, item.googleTaskId, newCompleted);
-        finishSync();
-      } catch {
-        setSyncStatus("error");
-      }
-    }
-  }, [finishSync]); // accessToken/tasklistId は ref 経由なので deps 不要
-
   const pending = items.filter((i) => !i.completed);
-  const done    = items.filter((i) => i.completed);
+  const completed = items.filter((i) => i.completed);
 
-  // ---------- レンダリング ----------
   return (
-    <>
-      {/* Aether Core アニメーション定義 */}
-      <style>{`
-        @keyframes aether-pulse {
-          0%, 100% { opacity: 0.2; transform: scale(0.8); }
-          50% { opacity: 0.9; transform: scale(1.2); }
-        }
-        @keyframes aether-fadein {
-          from { opacity: 0; transform: translateY(-4px); }
-          to   { opacity: 1; transform: translateY(0); }
-        }
-      `}</style>
-
-      <div className="w-full max-w-xl mx-auto" style={{ padding: "3rem 1.5rem" }}>
-        {/* ヘッダー */}
-        <div className="flex items-start justify-between" style={{ marginBottom: "2.5rem" }}>
-          <div>
-            <p
-              className="text-xs font-semibold tracking-[0.2em] uppercase"
-              style={{ color: "var(--color-accent)", marginBottom: "0.5rem" }}
-            >
-              Arca / Lists
-            </p>
-            <h2
-              className="text-2xl font-light tracking-wide"
-              style={{ color: "var(--color-text)" }}
-            >
-              買い物リスト
-            </h2>
-          </div>
-
-          <div style={{ paddingTop: "0.25rem" }}>
-            <SyncBadge
-              isReady={isReady}
-              isSignedIn={isSignedIn}
-              syncStatus={syncStatus}
-              onSignIn={signIn}
-              onSignOut={handleSignOut}
-            />
-          </div>
+    <div className="w-full max-w-xl mx-auto" style={{ padding: "2.8rem 1.5rem 6rem", boxSizing: "border-box" }}>
+      
+      {/* ─── ヘッダー ─── */}
+      <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", marginBottom: "2rem", padding: "0 0.25rem" }}>
+        <div>
+          <p style={{
+            fontSize: "0.68rem",
+            fontWeight: 600,
+            letterSpacing: "0.18em",
+            textTransform: "uppercase",
+            color: C.gold,
+            marginBottom: "0.4rem",
+          }}>
+            Arca / Lists
+          </p>
+          <h1 style={{ fontSize: "1.75rem", fontWeight: 750, color: C.charcoal, margin: 0, letterSpacing: "-0.03em" }}>
+            買い物リスト
+          </h1>
+          <p style={{ fontSize: "0.78rem", color: C.charcoalLight, margin: "0.3rem 0 0", letterSpacing: "0.01em" }}>
+            {pending.length}件のアイテム
+          </p>
         </div>
 
-        {/* 入力エリア */}
+        <SyncBadge
+          isReady={isReady}
+          isSignedIn={isSignedIn}
+          syncStatus={syncStatus}
+          onSignIn={signIn}
+          onSignOut={signOut}
+        />
+      </div>
+
+      {/* ─── 入力フォーム ─── */}
+      <div style={{ marginBottom: "2rem" }}>
         <div
+          className="arca-card"
           style={{
-            background: "rgba(255,255,255,0.7)",
-            borderRadius: "14px",
-            padding: "0.75rem 1rem",
-            boxShadow: "0 2px 16px rgba(0,0,0,0.06)",
-            backdropFilter: "blur(8px)",
+            display: "flex",
+            alignItems: "center",
+            padding: "0.65rem 1rem",
+            gap: "0.75rem",
           }}
         >
-          <div className="flex items-center gap-3">
-            <input
-              ref={inputRef}
-              type="text"
-              value={inputValue}
-              onChange={(e) => setInputValue(e.target.value)}
-              onKeyDown={handleKeyDown}
-              placeholder="アイテムを追加…"
-              className="flex-1 bg-transparent outline-none text-sm"
-              style={{ color: "var(--color-text)" }}
-              autoFocus
-            />
-            <button
-              onClick={handleAdd}
-              disabled={isAdding || !inputValue.trim()}
-              className="text-xs font-medium tracking-widest uppercase transition-opacity duration-200 disabled:opacity-30 active:opacity-60"
-              style={{ color: "var(--color-accent)" }}
-            >
-              {isAdding ? "…" : "追加"}
-            </button>
-          </div>
+          <input
+            ref={inputRef}
+            type="text"
+            value={inputValue}
+            onChange={handleInputChange}
+            onKeyDown={handleKeyDown}
+            placeholder="アイテムを追加…"
+            style={{
+              flex: 1,
+              background: "transparent",
+              border: "none",
+              outline: "none",
+              fontSize: "0.92rem",
+              color: C.charcoal,
+              letterSpacing: "0.01em",
+            }}
+          />
+          <button
+            onClick={handleAdd}
+            disabled={!inputValue.trim() || isAdding}
+            style={{
+              background: inputValue.trim() ? C.gold : "rgba(0, 0, 0, 0.06)",
+              color: inputValue.trim() ? "#FDFCFA" : C.charcoalXLight,
+              border: "none",
+              borderRadius: "10px",
+              padding: "0.45rem 0.95rem",
+              fontSize: "0.78rem",
+              fontWeight: 600,
+              cursor: inputValue.trim() ? "pointer" : "default",
+              transition: "all 0.15s ease",
+              flexShrink: 0,
+            }}
+          >
+            追加
+          </button>
+        </div>
 
-          {/* Aether Core 提案エリア — 入力カードの内側に静かに配置 */}
-          {suggestion.phase !== "idle" && (
-            <div style={{ marginTop: "0.5rem", paddingLeft: "0.1rem" }}>
-              <CategorySuggestion
-                state={suggestion}
-                onAccept={handleAcceptCategory}
-              />
-            </div>
+        {/* Aether Core 提案行 */}
+        <div style={{ padding: "0.35rem 0.6rem 0" }}>
+          <CategorySuggestion state={suggestion} onAccept={handleAcceptSuggestion} />
+        </div>
+      </div>
+
+      {/* ─── リスト一覧 ─── */}
+      <div style={{ display: "flex", flexDirection: "column", gap: "1.8rem" }}>
+        
+        {/* 未完了アイテム */}
+        <div
+          className="arca-card"
+          style={{
+            padding: "0.8rem 1.25rem",
+          }}
+        >
+          {pending.length === 0 ? (
+            <p style={{ margin: 0, fontSize: "0.85rem", color: C.charcoalLight, textAlign: "center", padding: "2rem 0" }}>
+              リストは空です
+            </p>
+          ) : (
+            <ul ref={listRef} style={{ listStyle: "none", margin: 0, padding: 0, display: "flex", flexDirection: "column" }}>
+              {pending.map((item) => (
+                <ListItemRow
+                  key={item.id}
+                  item={item}
+                  onToggle={handleToggle}
+                  onDelete={handleDelete}
+                />
+              ))}
+            </ul>
           )}
         </div>
 
-        {/* 余白（提案なし時もレイアウト安定） */}
-        <div style={{ marginBottom: "2.5rem" }} />
-
-        {/* 空状態 */}
-        {pending.length === 0 && done.length === 0 && (
-          <p className="text-sm text-center" style={{ color: "#B0AFA8", padding: "3rem 0" }}>
-            リストは空です
-          </p>
-        )}
-
-        {/* 未完了リスト */}
-        <ul style={{ listStyle: "none", padding: 0, margin: 0 }}>
-          {pending.map((item) => (
-            <ListRow key={item.id} item={item} onToggle={handleToggle} />
-          ))}
-        </ul>
-
-        {/* 完了済みセクション */}
-        {done.length > 0 && (
-          <div style={{ marginTop: "2.5rem" }}>
-            <p
-              className="text-xs font-semibold tracking-[0.2em] uppercase"
-              style={{ color: "#C0BEB8", marginBottom: "1rem" }}
-            >
+        {/* 完了済みアイテム */}
+        {completed.length > 0 && (
+          <div>
+            <span style={{ fontSize: "0.72rem", color: C.charcoalLight, letterSpacing: "0.06em", padding: "0 0.5rem", display: "block", marginBottom: "0.6rem" }}>
               完了済み
-            </p>
-            <ul style={{ listStyle: "none", padding: 0, margin: 0 }}>
-              {done.map((item) => (
-                <ListRow key={item.id} item={item} onToggle={handleToggle} />
-              ))}
-            </ul>
+            </span>
+            <div
+              className="arca-card"
+              style={{
+                padding: "0.8rem 1.25rem",
+                opacity: 0.85,
+              }}
+            >
+              <ul style={{ listStyle: "none", margin: 0, padding: 0, display: "flex", flexDirection: "column" }}>
+                {completed.map((item) => (
+                  <ListItemRow
+                    key={item.id}
+                    item={item}
+                    onToggle={handleToggle}
+                    onDelete={handleDelete}
+                  />
+                ))}
+              </ul>
+            </div>
           </div>
         )}
+
       </div>
-    </>
+
+      {/* ─── 共通 Undo トースト ─── */}
+      <UndoToast toast={toast} onUndo={triggerUndo} onDismiss={dismissToast} />
+    </div>
   );
 }
 
-// ---------- 行コンポーネント ----------
-function ListRow({
+// ---------- アイテム行 ----------
+function ListItemRow({
   item,
   onToggle,
+  onDelete,
 }: {
   item: ListItem;
   onToggle: (item: ListItem) => void;
+  onDelete: (item: ListItem) => void;
 }) {
+  const [hovered, setHovered] = useState(false);
+
   return (
     <li
-      className="flex items-center gap-4 cursor-pointer select-none"
+      onMouseEnter={() => setHovered(true)}
+      onMouseLeave={() => setHovered(false)}
       style={{
-        padding: "0.9rem 0",
-        borderBottom: "1px solid rgba(0,0,0,0.05)",
-        opacity: item.completed ? 0.4 : 1,
-        transition: "opacity 0.25s",
+        display: "flex",
+        alignItems: "center",
+        gap: "0.85rem",
+        padding: "0.75rem 0",
+        borderBottom: "1px solid rgba(0, 0, 0, 0.035)",
+        opacity: item.completed ? 0.45 : 1,
+        transition: "opacity 0.2s ease",
+        cursor: "pointer",
       }}
       onClick={() => onToggle(item)}
     >
-      <CheckIcon completed={item.completed} />
+      <button
+        onClick={(e) => {
+          e.stopPropagation();
+          onToggle(item);
+        }}
+        style={{ background: "none", border: "none", padding: 0, cursor: "pointer", lineHeight: 0 }}
+        title={item.completed ? "未完了に戻す" : "完了にする"}
+      >
+        <CheckIcon completed={item.completed} />
+      </button>
+
       <span
-        className="flex-1 text-sm font-light"
         style={{
-          color: "var(--color-text)",
+          flex: 1,
+          fontSize: "0.875rem",
+          color: item.completed ? C.charcoalLight : C.charcoal,
           textDecoration: item.completed ? "line-through" : "none",
-          transition: "text-decoration 0.2s",
+          fontWeight: 400,
+          letterSpacing: "0.01em",
         }}
       >
         {item.text}
       </span>
 
-      {/* カテゴリバッジ（採用済みの場合のみ表示） */}
       {item.category && (
         <span
           title={`カテゴリ: ${item.category}`}
           style={{
-            fontSize: "0.6rem",
-            color: "var(--color-accent)",
-            background: "rgba(197,160,89,0.08)",
-            borderRadius: "20px",
-            padding: "0.15rem 0.5rem",
-            letterSpacing: "0.05em",
+            fontSize: "0.68rem",
+            color: C.charcoalLight,
+            background: "rgba(0, 0, 0, 0.04)",
+            padding: "0.15rem 0.55rem",
+            borderRadius: "6px",
+            fontWeight: 500,
             flexShrink: 0,
-            opacity: 0.85,
           }}
         >
           {item.category}
         </span>
       )}
 
-      {item.googleTaskId && (
-        <span
-          title="Google Tasks と同期済み"
-          style={{ color: "#D0CFCA", fontSize: "0.6rem", flexShrink: 0 }}
-        >
-          ⟳
-        </span>
-      )}
+      <button
+        onClick={(e) => {
+          e.stopPropagation();
+          onDelete(item);
+        }}
+        style={{
+          background: "none",
+          border: "none",
+          padding: "0.2rem",
+          cursor: "pointer",
+          color: C.charcoalLight,
+          lineHeight: 0,
+          opacity: hovered ? 1 : 0,
+          transition: "opacity 0.15s ease",
+          flexShrink: 0,
+        }}
+        title="削除"
+      >
+        <TrashIcon />
+      </button>
     </li>
   );
 }

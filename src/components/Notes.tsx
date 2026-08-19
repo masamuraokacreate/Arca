@@ -28,8 +28,9 @@ import {
   useEffect,
   type KeyboardEvent,
   Component,
-  ErrorInfo,
-  ReactNode,
+  type ErrorInfo,
+  type ReactNode,
+  isValidElement,
 } from "react";
 import ReactMarkdown from "react-markdown";
 import {
@@ -44,14 +45,13 @@ import {
 } from "firebase/firestore";
 import { db } from "../lib/firebase";
 import type { NoteItem } from "../types";
+import { C } from "../lib/designSystem";
+import { useUndoToast } from "../hooks/useUndoToast";
+import { UndoToast } from "./common/UndoToast";
 
 // ─────────────────────────────────────────
 // ユーティリティ
 // ─────────────────────────────────────────
-
-function createId(): string {
-  return `note_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`;
-}
 
 function nowIso(): string {
   return new Date().toISOString();
@@ -113,44 +113,20 @@ function extractToc(content: string): TocItem[] {
   return toc;
 }
 
-function getHeadingText(children: React.ReactNode): string {
+function getHeadingText(children: ReactNode): string {
   try {
     if (!children) return '';
     if (typeof children === 'string') return children;
     if (typeof children === 'number') return children.toString();
     if (Array.isArray(children)) return children.map(getHeadingText).join('');
-    if (React.isValidElement(children)) return getHeadingText(children.props.children);
+    if (isValidElement<{ children?: ReactNode }>(children)) {
+      return getHeadingText(children.props.children);
+    }
     return '';
-  } catch (e) {
+  } catch {
     return '';
   }
 }
-
-// ─────────────────────────────────────────
-// デザイントークン (Core/Rules.md 準拠)
-// ─────────────────────────────────────────
-
-const C = {
-  // 背景グラデーション
-  bgGrad: "linear-gradient(155deg, #FAF8F5 0%, #F5F0E8 50%, #F0EAE0 100%)",
-  bgEditor: "linear-gradient(180deg, #FDFCFA 0%, #F8F5F0 100%)",
-
-  ivory: "#F5F5F0",
-  ivory2: "#EDE8DF",
-  white: "#FDFCFA",
-  charcoal: "#3A3A38",
-  charcoalMid: "#6B6B67",
-  charcoalLight: "#9A9A96",
-  charcoalXLight: "#C2BFB8",
-  gold: "#C5A059",
-  goldDark: "#A8863D",
-  goldFaint: "rgba(197,160,89,0.08)",
-  goldFaint2: "rgba(197,160,89,0.14)",
-  goldFaint3: "rgba(197,160,89,0.24)",
-  cardShadow: "0 1px 4px rgba(0,0,0,0.04), 0 4px 20px rgba(0,0,0,0.05)",
-  cardShadowHover: "0 4px 12px rgba(0,0,0,0.07), 0 12px 40px rgba(0,0,0,0.08)",
-  toastShadow: "0 8px 40px rgba(0,0,0,0.16), 0 2px 8px rgba(0,0,0,0.08)",
-} as const;
 
 // ─────────────────────────────────────────
 // グローバルスタイル
@@ -252,6 +228,153 @@ const GLOBAL_STYLES = `
   /* ── Full Width トグルアニメーション ── */
   .arca-layout-container { transition: max-width 0.28s ease, padding 0.28s ease; }
 
+  /* ── ツールバー（Apple風レスポンシブ） ── */
+  .arca-toolbar {
+    position: sticky;
+    top: 0;
+    z-index: 50;
+    width: 100%;
+    background: rgba(253, 252, 250, 0.88);
+    backdrop-filter: blur(16px) saturate(180%);
+    -webkit-backdrop-filter: blur(16px) saturate(180%);
+    box-shadow: 0 1px 0 rgba(0, 0, 0, 0.05);
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 0 1.25rem;
+    height: 48px;
+    gap: 0.5rem;
+    box-sizing: border-box;
+    overflow-x: auto;
+    overflow-y: hidden;
+    white-space: nowrap;
+    -webkit-overflow-scrolling: touch;
+    scrollbar-width: none;
+    -ms-overflow-style: none;
+  }
+  .arca-toolbar::-webkit-scrollbar {
+    display: none;
+  }
+
+  /* ツールバーボタン共通 */
+  .arca-tb-btn {
+    white-space: nowrap;
+    flex-shrink: 0;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 0.35rem;
+    border-radius: 8px;
+    font-size: 0.78rem;
+    font-weight: 500;
+    cursor: pointer;
+    border: none;
+    transition: all 0.15s ease;
+    user-select: none;
+    height: 32px;
+    padding: 0 0.65rem;
+    color: ${C.charcoalMid};
+    background: transparent;
+  }
+  .arca-tb-btn:hover {
+    color: ${C.charcoal};
+    background: rgba(0, 0, 0, 0.04);
+  }
+  .arca-tb-btn:active {
+    transform: scale(0.97);
+  }
+
+  /* アクティブなトグルボタン */
+  .arca-tb-btn.active {
+    color: ${C.gold};
+    background: ${C.goldFaint2};
+    font-weight: 600;
+  }
+
+  /* 削除ボタン */
+  .arca-tb-btn-delete {
+    color: ${C.charcoalLight};
+  }
+  .arca-tb-btn-delete:hover {
+    color: #c0614a !important;
+    background: rgba(192, 97, 74, 0.08) !important;
+  }
+
+  /* セグメントコントロール（閲覧 / 編集） */
+  .arca-segment-control {
+    display: inline-flex;
+    align-items: center;
+    background: rgba(0, 0, 0, 0.05);
+    padding: 2px;
+    border-radius: 9px;
+    flex-shrink: 0;
+    gap: 1px;
+  }
+  .arca-segment-btn {
+    white-space: nowrap;
+    display: inline-flex;
+    align-items: center;
+    gap: 0.3rem;
+    border: none;
+    border-radius: 7px;
+    padding: 0.3rem 0.65rem;
+    cursor: pointer;
+    font-size: 0.75rem;
+    font-weight: 500;
+    color: ${C.charcoalLight};
+    background: transparent;
+    transition: all 0.15s ease;
+    user-select: none;
+    height: 28px;
+    flex-shrink: 0;
+  }
+  .arca-segment-btn.active {
+    background: ${C.white};
+    color: ${C.charcoal};
+    font-weight: 600;
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.08), 0 0 1px rgba(0, 0, 0, 0.04);
+  }
+
+  /* 区切り線 */
+  .arca-tb-divider {
+    width: 1px;
+    height: 18px;
+    background: rgba(0, 0, 0, 0.08);
+    flex-shrink: 0;
+    margin: 0 0.15rem;
+  }
+
+  /* レスポンシブラベル */
+  .arca-btn-label-desktop {
+    display: inline;
+    white-space: nowrap;
+  }
+  .arca-btn-label-mobile {
+    display: none;
+    white-space: nowrap;
+  }
+
+  @media (max-width: 640px) {
+    .arca-toolbar {
+      padding: 0 0.75rem;
+      gap: 0.35rem;
+    }
+    .arca-btn-label-desktop {
+      display: none !important;
+    }
+    .arca-btn-label-mobile {
+      display: inline !important;
+    }
+    .arca-tb-btn {
+      padding: 0 0.5rem;
+      font-size: 0.75rem;
+    }
+    .arca-segment-btn {
+      padding: 0 0.5rem;
+      font-size: 0.72rem;
+    }
+  }
+
   /* ── Cheat Sheet Hide ── */
   @media (max-width: 1200px) {
     .arca-cheatsheet { display: none !important; }
@@ -269,6 +392,64 @@ const GLOBAL_STYLES = `
   .arca-cs-btn:hover .cs-syntax { color: ${C.charcoal}; }
   .cs-syntax { font-weight: 600; color: ${C.charcoalMid}; transition: color 0.15s; }
 `;
+
+// ─────────────────────────────────────────
+// アイコンコンポーネント
+// ─────────────────────────────────────────
+
+const ChevronLeftIcon = () => (
+  <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0 }}>
+    <path d="m15 18-6-6 6-6" />
+  </svg>
+);
+
+const EyeIcon = () => (
+  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0 }}>
+    <path d="M2.062 12.348a1 1 0 0 1 0-.696 10.75 10.75 0 0 1 19.876 0 1 1 0 0 1 0 .696 10.75 10.75 0 0 1-19.876 0" />
+    <circle cx="12" cy="12" r="3" />
+  </svg>
+);
+
+const EditIcon = () => (
+  <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0 }}>
+    <path d="M21.174 6.812a1 1 0 0 0-3.986-3.987L3.842 16.174a2 2 0 0 0-.5.83l-1.321 4.352a.5.5 0 0 0 .623.622l4.353-1.32a2 2 0 0 0 .83-.497z" />
+    <path d="m15 5 4 4" />
+  </svg>
+);
+
+const ExpandIcon = () => (
+  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0 }}>
+    <path d="M15 3h6v6" />
+    <path d="M9 21H3v-6" />
+    <path d="M21 3l-7 7" />
+    <path d="M3 21l7-7" />
+  </svg>
+);
+
+const ShrinkIcon = () => (
+  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0 }}>
+    <path d="M4 14h6v6" />
+    <path d="M20 10h-6V4" />
+    <path d="M14 10l7-7" />
+    <path d="M3 21l7-7" />
+  </svg>
+);
+
+const TocIcon = () => (
+  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0 }}>
+    <line x1="21" x2="3" y1="6" y2="6" />
+    <line x1="15" x2="3" y1="12" y2="12" />
+    <line x1="17" x2="3" y1="18" y2="18" />
+  </svg>
+);
+
+const TrashIcon = () => (
+  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0 }}>
+    <path d="M3 6h18" />
+    <path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6" />
+    <path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2" />
+  </svg>
+);
 
 // ─────────────────────────────────────────
 // スラッシュコマンド定義
@@ -292,122 +473,6 @@ const SLASH_COMMANDS: SlashCommand[] = [
   { id: "code",   label: "コードブロック", description: "コード",             icon: "</>", syntax: "```\n\n```"},
   { id: "hr",     label: "区切り線",       description: "水平線",             icon: "─",   syntax: "---\n"    },
 ];
-
-// ─────────────────────────────────────────
-// トースト（削除Undo通知）
-// ─────────────────────────────────────────
-
-interface ToastState {
-  visible: boolean;
-  leaving: boolean;
-  deletedNote: NoteItem | null;
-  timerId: ReturnType<typeof setTimeout> | null;
-  leaveTimerId: ReturnType<typeof setTimeout> | null;
-  remaining: number; // 残り秒数
-}
-
-const TOAST_DURATION = 5000; // 5秒
-
-function DeleteToast({
-  toast,
-  onUndo,
-  onDismiss,
-}: {
-  toast: ToastState;
-  onUndo: () => void;
-  onDismiss: () => void;
-}) {
-  if (!toast.visible && !toast.leaving) return null;
-
-  return (
-    <div
-      className={`arca-toast${toast.leaving ? " leaving" : ""}`}
-      style={{
-        position: "fixed",
-        bottom: "2rem",
-        left: "50%",
-        transform: "translateX(-50%)",
-        zIndex: 1000,
-        background: C.charcoal,
-        color: "#FDFCFA",
-        borderRadius: "14px",
-        padding: "0.85rem 1.4rem",
-        display: "flex",
-        alignItems: "center",
-        gap: "1.2rem",
-        boxShadow: C.toastShadow,
-        minWidth: "300px",
-        maxWidth: "90vw",
-        pointerEvents: "all",
-      }}
-    >
-      {/* メッセージ */}
-      <span style={{ fontSize: "0.85rem", fontWeight: 400, lineHeight: 1.4, flex: 1 }}>
-        ノートを削除しました
-      </span>
-
-      {/* 残り時間インジケーター */}
-      <div
-        style={{
-          width: "28px",
-          height: "28px",
-          borderRadius: "50%",
-          background: "rgba(255,255,255,0.08)",
-          display: "flex",
-          alignItems: "center",
-          justifyContent: "center",
-          fontSize: "0.68rem",
-          color: "rgba(255,255,255,0.45)",
-          flexShrink: 0,
-        }}
-      >
-        {toast.remaining}
-      </div>
-
-      {/* 元に戻すボタン */}
-      <button
-        onClick={onUndo}
-        style={{
-          background: C.goldFaint3,
-          border: "none",
-          borderRadius: "8px",
-          padding: "0.42rem 0.9rem",
-          cursor: "pointer",
-          color: C.gold,
-          fontSize: "0.8rem",
-          fontWeight: 600,
-          letterSpacing: "0.02em",
-          flexShrink: 0,
-          transition: "background 0.15s",
-        }}
-        onMouseEnter={(e) => { (e.currentTarget as HTMLButtonElement).style.background = "rgba(197,160,89,0.32)"; }}
-        onMouseLeave={(e) => { (e.currentTarget as HTMLButtonElement).style.background = C.goldFaint3; }}
-      >
-        元に戻す
-      </button>
-
-      {/* 閉じる */}
-      <button
-        onClick={onDismiss}
-        style={{
-          background: "transparent",
-          border: "none",
-          cursor: "pointer",
-          color: "rgba(255,255,255,0.35)",
-          fontSize: "0.85rem",
-          padding: "0.2rem",
-          lineHeight: 1,
-          transition: "color 0.15s",
-          flexShrink: 0,
-        }}
-        onMouseEnter={(e) => { (e.currentTarget as HTMLButtonElement).style.color = "rgba(255,255,255,0.7)"; }}
-        onMouseLeave={(e) => { (e.currentTarget as HTMLButtonElement).style.color = "rgba(255,255,255,0.35)"; }}
-      >
-        ✕
-      </button>
-    </div>
-  );
-}
 
 // ─────────────────────────────────────────
 // スラッシュコマンドメニュー
@@ -625,7 +690,7 @@ function MarkdownPreview({ content }: { content: string }) {
     '$1[$2]($2)'
   );
 
-  const renderHeading = (level: number, children: React.ReactNode) => {
+  const renderHeading = (level: number, children: ReactNode) => {
     const text = getHeadingText(children);
     let id = "";
     try {
@@ -633,7 +698,7 @@ function MarkdownPreview({ content }: { content: string }) {
     } catch {
       id = text.replace(/[^a-zA-Z0-9]/g, "");
     }
-    const Tag = `h${level}` as keyof JSX.IntrinsicElements;
+    const Tag = `h${level}` as "h1" | "h2" | "h3" | "h4" | "h5" | "h6";
     return <Tag id={id}>{children}</Tag>;
   };
 
@@ -876,135 +941,76 @@ function NoteViewer({
       }}
     >
       {/* ────── ツールバー ────── */}
-      <header
-        style={{
-          position: "sticky",
-          top: "0",
-          zIndex: 50,
-          width: "100%",
-          background: "rgba(253,252,250,0.88)",
-          backdropFilter: "blur(14px)",
-          WebkitBackdropFilter: "blur(14px)",
-          boxShadow: "0 1px 0 rgba(0,0,0,0.05)",
-          display: "flex",
-          alignItems: "center",
-          padding: "0 1.5rem",
-          height: "46px",
-          gap: "0.6rem",
-        }}
-      >
-        {/* 左側 */}
-        <div style={{ display: "flex", alignItems: "center", gap: "0.8rem" }}>
+      <header className="arca-toolbar">
+        {/* 左側: 戻る */}
+        <div style={{ display: "flex", alignItems: "center", flexShrink: 0 }}>
           <button
             onClick={onBack}
-            style={{
-              display: "flex", alignItems: "center", gap: "0.35rem",
-              background: "transparent", border: "none", cursor: "pointer",
-              color: C.charcoalMid, fontSize: "0.8rem", fontWeight: 500,
-              letterSpacing: "0.02em", padding: "0.3rem 0.5rem 0.3rem 0",
-              borderRadius: "6px", transition: "color 0.15s", flexShrink: 0,
-            }}
-            onMouseEnter={(e) => { (e.currentTarget as HTMLButtonElement).style.color = C.charcoal; }}
-            onMouseLeave={(e) => { (e.currentTarget as HTMLButtonElement).style.color = C.charcoalMid; }}
+            className="arca-tb-btn"
+            title="ノート一覧に戻る"
+            style={{ paddingLeft: "0.2rem" }}
           >
-            <span style={{ fontSize: "1rem" }}>←</span>
-            ノート一覧
+            <ChevronLeftIcon />
+            <span className="arca-btn-label-desktop">ノート一覧</span>
+            <span className="arca-btn-label-mobile">戻る</span>
           </button>
         </div>
 
-        <div style={{ flex: 1 }} />
-
         {/* 右側: コントロール群 */}
-        <div style={{ display: "flex", alignItems: "center", gap: "0.8rem" }}>
+        <div style={{ display: "flex", alignItems: "center", gap: "0.4rem", flexShrink: 0 }}>
           
           {/* 表示モードセグメントコントロール */}
-          <div style={{
-            display: "flex", alignItems: "center",
-            background: "rgba(0,0,0,0.05)",
-            padding: "2px", borderRadius: "8px"
-          }}>
-            {[
-              { m: "read" as NoteViewMode, label: "閲覧" },
-              { m: "edit" as NoteViewMode, label: "編集" },
-            ].map(({ m, label }) => (
-              <button
-                key={m}
-                onClick={() => setMode(m)}
-                style={{
-                  background: mode === m ? C.white : "transparent",
-                  border: "none",
-                  borderRadius: "6px",
-                  padding: "0.3rem 0.8rem", cursor: "pointer",
-                  fontSize: "0.75rem",
-                  fontWeight: mode === m ? 600 : 500,
-                  color: mode === m ? C.charcoal : C.charcoalLight,
-                  boxShadow: mode === m ? "0 1px 3px rgba(0,0,0,0.08)" : "none",
-                  transition: "all 0.15s ease",
-                }}
-              >
-                {label}
-              </button>
-            ))}
+          <div className="arca-segment-control">
+            <button
+              onClick={() => setMode("read")}
+              className={`arca-segment-btn ${mode === "read" ? "active" : ""}`}
+              title="閲覧モード"
+            >
+              <EyeIcon />
+              <span>閲覧</span>
+            </button>
+            <button
+              onClick={() => setMode("edit")}
+              className={`arca-segment-btn ${mode === "edit" ? "active" : ""}`}
+              title="編集モード"
+            >
+              <EditIcon />
+              <span>編集</span>
+            </button>
           </div>
 
-          <div style={{ width: "1px", height: "16px", background: "rgba(0,0,0,0.08)" }} />
+          <div className="arca-tb-divider" />
 
           {/* Full Width トグル */}
           <button
             onClick={onToggleFullWidth}
+            className={`arca-tb-btn ${isFullWidth ? "active" : ""}`}
             title={isFullWidth ? "標準幅に戻す" : "全画面で表示"}
-            style={{
-              background: isFullWidth ? C.goldFaint2 : "transparent",
-              border: "none", borderRadius: "7px",
-              padding: "0.3rem 0.6rem", cursor: "pointer",
-              color: isFullWidth ? C.gold : C.charcoalLight,
-              fontSize: "0.75rem", fontWeight: isFullWidth ? 600 : 500,
-              transition: "all 0.15s",
-              display: "flex", alignItems: "center", gap: "0.3rem",
-            }}
           >
-            {isFullWidth ? "⇥ 縮める" : "⇤ 全画面"}
+            {isFullWidth ? <ShrinkIcon /> : <ExpandIcon />}
+            <span className="arca-btn-label-desktop">{isFullWidth ? "標準幅" : "全画面"}</span>
           </button>
 
           {/* 目次 トグル */}
           <button
-            onClick={() => setShowToc(s => !s)}
-            style={{
-              background: showToc ? C.goldFaint2 : "transparent",
-              border: "none", borderRadius: "7px",
-              padding: "0.3rem 0.6rem", cursor: "pointer",
-              color: showToc ? C.gold : C.charcoalLight,
-              fontSize: "0.75rem", fontWeight: showToc ? 600 : 500,
-              transition: "all 0.15s",
-              display: "flex", alignItems: "center", gap: "0.3rem",
-            }}
+            onClick={() => setShowToc((s) => !s)}
+            className={`arca-tb-btn ${showToc ? "active" : ""}`}
+            title={showToc ? "目次を非表示" : "目次を表示"}
           >
-            目次
+            <TocIcon />
+            <span className="arca-btn-label-desktop">目次</span>
           </button>
 
-          <div style={{ width: "1px", height: "16px", background: "rgba(0,0,0,0.08)" }} />
+          <div className="arca-tb-divider" />
 
           {/* 削除 */}
           <button
             onClick={onDelete}
+            className="arca-tb-btn arca-tb-btn-delete"
             title="このノートを削除"
-            style={{
-              background: "transparent", border: "none",
-              borderRadius: "7px", padding: "0.3rem 0.6rem",
-              cursor: "pointer", color: C.charcoalXLight,
-              fontSize: "0.72rem", letterSpacing: "0.04em",
-              transition: "color 0.15s, background 0.15s",
-            }}
-            onMouseEnter={(e) => {
-              const b = e.currentTarget as HTMLButtonElement;
-              b.style.color = "#c0614a"; b.style.background = "rgba(192,97,74,0.08)";
-            }}
-            onMouseLeave={(e) => {
-              const b = e.currentTarget as HTMLButtonElement;
-              b.style.color = C.charcoalXLight; b.style.background = "transparent";
-            }}
           >
-            削除
+            <TrashIcon />
+            <span className="arca-btn-label-desktop">削除</span>
           </button>
         </div>
       </header>
@@ -1775,32 +1781,8 @@ export default function Notes() {
   const activeNotes = notes.filter(n => !n.isDeleted);
   const deletedNotes = notes.filter(n => n.isDeleted);
 
-  // トースト状態
-  const [toast, setToast] = useState<ToastState>({
-    visible: false,
-    leaving: false,
-    deletedNote: null,
-    timerId: null,
-    leaveTimerId: null,
-    remaining: 5,
-  });
-  const countdownRef = useRef<ReturnType<typeof setInterval> | null>(null);
-
-  const clearToastTimers = useCallback(() => {
-    if (toast.timerId) clearTimeout(toast.timerId);
-    if (toast.leaveTimerId) clearTimeout(toast.leaveTimerId);
-    if (countdownRef.current) clearInterval(countdownRef.current);
-  }, [toast.timerId, toast.leaveTimerId]);
-
-  // トーストを閉じる（アニメーション付き）
-  const dismissToast = useCallback(() => {
-    clearToastTimers();
-    setToast((prev) => ({ ...prev, leaving: true }));
-    const leaveId = setTimeout(() => {
-      setToast({ visible: false, leaving: false, deletedNote: null, timerId: null, leaveTimerId: null, remaining: 5 });
-    }, 200);
-    setToast((prev) => ({ ...prev, leaveTimerId: leaveId }));
-  }, [clearToastTimers]);
+  // 共通 Undo トースト
+  const { toast, showUndoToast, dismissToast, triggerUndo } = useUndoToast<NoteItem>();
 
   // ノート削除（Undo対応）
   const handleDeleteNote = useCallback(
@@ -1813,9 +1795,6 @@ export default function Notes() {
         setView({ type: "dashboard" });
       }
 
-      setNotes((prev) => prev.filter((n) => n.id !== id));
-      clearToastTimers();
-
       // Firestore 論理削除
       try {
         await updateDoc(doc(db, "notes", id), { isDeleted: true });
@@ -1823,59 +1802,20 @@ export default function Notes() {
         console.error("Delete failed", e);
       }
 
-      // カウントダウン
-      let rem = 5;
-      const countdown = setInterval(() => {
-        rem--;
-        setToast((prev) => ({ ...prev, remaining: rem }));
-        if (rem <= 0) clearInterval(countdown);
-      }, 1000);
-      countdownRef.current = countdown;
-
-      // 5秒後に自動消去
-      const timerId = setTimeout(() => {
-        clearInterval(countdown);
-        setToast((prev) => ({ ...prev, leaving: true }));
-        const leaveId = setTimeout(() => {
-          setToast({ visible: false, leaving: false, deletedNote: null, timerId: null, leaveTimerId: null, remaining: 5 });
-        }, 200);
-        setToast((prev) => ({ ...prev, leaveTimerId: leaveId }));
-      }, TOAST_DURATION);
-
-      setToast({
-        visible: true,
-        leaving: false,
-        deletedNote: target,
-        timerId,
-        leaveTimerId: null,
-        remaining: 5,
+      showUndoToast({
+        message: `ノート「${target.title || "（タイトルなし）"}」を削除しました`,
+        item: target,
+        onUndo: async (restoredNote) => {
+          try {
+            await updateDoc(doc(db, "notes", restoredNote.id), { isDeleted: false });
+          } catch (e) {
+            console.error("Undo failed", e);
+          }
+        },
       });
     },
-    [notes, view, clearToastTimers]
+    [notes, view, showUndoToast]
   );
-
-  // Undo（元に戻す）
-  const handleUndo = useCallback(async () => {
-    if (!toast.deletedNote) return;
-    const restored = toast.deletedNote;
-    
-    setNotes((prev) => {
-      // updatedAt の順で元の位置に近い場所に挿入
-      const idx = prev.findIndex((n) => n.updatedAt < restored.updatedAt);
-      if (idx === -1) return [...prev, restored];
-      const copy = [...prev];
-      copy.splice(idx, 0, restored);
-      return copy;
-    });
-
-    try {
-      await updateDoc(doc(db, "notes", restored.id), { isDeleted: false });
-    } catch (e) {
-      console.error("Undo failed", e);
-    }
-
-    dismissToast();
-  }, [toast.deletedNote, dismissToast]);
 
   const activeNote =
     view.type === "viewer" ? (notes.find((n) => n.id === view.noteId) ?? null) : null;
@@ -1991,8 +1931,8 @@ export default function Notes() {
         />
       )}
 
-      {/* 削除トースト */}
-      <DeleteToast toast={toast} onUndo={handleUndo} onDismiss={dismissToast} />
+      {/* 共通削除トースト */}
+      <UndoToast toast={toast} onUndo={triggerUndo} onDismiss={dismissToast} />
     </>
   );
 }
