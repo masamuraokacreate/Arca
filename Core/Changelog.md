@@ -2,6 +2,75 @@
 
 ---
 
+## [2026-08-19] Release v1.0.0 正式リリース（Sprint 4 ~ 6 完了）
+
+- **日付**: 2026年8月19日
+- **マイルストーン**: **Arca v1.0.0 正式リリース**
+
+### 🌟 概要
+自分専用OS「Arca」の基盤構築、全主要モジュール（Lists / Tasks / Calendar / Notes）、PWA化、オフライン永続化、Google認証ホワイトリスト、Google Drive自動階層バックアップの実装をすべて完了し、本番運用バージョン（v1.0.0）を正式リリース。
+
+### 📌 現在のステータス
+- **稼働環境**: Firebase Hosting（`https://arca-f3fc6.web.app`）＋ PWA（iOS / Desktop）
+- **データ保護**: IndexedDB（手元キャッシュ）＋ Firestore（クラウド）＋ Google Drive（`/800_Arca/810_バックアップ`）
+- **運用方針**: 日常生活での実運用を開始し、UI/UXの微細な調整およびモジュール間連携（Aether Core）の要件定義へ移行。
+
+---
+
+### 🚀 各スプリントの達成内容
+
+#### 【Sprint 4】Notes / Knowledge（記録と知識）モジュールの実装
+- **Apple Notes風の洗練されたUI構築** (`src/components/Notes.tsx`):
+  - アイボリーとマットゴールドを基調としたミニマルなノートエディタ画面。
+  - タイトル・本文のオートセーブ、タグ管理、全文検索、ゴミ箱＆Undoトースト復元機能。
+- **ダッシュボード連携** (`src/components/Dashboard.tsx`, `src/App.tsx`):
+  - ダッシュボードの「最近のノート」一覧からワンクリックで対象ノートを即座に展開・編集するシームレスな画面遷移を実現。
+
+#### 【Sprint 5】Aether Core の高度化（モジュール横断インテリジェンス）
+- **Gemini API を統合したスマートアシスタント基盤** (`src/lib/aetherCore.ts`):
+  - **Daily Briefing**: 今日の予定・タスク・買い物リストを総合分析した朝のパーソナルブリーフィング生成。
+  - **Smart Category Inference**: 買い物リスト入力時のカテゴリ自動分類。
+  - **Natural Language Task Parsing**: 自然言語（「明日10時までに提出」「至急」等）からの期日・優先度自動推論。
+  - **Actionable Item Extraction**: ノートの文章からタスクや買い物項目を自動抽出して各モジュールへワンタップ追加。
+
+#### 【Sprint 6】オフライン完全対応・PWA化・ホワイトリスト認証・Google Drive完全バックアップ
+1. **Firestore オフライン永続化 ＆ ネットワーク状態管理** (`src/lib/firebase.ts`, `src/hooks/useNetworkStatus.ts`):
+   - `persistentLocalCache` および `persistentMultipleTabManager` によるIndexedDBキャッシュを有効化。
+   - 地下鉄や圏外・オフライン環境でもゼロ秒で読み書きが可能となり、オンライン復帰時にFirestoreと自動双方向同期する耐障害性を構築。
+   - Apple HIGに準拠した控えめな `NetworkStatusBadge` をヘッダーに配置（オフライン時は淡いオレンジバッジ、オンライン復帰時は静かに通常表示）。
+2. **PWA（Progressive Web App）化 ＆ iOS Safe Area最適化** (`vite.config.ts`, `index.html`, `src/App.tsx`, `src/index.css` 等):
+   - `vite-plugin-pwa`（Workbox）による主要アセットキャッシュと高速オフライン起動。
+   - PWAアイコンアセット（192px, 512px, maskable, apple-touch-icon）を配備。
+   - `viewport-fit=cover` および `env(safe-area-inset-top)` / `env(safe-area-inset-bottom)` によるiPhoneノッチ・Dynamic Island・ホームバーのフルブリード対応。
+3. **本番ホスティング ＆ Google認証ホワイトリストゲート** (`firebase.json`, `src/components/AuthGate.tsx`):
+   - Firebase Hosting（`https://arca-f3fc6.web.app`）への本番デプロイ。
+   - 管理者アカウント（`masatomuraoka.create@gmail.com` / `masatomuraoka1028@gmail.com`）限定の認証ゲート＆アクセス遮断（大文字小文字の正規化対応）。
+4. **ダッシュボードUIの統一** (`src/components/Dashboard.tsx`):
+   - カードヘッダーから「を開く」を撤去し、「カレンダー」「タスク」「買い物リスト」「ノート」＋ `ChevronRight`（`TileNavButton`）に統一。
+5. **Google Drive API連携 ＆ 完全バックアップシステム** (`src/services/backupService.ts`, `src/hooks/useGoogleAuth.ts`, `src/components/BackupModal.tsx`):
+   - 全モジュール（Lists/Tasks/Calendar/Notes）を集約した `version: "1.0"` 構造化JSON生成（`generateBackupData`）。
+   - `arca_backup_YYYYMMDD_HHmm.json` 形式での手元ダウンロード（`exportToJsonFile`）。
+   - Google Drive API v3（Multipart Upload）による直接クラウド保存（`backupToGoogleDrive`）。
+   - 指定フォルダ階層（`/800_Arca/810_バックアップ`）の自動検索・自動作成（`getOrCreateBackupFolder`）および親フォルダ指定（`parents`）。
+   - 非同期アクセストークン取得（`requestAccessToken`）および401エラー時の自動再認証・リトライ。
+   - スキーマバリデーション付きデータ復元（マージ / 完全上書き対応、`restoreFromJson`）。
+   - ヘッダー右端に「保護」シールドボタンを配備。
+
+---
+
+### 🧪 品質検証・テスト結果
+- **TypeScript型チェック (`tsc -b`)**: エラー **0件**
+- **Vitest 単体テスト (`npm test`)**: 全 **110件** パス（11テストファイルすべてオールグリーン）
+- **プロダクションビルド (`npm run build`)**: 成功
+- **本番デプロイ**: 稼働中 (`https://arca-f3fc6.web.app`)
+
+---
+
+### 💡 次回への展望
+- 日常生活でiPhoneから実際に使い込み、操作感や細かな最適化（Sprint 7: 実生活への完全定着と微調整）を行う。
+
+---
+
 ## [2026-08-18] Sprint 2 & 3 完了
 
 ### 完了したこと
@@ -50,7 +119,7 @@
 | 問題 | 原因 | 解決策 |
 |---|---|---|
 | 画面が真っ白になる | React StrictMode の二重エフェクト実行時に `google` オブジェクト未定義でクラッシュ | GIS スクリプトを `index.html` に直接配置し、`gsi-loaded` イベントで通知 |
-| 同期中→同期完了→同期中になってしまう | `useEffect([isSignedIn, accessToken])` の依存配列が `setSyncStatus` の呼び出しで再トリガーされる構造的欠陥 | 同期処理を命令型コールバック（`performSync`）に切り出し、`useEffect` の依存配列から完全に切り離す
+| 同期中→同期完了→同期中になってしまう | `useEffect([isSignedIn, accessToken])` の依存配列が `setSyncStatus` の呼び出しで再トリガーされる構造的欠陥 | 同期処理を命令型コールバック（`performSync`）に切り出し、`useEffect` の依存配列から完全に切り離す |
 
 ### 未解決・持ち越し
 
