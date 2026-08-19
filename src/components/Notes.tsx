@@ -233,7 +233,7 @@ const GLOBAL_STYLES = `
   /* ── ツールバー（Apple風レスポンシブ） ── */
   .arca-toolbar {
     position: sticky;
-    top: 0;
+    top: calc(52px + env(safe-area-inset-top, 0px));
     z-index: 50;
     width: 100%;
     background: rgba(253, 252, 250, 0.88);
@@ -1279,7 +1279,7 @@ function NoteViewer({
       <footer
         style={{
           position: "fixed", bottom: 0, left: 0, right: 0,
-          padding: "0.45rem 2rem", textAlign: "right",
+          padding: "0.45rem 2rem calc(0.45rem + env(safe-area-inset-bottom, 0px)) 2rem", textAlign: "right",
           background: "rgba(253,252,250,0.65)",
           backdropFilter: "blur(8px)", WebkitBackdropFilter: "blur(8px)",
           pointerEvents: "none", zIndex: 40,
@@ -1835,9 +1835,25 @@ class NoteErrorBoundary extends Component<{ children: ReactNode }, { error: Erro
 
 type View = { type: "dashboard" } | { type: "viewer"; noteId: string };
 
-export default function Notes() {
+export interface NotesProps {
+  initialNoteId?: string | null;
+  onClearSelectedNote?: () => void;
+}
+
+export default function Notes({
+  initialNoteId = null,
+  onClearSelectedNote,
+}: NotesProps = {}) {
   const [notes, setNotes] = useState<NoteItem[]>([]);
-  const [view, setView] = useState<View>({ type: "dashboard" });
+  const [view, setView] = useState<View>(() =>
+    initialNoteId ? { type: "viewer", noteId: initialNoteId } : { type: "dashboard" }
+  );
+
+  useEffect(() => {
+    if (initialNoteId) {
+      setView({ type: "viewer", noteId: initialNoteId });
+    }
+  }, [initialNoteId]);
   const [isFullWidth, setIsFullWidth] = useState(false);
   const [saveStatus, setSaveStatus] = useState<"idle" | "saving" | "saved">("idle");
   const [showTrash, setShowTrash] = useState(false);
@@ -1927,6 +1943,11 @@ export default function Notes() {
     setView({ type: "viewer", noteId: id });
   }, []);
 
+  const handleBack = useCallback(() => {
+    setView({ type: "dashboard" });
+    onClearSelectedNote?.();
+  }, [onClearSelectedNote]);
+
   const mutateNote = useCallback(
     (id: string, patch: Partial<Omit<NoteItem, "id" | "createdAt" | "updatedAt">>) => {
       setNotes((prev) =>
@@ -1985,7 +2006,7 @@ export default function Notes() {
             note={activeNote}
             isFullWidth={isFullWidth}
             saveStatus={saveStatus}
-            onBack={() => setView({ type: "dashboard" })}
+            onBack={handleBack}
             onTitleChange={(val) => currentId && mutateNote(currentId, { title: val })}
             onContentChange={(val) => currentId && mutateNote(currentId, { content: val })}
             onTagsChange={(tags) => currentId && mutateNote(currentId, { tags })}

@@ -9,7 +9,79 @@ import Tasks from "./components/Tasks";
 import Calendar from "./components/Calendar";
 import Dashboard from "./components/Dashboard";
 import Notes from "./components/Notes";
+import BackupModal from "./components/BackupModal";
 import { C } from "./lib/designSystem";
+import { useNetworkStatus } from "./hooks/useNetworkStatus";
+import { logoutUser } from "./components/AuthGate";
+
+// ---------- ネットワーク接続状態バッジ ----------
+function NetworkStatusBadge({ isOnline }: { isOnline: boolean }) {
+  if (isOnline) {
+    return (
+      <div
+        style={{
+          display: "flex",
+          alignItems: "center",
+          gap: "0.35rem",
+          padding: "0.2rem 0.55rem",
+          borderRadius: "9999px",
+          background: "rgba(107, 142, 111, 0.12)",
+          color: "#466B4A",
+          fontSize: "0.68rem",
+          fontWeight: 600,
+          letterSpacing: "0.02em",
+          userSelect: "none",
+          transition: "all 0.2s ease",
+          flexShrink: 0,
+        }}
+        title="クラウドとリアルタイム同期中"
+      >
+        <span
+          style={{
+            width: "5px",
+            height: "5px",
+            borderRadius: "50%",
+            backgroundColor: "#5A8B5F",
+            display: "inline-block",
+          }}
+        />
+        <span className="hidden sm:inline">クラウド同期中</span>
+      </div>
+    );
+  }
+
+  return (
+    <div
+      style={{
+        display: "flex",
+        alignItems: "center",
+        gap: "0.35rem",
+        padding: "0.2rem 0.55rem",
+        borderRadius: "9999px",
+        background: "rgba(184, 150, 106, 0.18)",
+        color: "#8C6332",
+        fontSize: "0.68rem",
+        fontWeight: 600,
+        letterSpacing: "0.02em",
+        userSelect: "none",
+        transition: "all 0.2s ease",
+        flexShrink: 0,
+      }}
+      title="オフラインです。データは端末内に安全に保存されています。"
+    >
+      <span
+        style={{
+          width: "5px",
+          height: "5px",
+          borderRadius: "50%",
+          backgroundColor: "#C5934E",
+          display: "inline-block",
+        }}
+      />
+      <span>オフライン（ローカル保存中）</span>
+    </div>
+  );
+}
 
 // ---------- ナビゲーション定義 ----------
 type Module = "dashboard" | "tasks" | "lists" | "calendar" | "notes";
@@ -26,10 +98,13 @@ const NAV_ITEMS: { id: Module; label: string; sub: string }[] = [
 function NavBar({
   active,
   onChange,
+  onOpenBackup,
 }: {
   active: Module;
   onChange: (m: Module) => void;
+  onOpenBackup?: () => void;
 }) {
+  const { isOnline } = useNetworkStatus();
   const navTrackRef = useRef<HTMLDivElement>(null);
   const buttonRefs = useRef<Map<Module, HTMLButtonElement>>(new Map());
 
@@ -107,8 +182,11 @@ function NavBar({
         backdropFilter: "blur(20px) saturate(180%)",
         WebkitBackdropFilter: "blur(20px) saturate(180%)",
         boxShadow: "0 1px 0 rgba(0, 0, 0, 0.04)",
-        height: "52px",
-        padding: "0 1.25rem",
+        height: "calc(52px + env(safe-area-inset-top, 0px))",
+        paddingTop: "env(safe-area-inset-top, 0px)",
+        paddingLeft: "calc(1.25rem + env(safe-area-inset-left, 0px))",
+        paddingRight: "calc(1.25rem + env(safe-area-inset-right, 0px))",
+        paddingBottom: "0",
         boxSizing: "border-box",
         display: "flex",
         alignItems: "center",
@@ -129,7 +207,7 @@ function NavBar({
         }}
       >
         <img
-          src="/Arca_icon.png"
+          src="/Arca_logo.png"
           alt="Arca"
           style={{
             width: "24px",
@@ -230,15 +308,76 @@ function NavBar({
         })}
       </nav>
 
-      {/* ─── デスクトップ用バランススペーサー（ロゴと同幅で中央揃えを維持） ─── */}
-      <div
-        className="arca-nav-desktop-spacer"
-        style={{
-          width: "48px",
-          flexShrink: 0,
-          pointerEvents: "none",
-        }}
-      />
+      {/* ─── 右端コントロール（データ保護 & ネットワーク状態 & ログアウト） ─── */}
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "flex-end", gap: "0.45rem", flexShrink: 0, minWidth: "24px" }}>
+        <NetworkStatusBadge isOnline={isOnline} />
+
+        {/* データ保護 / バックアップモーダルボタン */}
+        <button
+          onClick={onOpenBackup}
+          style={{
+            display: "inline-flex",
+            alignItems: "center",
+            gap: "0.22rem",
+            background: "transparent",
+            border: "none",
+            borderRadius: "8px",
+            padding: "0.25rem 0.45rem",
+            fontSize: "0.72rem",
+            color: C.charcoalLight,
+            cursor: "pointer",
+            transition: "all 0.15s ease",
+            userSelect: "none",
+          }}
+          title="データ保護 / バックアップ"
+          onMouseEnter={(e) => {
+            (e.currentTarget as HTMLButtonElement).style.color = C.goldDark;
+            (e.currentTarget as HTMLButtonElement).style.background = "rgba(197, 160, 89, 0.08)";
+          }}
+          onMouseLeave={(e) => {
+            (e.currentTarget as HTMLButtonElement).style.color = C.charcoalLight;
+            (e.currentTarget as HTMLButtonElement).style.background = "transparent";
+          }}
+        >
+          <svg viewBox="0 0 24 24" fill="none" strokeWidth={1.75} stroke="currentColor" style={{ width: "0.85rem", height: "0.85rem", flexShrink: 0 }}>
+            <path strokeLinecap="round" strokeLinejoin="round" d="M9 12.75 11.25 15 15 9.75m-3-7.036A11.959 11.959 0 0 1 3.598 6 11.99 11.99 0 0 0 3 9.749c0 5.592 3.824 10.29 9 11.623 5.176-1.332 9-6.03 9-11.622 0-1.31-.21-2.571-.598-3.751h-.152c-3.196 0-6.1-1.248-8.25-3.285Z" />
+          </svg>
+          <span className="hidden sm:inline">保護</span>
+        </button>
+
+        {/* ログアウトボタン */}
+        <button
+          onClick={logoutUser}
+          style={{
+            display: "inline-flex",
+            alignItems: "center",
+            gap: "0.25rem",
+            background: "transparent",
+            border: "none",
+            borderRadius: "8px",
+            padding: "0.25rem 0.45rem",
+            fontSize: "0.72rem",
+            color: C.charcoalLight,
+            cursor: "pointer",
+            transition: "all 0.15s ease",
+            userSelect: "none",
+          }}
+          title="ログアウト"
+          onMouseEnter={(e) => {
+            (e.currentTarget as HTMLButtonElement).style.color = C.danger;
+            (e.currentTarget as HTMLButtonElement).style.background = "rgba(224, 86, 74, 0.08)";
+          }}
+          onMouseLeave={(e) => {
+            (e.currentTarget as HTMLButtonElement).style.color = C.charcoalLight;
+            (e.currentTarget as HTMLButtonElement).style.background = "transparent";
+          }}
+        >
+          <svg viewBox="0 0 24 24" fill="none" strokeWidth={1.75} stroke="currentColor" style={{ width: "0.85rem", height: "0.85rem", flexShrink: 0 }}>
+            <path strokeLinecap="round" strokeLinejoin="round" d="M15.75 9V5.25A2.25 2.25 0 0 0 13.5 3h-6a2.25 2.25 0 0 0-2.25 2.25v13.5A2.25 2.25 0 0 0 7.5 21h6a2.25 2.25 0 0 0 2.25-2.25V15m3 0 3-3m0 0-3-3m3 3H9" />
+          </svg>
+          <span className="hidden sm:inline">ログアウト</span>
+        </button>
+      </div>
     </header>
   );
 }
@@ -246,17 +385,40 @@ function NavBar({
 // ---------- App ----------
 function App() {
   const [activeModule, setActiveModule] = useState<Module>("dashboard");
+  const [selectedNoteId, setSelectedNoteId] = useState<string | null>(null);
+  const [isBackupModalOpen, setIsBackupModalOpen] = useState(false);
+
+  const handleNavigate = useCallback((module: Module) => {
+    if (module !== "notes") {
+      setSelectedNoteId(null);
+    }
+    setActiveModule(module);
+  }, []);
+
+  const handleSelectNote = useCallback((noteId: string) => {
+    setSelectedNoteId(noteId);
+    setActiveModule("notes");
+  }, []);
+
+  const handleClearSelectedNote = useCallback(() => {
+    setSelectedNoteId(null);
+  }, []);
 
   return (
     <div style={{ minHeight: "100vh", position: "relative" }}>
       {/* ナビゲーションバー */}
-      <NavBar active={activeModule} onChange={setActiveModule} />
+      <NavBar
+        active={activeModule}
+        onChange={handleNavigate}
+        onOpenBackup={() => setIsBackupModalOpen(true)}
+      />
 
-      {/* メインコンテンツ領域（ナビバー分の余白） */}
+      {/* メインコンテンツ領域（ナビバー分の余白 & セーフエリア） */}
       <main
         style={{
-          paddingTop: "3.5rem",
-          minHeight: "calc(100vh - 3.5rem)",
+          paddingTop: "calc(3.5rem + env(safe-area-inset-top, 0px))",
+          paddingBottom: "env(safe-area-inset-bottom, 0px)",
+          minHeight: "calc(100vh - 3.5rem - env(safe-area-inset-top, 0px))",
           width: "100%",
         }}
       >
@@ -267,13 +429,29 @@ function App() {
             width: "100%",
           }}
         >
-          {activeModule === "dashboard" && <Dashboard />}
+          {activeModule === "dashboard" && (
+            <Dashboard
+              onNavigate={handleNavigate}
+              onSelectNote={handleSelectNote}
+            />
+          )}
           {activeModule === "tasks" && <Tasks />}
           {activeModule === "lists" && <Lists />}
           {activeModule === "calendar" && <Calendar />}
-          {activeModule === "notes" && <Notes />}
+          {activeModule === "notes" && (
+            <Notes
+              initialNoteId={selectedNoteId}
+              onClearSelectedNote={handleClearSelectedNote}
+            />
+          )}
         </div>
       </main>
+
+      {/* データ保護 ＆ バックアップモーダル */}
+      <BackupModal
+        isOpen={isBackupModalOpen}
+        onClose={() => setIsBackupModalOpen(false)}
+      />
     </div>
   );
 }

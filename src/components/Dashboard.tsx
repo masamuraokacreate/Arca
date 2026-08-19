@@ -56,16 +56,79 @@ function CheckCircle({ completed }: { completed: boolean }) {
   );
 }
 
-function ArrowRightIcon() {
+function ChevronRight() {
   return (
-    <svg viewBox="0 0 24 24" fill="none" strokeWidth={2} stroke="currentColor" style={{ width: "0.75rem", height: "0.75rem" }}>
-      <path strokeLinecap="round" strokeLinejoin="round" d="M13.5 4.5 21 12m0 0-7.5 7.5M21 12H3" />
+    <svg
+      viewBox="0 0 24 24"
+      fill="none"
+      strokeWidth={2.2}
+      stroke="currentColor"
+      style={{
+        width: "0.72rem",
+        height: "0.72rem",
+        flexShrink: 0,
+        transition: "transform 0.16s cubic-bezier(0.16, 1, 0.3, 1)",
+      }}
+    >
+      <path strokeLinecap="round" strokeLinejoin="round" d="m8.25 4.5 7.5 7.5-7.5 7.5" />
     </svg>
   );
 }
 
+function TileNavButton({
+  label,
+  onClick,
+}: {
+  label: string;
+  onClick: () => void;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      style={{
+        display: "inline-flex",
+        alignItems: "center",
+        gap: "0.22rem",
+        fontSize: "0.74rem",
+        color: C.goldDark,
+        background: "transparent",
+        border: "none",
+        borderRadius: "6px",
+        padding: "0.2rem 0.45rem",
+        marginRight: "-0.35rem",
+        cursor: "pointer",
+        fontWeight: 600,
+        letterSpacing: "0.01em",
+        userSelect: "none",
+        transition: "background 0.15s ease, color 0.15s ease",
+      }}
+      onMouseEnter={(e) => {
+        (e.currentTarget as HTMLButtonElement).style.background = "rgba(197, 160, 89, 0.08)";
+        const svg = e.currentTarget.querySelector("svg");
+        if (svg) svg.style.transform = "translateX(2px)";
+      }}
+      onMouseLeave={(e) => {
+        (e.currentTarget as HTMLButtonElement).style.background = "transparent";
+        const svg = e.currentTarget.querySelector("svg");
+        if (svg) svg.style.transform = "translateX(0)";
+      }}
+    >
+      <span>{label}</span>
+      <ChevronRight />
+    </button>
+  );
+}
+
+export type Module = "dashboard" | "tasks" | "lists" | "calendar" | "notes";
+
+export interface DashboardProps {
+  onNavigate?: (module: Module) => void;
+  onSelectNote?: (noteId: string) => void;
+}
+
 // ---------- メインコンポーネント ----------
-export default function Dashboard() {
+export default function Dashboard({ onNavigate, onSelectNote }: DashboardProps = {}) {
   const today = todayStr();
 
   const [events, setEvents] = useState<CalendarEvent[]>([]);
@@ -188,25 +251,10 @@ export default function Dashboard() {
                 ({todayEvents.length})
               </span>
             </div>
-            <a
-              href="#calendar"
-              onClick={(e) => {
-                e.preventDefault();
-                window.location.hash = "calendar";
-              }}
-              style={{
-                display: "inline-flex",
-                alignItems: "center",
-                gap: "0.25rem",
-                fontSize: "0.74rem",
-                color: C.goldDark,
-                textDecoration: "none",
-                fontWeight: 550,
-              }}
-            >
-              <span>カレンダー</span>
-              <ArrowRightIcon />
-            </a>
+            <TileNavButton
+              label="カレンダー"
+              onClick={() => onNavigate?.("calendar")}
+            />
           </div>
 
           {/* 内部スクロール */}
@@ -280,25 +328,10 @@ export default function Dashboard() {
                 ({todayTasks.length})
               </span>
             </div>
-            <a
-              href="#tasks"
-              onClick={(e) => {
-                e.preventDefault();
-                window.location.hash = "tasks";
-              }}
-              style={{
-                display: "inline-flex",
-                alignItems: "center",
-                gap: "0.25rem",
-                fontSize: "0.74rem",
-                color: C.goldDark,
-                textDecoration: "none",
-                fontWeight: 550,
-              }}
-            >
-              <span>タスク一覧</span>
-              <ArrowRightIcon />
-            </a>
+            <TileNavButton
+              label="タスク"
+              onClick={() => onNavigate?.("tasks")}
+            />
           </div>
 
           {/* 内部スクロール */}
@@ -383,25 +416,10 @@ export default function Dashboard() {
                 ({activeLists.length})
               </span>
             </div>
-            <a
-              href="#lists"
-              onClick={(e) => {
-                e.preventDefault();
-                window.location.hash = "lists";
-              }}
-              style={{
-                display: "inline-flex",
-                alignItems: "center",
-                gap: "0.25rem",
-                fontSize: "0.74rem",
-                color: C.goldDark,
-                textDecoration: "none",
-                fontWeight: 550,
-              }}
-            >
-              <span>リストを開く</span>
-              <ArrowRightIcon />
-            </a>
+            <TileNavButton
+              label="買い物リスト"
+              onClick={() => onNavigate?.("lists")}
+            />
           </div>
 
           {/* 内部スクロール */}
@@ -477,25 +495,10 @@ export default function Dashboard() {
                 ({notes.length})
               </span>
             </div>
-            <a
-              href="#notes"
-              onClick={(e) => {
-                e.preventDefault();
-                window.location.hash = "notes";
-              }}
-              style={{
-                display: "inline-flex",
-                alignItems: "center",
-                gap: "0.25rem",
-                fontSize: "0.74rem",
-                color: C.goldDark,
-                textDecoration: "none",
-                fontWeight: 550,
-              }}
-            >
-              <span>ノートを開く</span>
-              <ArrowRightIcon />
-            </a>
+            <TileNavButton
+              label="ノート"
+              onClick={() => onNavigate?.("notes")}
+            />
           </div>
 
           {/* 内部スクロール */}
@@ -512,7 +515,11 @@ export default function Dashboard() {
                   <li
                     key={note.id}
                     onClick={() => {
-                      window.location.hash = `notes?id=${note.id}`;
+                      if (onSelectNote) {
+                        onSelectNote(note.id);
+                      } else if (onNavigate) {
+                        onNavigate("notes");
+                      }
                     }}
                     style={{
                       padding: "0.55rem 0.65rem",

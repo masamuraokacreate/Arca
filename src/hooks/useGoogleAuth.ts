@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef, useCallback } from "react";
 
 const CLIENT_ID = import.meta.env.VITE_GOOGLE_CLIENT_ID as string;
-const SCOPE = "https://www.googleapis.com/auth/tasks";
+const SCOPE = "https://www.googleapis.com/auth/tasks https://www.googleapis.com/auth/drive.file";
 const LS_TOKEN  = "arca_g_token";
 const LS_EXPIRY = "arca_g_expiry";
 
@@ -11,11 +11,12 @@ export interface GoogleAuthState {
   isReady: boolean;
   signIn: () => void;
   signOut: () => void;
+  requestAccessToken: (forcePrompt?: boolean) => Promise<string>;
 }
 
 // ---------- localStorage ユーティリティ ----------
 
-function loadSavedToken(): string | null {
+export function loadSavedToken(): string | null {
   try {
     const token  = localStorage.getItem(LS_TOKEN);
     const expiry = localStorage.getItem(LS_EXPIRY);
@@ -25,14 +26,14 @@ function loadSavedToken(): string | null {
   return null;
 }
 
-function saveToken(token: string, expiresIn: number): void {
+export function saveToken(token: string, expiresIn: number): void {
   try {
     localStorage.setItem(LS_TOKEN,  token);
     localStorage.setItem(LS_EXPIRY, String(Date.now() + (expiresIn - 60) * 1000));
   } catch { /* no-op */ }
 }
 
-function clearSavedToken(): void {
+export function clearSavedToken(): void {
   try {
     localStorage.removeItem(LS_TOKEN);
     localStorage.removeItem(LS_EXPIRY);
@@ -56,6 +57,11 @@ export function useGoogleAuth(
   const tokenClientRef  = useRef<TokenClient | null>(null);
   const initializedRef  = useRef(false);
 
+  // 非同期アクセストークン要求待ちのリゾルバキュー
+  const pendingResolversRef = useRef<
+    { resolve: (token: string) => void; reject: (err: Error) => void }[]
+  >([]);
+
   // ref 経由でコールバックを常に最新に保つ（deps を不安定にしない）
   const onLoginRef = useRef(onLogin);
   useEffect(() => { onLoginRef.current = onLogin; });
@@ -70,20 +76,33 @@ export function useGoogleAuth(
       scope: SCOPE,
       callback: (resp: TokenResponse) => {
         if (resp.error) {
-          console.error("Google OAuth error:", resp.error_description);
+          console.error("Google OAuth error:", resp.error_description || resp.error);
           clearSavedToken();
           setAccessToken(null);
+          const err = new Error(resp.error_description || resp.error || "Google認証に失敗しました。");
+          const resolvers = [...pendingResolversRef.current];
+          pendingResolversRef.current = [];
+          resolvers.forEach((r) => r.reject(err));
           return;
         }
+
         // トークンを保存し、呼び出し元へ直接通知（Reactのdep経由ではなく命令型）
         saveToken(resp.access_token, resp.expires_in);
         setAccessToken(resp.access_token);
         onLoginRef.current?.(resp.access_token);
+
+        const resolvers = [...pendingResolversRef.current];
+        pendingResolversRef.current = [];
+        resolvers.forEach((r) => r.resolve(resp.access_token));
       },
       error_callback: (err) => {
         console.error("Google OAuth error_callback:", err);
         clearSavedToken();
         setAccessToken(null);
+        const error = new Error(err?.message || "Google認証がキャンセルされたか失敗しました。");
+        const resolvers = [...pendingResolversRef.current];
+        pendingResolversRef.current = [];
+        resolvers.forEach((r) => r.reject(error));
       },
     });
     setIsReady(true);
@@ -100,18 +119,45 @@ export function useGoogleAuth(
     return () => window.removeEventListener("gsi-loaded", handler);
   }, [initTokenClient]);
 
+  // ---------- 非同期アクセストークン取得 (Promise) ----------
+  const requestAccessToken = useCallback(
+    (forcePrompt = false): Promise<string> => {
+      if (!forcePrompt) {
+        const saved = loadSavedToken();
+        if (saved) {
+          setAccessToken(saved);
+          return Promise.resolve(saved);
+        }
+      } else {
+        clearSavedToken();
+        setAccessToken(null);
+      }
+
+      if (!tokenClientRef.current) {
+        return Promise.reject(new Error("Google認証クライアントの初期化中です。少々お待ちください。"));
+      }
+
+      return new Promise<string>((resolve, reject) => {
+        pendingResolversRef.current.push({ resolve, reject });
+        try {
+          tokenClientRef.current?.requestAccessToken({
+            prompt: forcePrompt ? "consent" : "",
+          });
+        } catch (e) {
+          pendingResolversRef.current = pendingResolversRef.current.filter((r) => r.resolve !== resolve);
+          reject(e instanceof Error ? e : new Error(String(e)));
+        }
+      });
+    },
+    []
+  );
+
   // ---------- ログイン / ログアウト ----------
   const signIn = useCallback(() => {
-    // 有効な保存済みトークンがあれば再認証不要
-    const saved = loadSavedToken();
-    if (saved) {
-      setAccessToken(saved);
-      // ここでは onLoginRef を呼ばない
-      // → Lists側の mount useEffect([]) が既に処理済みのため
-      return;
-    }
-    tokenClientRef.current?.requestAccessToken({ prompt: "consent" });
-  }, []);
+    requestAccessToken(false).catch((err) => {
+      console.warn("Sign in cancelled or failed:", err);
+    });
+  }, [requestAccessToken]);
 
   const signOut = useCallback(() => {
     clearSavedToken();
@@ -120,5 +166,12 @@ export function useGoogleAuth(
     if (cur) google.accounts.oauth2.revoke(cur, () => {});
   }, [accessToken]);
 
-  return { accessToken, isSignedIn: !!accessToken, isReady, signIn, signOut };
+  return {
+    accessToken,
+    isSignedIn: !!accessToken,
+    isReady,
+    signIn,
+    signOut,
+    requestAccessToken,
+  };
 }

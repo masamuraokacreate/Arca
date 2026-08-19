@@ -15,13 +15,38 @@ afterEach(() => {
 // ─── Firebase モック ───
 vi.mock("../lib/firebase", () => ({
   db: {},
+  auth: {},
 }));
 
+vi.mock("firebase/auth", () => {
+  return {
+    getAuth: vi.fn(() => ({})),
+    onAuthStateChanged: vi.fn((_auth, callback) => {
+      callback(null);
+      return vi.fn();
+    }),
+    signInWithPopup: vi.fn(),
+    signOut: vi.fn(),
+    GoogleAuthProvider: class {
+      setCustomParameters = vi.fn();
+    },
+  };
+});
+
 vi.mock("firebase/firestore", () => ({
-  collection: vi.fn(),
+  initializeFirestore: vi.fn(() => ({})),
+  persistentLocalCache: vi.fn(() => ({})),
+  persistentMultipleTabManager: vi.fn(() => ({})),
+  collection: vi.fn((_db: unknown, path: string) => ({ id: path, path })),
   addDoc: vi.fn(),
   updateDoc: vi.fn(),
   deleteDoc: vi.fn(),
+  setDoc: vi.fn(),
+  writeBatch: vi.fn(() => ({
+    set: vi.fn(),
+    delete: vi.fn(),
+    commit: vi.fn().mockResolvedValue(undefined),
+  })),
   getDocs: vi.fn().mockResolvedValue({ docs: [] }),
   doc: vi.fn(),
   onSnapshot: vi.fn(() => vi.fn()),
@@ -29,7 +54,10 @@ vi.mock("firebase/firestore", () => ({
   where: vi.fn(),
   orderBy: vi.fn(),
   serverTimestamp: vi.fn(() => ({ seconds: 0, nanoseconds: 0 })),
-  Timestamp: { now: vi.fn() },
+  Timestamp: {
+    now: vi.fn(),
+    fromDate: vi.fn((d: Date) => ({ toDate: () => d, seconds: Math.floor(d.getTime() / 1000) })),
+  },
 }));
 
 vi.mock("../lib/aetherCore", () => ({
@@ -57,6 +85,7 @@ vi.mock("../hooks/useGoogleAuth", () => ({
     isReady: true,
     signIn: vi.fn(),
     signOut: vi.fn(),
+    requestAccessToken: vi.fn().mockResolvedValue("mock-token"),
   })),
 }));
 
