@@ -121,13 +121,24 @@ function NavBar({
         style={{
           display: "flex",
           alignItems: "center",
-          gap: "0.4rem",
+          gap: "0.5rem",
           cursor: "pointer",
           userSelect: "none",
           flexShrink: 0,
           paddingRight: "0.75rem",
         }}
       >
+        <img
+          src="/Arca_icon.png"
+          alt="Arca"
+          style={{
+            width: "24px",
+            height: "24px",
+            borderRadius: "6px",
+            boxShadow: "0 1px 3px rgba(0, 0, 0, 0.08)",
+            objectFit: "cover",
+          }}
+        />
         <span
           style={{
             fontSize: "0.95rem",

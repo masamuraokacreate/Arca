@@ -44,10 +44,12 @@ import {
   serverTimestamp,
 } from "firebase/firestore";
 import { db } from "../lib/firebase";
-import type { NoteItem } from "../types";
+import type { NoteItem, ExtractedActionableItems } from "../types";
 import { C } from "../lib/designSystem";
 import { useUndoToast } from "../hooks/useUndoToast";
 import { UndoToast } from "./common/UndoToast";
+import { extractActionableItems } from "../lib/aetherCore";
+import { AetherExtractModal } from "./notes/AetherExtractModal";
 
 // ─────────────────────────────────────────
 // ユーティリティ
@@ -451,6 +453,16 @@ const TrashIcon = () => (
   </svg>
 );
 
+const SparklesIcon = () => (
+  <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0, color: C.gold }}>
+    <path d="m12 3-1.912 5.813a2 2 0 0 1-1.275 1.275L3 12l5.813 1.912a2 2 0 0 1 1.275 1.275L12 21l1.912-5.813a2 2 0 0 1 1.275-1.275L21 12l-5.813-1.912a2 2 0 0 1-1.275-1.275L12 3Z" />
+    <path d="M5 3v4" />
+    <path d="M19 17v4" />
+    <path d="M3 5h4" />
+    <path d="M17 19h4" />
+  </svg>
+);
+
 // ─────────────────────────────────────────
 // スラッシュコマンド定義
 // ─────────────────────────────────────────
@@ -781,6 +793,7 @@ function NoteViewer({
   onTagsChange,
   onDelete,
   onToggleFullWidth,
+  onToastMessage,
 }: {
   note: NoteItem;
   isFullWidth: boolean;
@@ -791,6 +804,7 @@ function NoteViewer({
   onTagsChange: (tags: string[]) => void;
   onDelete: () => void;
   onToggleFullWidth: () => void;
+  onToastMessage?: (msg: string) => void;
 }) {
   // デフォルトは「閲覧」モード。新規ノート（タイトルと内容が空）は直接編集へ
   const defaultMode: NoteViewMode =
@@ -803,6 +817,28 @@ function NoteViewer({
   const [slashLineIdx, setSlashLineIdx] = useState(0);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
 
+  // Aether Core 抽出ステート
+  const [isExtracting, setIsExtracting] = useState(false);
+  const [extractedData, setExtractedData] = useState<ExtractedActionableItems | null>(null);
+
+  const handleExtract = async () => {
+    if (!note.content.trim() || isExtracting) return;
+    setIsExtracting(true);
+    try {
+      const res = await extractActionableItems(note.content);
+      if (res) {
+        setExtractedData(res);
+      } else {
+        onToastMessage?.("アクション項目を抽出できませんでした（APIキーの設定をご確認ください）");
+      }
+    } catch (e) {
+      console.error("Extract failed", e);
+      onToastMessage?.("抽出中にエラーが発生しました");
+    } finally {
+      setIsExtracting(false);
+    }
+  };
+
   // ノート切替時のリセット
   useEffect(() => {
     setTagsInput(note.tags.join(", "));
@@ -810,6 +846,7 @@ function NoteViewer({
     setMode(m);
     setSlashActive(false);
     setShowToc(false);
+    setExtractedData(null);
   }, [note.id]);
 
   // Textarea 自動伸長
@@ -978,6 +1015,45 @@ function NoteViewer({
               <span>編集</span>
             </button>
           </div>
+
+          <div className="arca-tb-divider" />
+
+          {/* ✦ Aether 抽出ボタン */}
+          <button
+            onClick={handleExtract}
+            disabled={isExtracting || !note.content.trim()}
+            className="arca-tb-btn"
+            title="ノートから買い物リスト・タスクを抽出"
+            style={{
+              color: C.goldDark,
+              background: C.goldFaint,
+              fontWeight: 600,
+              cursor: isExtracting || !note.content.trim() ? "default" : "pointer",
+              opacity: !note.content.trim() ? 0.5 : 1,
+            }}
+          >
+            {isExtracting ? (
+              <span style={{ display: "inline-flex", gap: "2px", alignItems: "center", height: "14px" }}>
+                {[0, 1, 2].map((i) => (
+                  <span
+                    key={i}
+                    style={{
+                      width: "3px",
+                      height: "3px",
+                      borderRadius: "50%",
+                      backgroundColor: C.gold,
+                      display: "inline-block",
+                      animation: `aether-pulse 1.2s ease-in-out ${i * 0.2}s infinite`,
+                    }}
+                  />
+                ))}
+              </span>
+            ) : (
+              <SparklesIcon />
+            )}
+            <span className="arca-btn-label-desktop">✦ Aether 抽出</span>
+            <span className="arca-btn-label-mobile">✦ 抽出</span>
+          </button>
 
           <div className="arca-tb-divider" />
 
@@ -1220,6 +1296,17 @@ function NoteViewer({
           {note.content.length.toLocaleString()} 文字
         </span>
       </footer>
+
+      {/* ✦ Aether Core 抽出モーダル */}
+      {extractedData && (
+        <AetherExtractModal
+          items={extractedData}
+          onClose={() => setExtractedData(null)}
+          onSuccess={(count) => {
+            onToastMessage?.(`${count}件のアイテムを買い物リスト・タスクに追加しました`);
+          }}
+        />
+      )}
     </div>
   );
 }
@@ -1781,8 +1868,8 @@ export default function Notes() {
   const activeNotes = notes.filter(n => !n.isDeleted);
   const deletedNotes = notes.filter(n => n.isDeleted);
 
-  // 共通 Undo トースト
-  const { toast, showUndoToast, dismissToast, triggerUndo } = useUndoToast<NoteItem>();
+  // 共通トースト
+  const { toast, showUndoToast, showMessageToast, dismissToast, triggerUndo } = useUndoToast<NoteItem>();
 
   // ノート削除（Undo対応）
   const handleDeleteNote = useCallback(
@@ -1904,6 +1991,7 @@ export default function Notes() {
             onTagsChange={(tags) => currentId && mutateNote(currentId, { tags })}
             onDelete={() => currentId && handleDeleteNote(currentId)}
             onToggleFullWidth={() => setIsFullWidth((v) => !v)}
+            onToastMessage={showMessageToast}
           />
         </NoteErrorBoundary>
       )}

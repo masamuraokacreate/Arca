@@ -89,6 +89,45 @@ export function useUndoToast<T>() {
     [clearTimers]
   );
 
+  const showMessageToast = useCallback(
+    (message: string) => {
+      clearTimers();
+      onUndoCallbackRef.current = null;
+
+      let rem = 4;
+      countdownRef.current = setInterval(() => {
+        rem--;
+        setToast((prev) => ({ ...prev, remaining: Math.max(0, rem) }));
+        if (rem <= 0 && countdownRef.current) {
+          clearInterval(countdownRef.current);
+        }
+      }, 1000);
+
+      timerRef.current = setTimeout(() => {
+        if (countdownRef.current) clearInterval(countdownRef.current);
+        setToast((prev) => ({ ...prev, leaving: true }));
+        leaveTimerRef.current = setTimeout(() => {
+          setToast({
+            visible: false,
+            leaving: false,
+            message: "",
+            item: null,
+            remaining: 5,
+          });
+        }, 200);
+      }, 4000);
+
+      setToast({
+        visible: true,
+        leaving: false,
+        message,
+        item: null,
+        remaining: 4,
+      });
+    },
+    [clearTimers]
+  );
+
   const triggerUndo = useCallback(async () => {
     if (!toast.item || !onUndoCallbackRef.current) return;
     const currentItem = toast.item;
@@ -99,6 +138,7 @@ export function useUndoToast<T>() {
   return {
     toast,
     showUndoToast,
+    showMessageToast,
     dismissToast,
     triggerUndo,
   };

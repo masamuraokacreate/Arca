@@ -86,32 +86,34 @@ export function UndoToast<T>({
         {toast.remaining}
       </div>
 
-      {/* 元に戻すボタン */}
-      <button
-        onClick={onUndo}
-        style={{
-          background: C.goldFaint3,
-          border: "none",
-          borderRadius: "9999px",
-          padding: "0.32rem 0.85rem",
-          cursor: "pointer",
-          color: C.gold,
-          fontSize: "0.78rem",
-          fontWeight: 600,
-          letterSpacing: "0.02em",
-          flexShrink: 0,
-          whiteSpace: "nowrap",
-          transition: "all 0.15s ease",
-        }}
-        onMouseEnter={(e) => {
-          (e.currentTarget as HTMLButtonElement).style.background = "rgba(197, 160, 89, 0.36)";
-        }}
-        onMouseLeave={(e) => {
-          (e.currentTarget as HTMLButtonElement).style.background = C.goldFaint3;
-        }}
-      >
-        元に戻す
-      </button>
+      {/* 元に戻すボタン（itemが存在する場合のみ表示） */}
+      {toast.item && (
+        <button
+          onClick={onUndo}
+          style={{
+            background: C.goldFaint3,
+            border: "none",
+            borderRadius: "9999px",
+            padding: "0.32rem 0.85rem",
+            cursor: "pointer",
+            color: C.gold,
+            fontSize: "0.78rem",
+            fontWeight: 600,
+            letterSpacing: "0.02em",
+            flexShrink: 0,
+            whiteSpace: "nowrap",
+            transition: "all 0.15s ease",
+          }}
+          onMouseEnter={(e) => {
+            (e.currentTarget as HTMLButtonElement).style.background = "rgba(197, 160, 89, 0.36)";
+          }}
+          onMouseLeave={(e) => {
+            (e.currentTarget as HTMLButtonElement).style.background = C.goldFaint3;
+          }}
+        >
+          元に戻す
+        </button>
+      )}
 
       {/* 閉じるボタン */}
       <button

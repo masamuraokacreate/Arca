@@ -1,6 +1,11 @@
 /**
  * src/components/Calendar.tsx
  * Arca — Calendar / カレンダー (Apple HIG × Arca 準拠)
+ *
+ * 設計原則 (Core/Rules.md):
+ *  - 道具としての静けさ、枠線の完全排除と多層シャドウ
+ *  - 「予定」セクションには「予定を追加」フォーム
+ *  - 「タスク期限」セクションには「タスクを追加」フォーム（期限は選択中の日付/今日に自動設定）
  */
 
 import { useState, useEffect, useCallback, useRef } from "react";
@@ -118,71 +123,76 @@ function EventRow({
   const [editStart, setEditStart] = useState(event.startTime);
   const [editEnd, setEditEnd] = useState(event.endTime);
   const [editNote, setEditNote] = useState(event.note);
-  const titleRef = useRef<HTMLInputElement>(null);
 
-  const startEdit = () => {
+  useEffect(() => {
     setEditTitle(event.title);
     setEditStart(event.startTime);
     setEditEnd(event.endTime);
     setEditNote(event.note);
-    setEditing(true);
-    requestAnimationFrame(() => titleRef.current?.focus());
-  };
+  }, [event]);
 
-  const cancelEdit = () => setEditing(false);
-
-  const saveEdit = async () => {
+  const handleSave = () => {
     if (!editTitle.trim()) return;
-    await onUpdate(event.id, {
+    onUpdate(event.id, {
       title: editTitle.trim(),
       startTime: editStart,
       endTime: editEnd,
-      note: editNote,
+      note: editNote.trim(),
     });
     setEditing(false);
   };
+
+  const handleCancel = () => {
+    setEditTitle(event.title);
+    setEditStart(event.startTime);
+    setEditEnd(event.endTime);
+    setEditNote(event.note);
+    setEditing(false);
+  };
+
+  const hasTime = event.startTime || event.endTime;
+  const timeDisplay =
+    event.startTime && event.endTime
+      ? `${event.startTime} – ${event.endTime}`
+      : event.startTime || event.endTime;
 
   if (editing) {
     return (
       <li
         style={{
-          padding: "0.85rem 0",
-          borderBottom: "1px solid rgba(0, 0, 0, 0.035)",
-          animation: "arca-module-in 0.15s ease",
+          padding: "0.75rem 0",
+          borderBottom: "1px solid rgba(0, 0, 0, 0.04)",
+          display: "flex",
+          flexDirection: "column",
+          gap: "0.5rem",
         }}
       >
-        {/* タイトル編集 */}
         <input
-          ref={titleRef}
           type="text"
           value={editTitle}
           onChange={(e) => setEditTitle(e.target.value)}
-          onKeyDown={(e) => {
-            if (e.key === "Enter") saveEdit();
-            if (e.key === "Escape") cancelEdit();
-          }}
+          placeholder="予定タイトル"
           style={{
-            width: "100%",
             background: "transparent",
             border: "none",
             borderBottom: `1px solid ${C.gold}`,
             outline: "none",
             fontSize: "0.875rem",
             color: C.charcoal,
-            paddingBottom: "0.25rem",
-            marginBottom: "0.6rem",
+            padding: "0.2rem 0",
+            letterSpacing: "0.01em",
           }}
+          autoFocus
         />
-        {/* 時刻 */}
-        <div style={{ display: "flex", gap: "0.5rem", marginBottom: "0.5rem", alignItems: "center" }}>
-          <span style={{ fontSize: "0.68rem", color: C.charcoalLight }}>開始</span>
+
+        <div style={{ display: "flex", alignItems: "center", gap: "0.5rem" }}>
           <input
             type="time"
             value={editStart}
             onChange={(e) => setEditStart(e.target.value)}
             style={timeInputStyle}
           />
-          <span style={{ fontSize: "0.68rem", color: C.charcoalLight }}>終了</span>
+          <span style={{ fontSize: "0.72rem", color: C.charcoalLight }}>–</span>
           <input
             type="time"
             value={editEnd}
@@ -190,30 +200,27 @@ function EventRow({
             style={timeInputStyle}
           />
         </div>
-        {/* メモ */}
+
         <input
           type="text"
           value={editNote}
           onChange={(e) => setEditNote(e.target.value)}
           placeholder="メモ（任意）"
           style={{
-            width: "100%",
             background: "transparent",
             border: "none",
-            borderBottom: "1px solid rgba(0, 0, 0, 0.05)",
             outline: "none",
-            fontSize: "0.75rem",
-            color: C.charcoal,
-            paddingBottom: "0.2rem",
-            marginBottom: "0.7rem",
+            fontSize: "0.78rem",
+            color: C.charcoalMid,
+            padding: "0.15rem 0",
           }}
         />
-        {/* 保存 / キャンセル */}
-        <div style={{ display: "flex", gap: "0.6rem", justifyContent: "flex-end" }}>
-          <button onClick={cancelEdit} style={iconBtnStyle(C.charcoalLight)} title="キャンセル">
+
+        <div style={{ display: "flex", justifyContent: "flex-end", gap: "0.4rem", marginTop: "0.25rem" }}>
+          <button onClick={handleCancel} style={iconBtnStyle(C.charcoalLight)} title="キャンセル">
             <XIcon />
           </button>
-          <button onClick={saveEdit} style={iconBtnStyle(C.gold)} title="保存">
+          <button onClick={handleSave} style={iconBtnStyle(C.gold)} title="保存">
             <CheckIcon />
           </button>
         </div>
@@ -234,12 +241,10 @@ function EventRow({
         transition: "background 0.15s ease",
       }}
     >
-      {/* タイムライン的な左アクセント */}
       <div
         style={{
-          width: "2.5px",
+          width: "3px",
           minHeight: "1.2rem",
-          height: "100%",
           background: C.gold,
           borderRadius: "9999px",
           flexShrink: 0,
@@ -248,54 +253,44 @@ function EventRow({
         }}
       />
 
-      {/* 本文 */}
       <div style={{ flex: 1, minWidth: 0 }}>
-        <p
-          style={{
-            margin: 0,
-            fontSize: "0.875rem",
-            fontWeight: 450,
-            color: C.charcoal,
-            letterSpacing: "0.01em",
-            whiteSpace: "nowrap",
-            overflow: "hidden",
-            textOverflow: "ellipsis",
-          }}
-        >
+        <p style={{ margin: 0, fontSize: "0.875rem", fontWeight: 450, color: C.charcoal, letterSpacing: "0.01em" }}>
           {event.title}
         </p>
-        {(event.startTime || event.note) && (
-          <p
-            style={{
-              margin: "0.2rem 0 0",
-              fontSize: "0.72rem",
-              color: C.charcoalLight,
-              letterSpacing: "0.02em",
-            }}
-          >
-            {event.startTime && (
-              <span>{event.startTime}{event.endTime ? ` – ${event.endTime}` : ""}</span>
-            )}
-            {event.startTime && event.note && <span style={{ margin: "0 0.3rem" }}>·</span>}
-            {event.note && <span>{event.note}</span>}
+        {hasTime && (
+          <p style={{ margin: "0.2rem 0 0", fontSize: "0.72rem", color: C.goldDark, letterSpacing: "0.02em" }}>
+            {timeDisplay}
+          </p>
+        )}
+        {event.note && (
+          <p style={{ margin: "0.2rem 0 0", fontSize: "0.75rem", color: C.charcoalLight, letterSpacing: "0.01em" }}>
+            {event.note}
           </p>
         )}
       </div>
 
-      {/* アクションボタン（ホバー時のみ） */}
       <div
         style={{
           display: "flex",
+          alignItems: "center",
           gap: "0.25rem",
           opacity: hovered ? 1 : 0,
           transition: "opacity 0.15s ease",
           flexShrink: 0,
         }}
       >
-        <button onClick={startEdit} style={iconBtnStyle(C.charcoalLight)} title="編集" data-testid="event-edit-btn">
+        <button
+          onClick={() => setEditing(true)}
+          style={{ background: "none", border: "none", padding: "0.2rem", cursor: "pointer", color: C.charcoalLight }}
+          title="編集"
+        >
           <PencilIcon />
         </button>
-        <button onClick={() => onDelete(event)} style={iconBtnStyle(C.charcoalLight)} title="削除" data-testid="event-delete-btn">
+        <button
+          onClick={() => onDelete(event)}
+          style={{ background: "none", border: "none", padding: "0.2rem", cursor: "pointer", color: C.charcoalLight }}
+          title="削除"
+        >
           <TrashIcon />
         </button>
       </div>
@@ -304,7 +299,7 @@ function EventRow({
 }
 
 // ─────────────────────────────────────────
-// TaskDueRow — タスク期限行（読み取り専用）
+// TaskDueRow — タスク期限行
 // ─────────────────────────────────────────
 function TaskDueRow({ task }: { task: Task }) {
   return (
@@ -318,7 +313,6 @@ function TaskDueRow({ task }: { task: Task }) {
         opacity: task.completed ? 0.45 : 1,
       }}
     >
-      {/* タスク左アクセント（グレー：予定のゴールドと優しく区別） */}
       <div
         style={{
           width: "2.5px",
@@ -379,9 +373,7 @@ function AddEventForm({
   useEffect(() => {
     if (!open) return;
     const handleKeyDown = (e: globalThis.KeyboardEvent) => {
-      if (e.key === "Escape") {
-        reset();
-      }
+      if (e.key === "Escape") reset();
     };
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
@@ -441,7 +433,6 @@ function AddEventForm({
         animation: "arca-module-in 0.18s ease",
       }}
     >
-      {/* タイトル */}
       <input
         ref={inputRef}
         type="text"
@@ -449,30 +440,41 @@ function AddEventForm({
         onChange={(e) => setTitle(e.target.value)}
         onKeyDown={(e) => {
           if (e.key === "Enter") handleAdd();
-          if (e.key === "Escape") reset();
         }}
-        placeholder="予定のタイトル…"
+        placeholder="予定タイトル"
         style={{
           width: "100%",
+          boxSizing: "border-box",
           background: "transparent",
           border: "none",
           borderBottom: `1px solid ${C.gold}`,
           outline: "none",
           fontSize: "0.875rem",
           color: C.charcoal,
-          paddingBottom: "0.4rem",
-          marginBottom: "0.75rem",
-          boxSizing: "border-box",
+          padding: "0.2rem 0",
+          letterSpacing: "0.01em",
+          marginBottom: "0.65rem",
         }}
       />
-      {/* 時刻 */}
-      <div style={{ display: "flex", gap: "0.75rem", marginBottom: "0.65rem", alignItems: "center", flexWrap: "wrap" }}>
-        <label style={labelStyle}>開始</label>
-        <input type="time" value={startTime} onChange={(e) => setStartTime(e.target.value)} style={timeInputStyle} />
-        <label style={labelStyle}>終了</label>
-        <input type="time" value={endTime} onChange={(e) => setEndTime(e.target.value)} style={timeInputStyle} />
+
+      <div style={{ display: "flex", alignItems: "center", gap: "0.5rem", marginBottom: "0.5rem" }}>
+        <span style={labelStyle}>開始</span>
+        <input
+          type="time"
+          value={startTime}
+          onChange={(e) => setStartTime(e.target.value)}
+          style={timeInputStyle}
+        />
+        <span style={{ fontSize: "0.72rem", color: C.charcoalLight }}>–</span>
+        <span style={labelStyle}>終了</span>
+        <input
+          type="time"
+          value={endTime}
+          onChange={(e) => setEndTime(e.target.value)}
+          style={timeInputStyle}
+        />
       </div>
-      {/* メモ */}
+
       <input
         type="text"
         value={note}
@@ -480,49 +482,47 @@ function AddEventForm({
         placeholder="メモ（任意）"
         style={{
           width: "100%",
+          boxSizing: "border-box",
           background: "transparent",
           border: "none",
-          borderBottom: "1px solid rgba(0, 0, 0, 0.05)",
           outline: "none",
-          fontSize: "0.75rem",
-          color: C.charcoal,
-          paddingBottom: "0.3rem",
-          marginBottom: "0.85rem",
-          boxSizing: "border-box",
+          fontSize: "0.78rem",
+          color: C.charcoalMid,
+          padding: "0.15rem 0",
+          marginBottom: "0.65rem",
         }}
       />
-      {/* アクション */}
-      <div style={{ display: "flex", justifyContent: "flex-end", gap: "0.75rem" }}>
+
+      <div style={{ display: "flex", justifyContent: "flex-end", gap: "0.4rem" }}>
         <button
           onClick={reset}
           style={{
             background: "none",
             border: "none",
-            fontSize: "0.72rem",
+            padding: "0.35rem 0.75rem",
+            fontSize: "0.75rem",
             color: C.charcoalLight,
             cursor: "pointer",
-            letterSpacing: "0.02em",
-            padding: "0.25rem 0.5rem",
           }}
         >
           キャンセル
         </button>
         <button
           onClick={handleAdd}
-          disabled={saving || !title.trim()}
+          disabled={!title.trim() || saving}
           style={{
             background: title.trim() ? C.gold : "rgba(0, 0, 0, 0.06)",
             color: title.trim() ? "#FDFCFA" : C.charcoalXLight,
             border: "none",
             borderRadius: "8px",
-            fontSize: "0.72rem",
+            padding: "0.35rem 0.85rem",
+            fontSize: "0.75rem",
             fontWeight: 600,
             cursor: title.trim() ? "pointer" : "default",
             transition: "all 0.15s ease",
-            padding: "0.3rem 0.8rem",
           }}
         >
-          {saving ? "…" : "追加"}
+          追加
         </button>
       </div>
     </div>
@@ -530,7 +530,154 @@ function AddEventForm({
 }
 
 // ─────────────────────────────────────────
-// MonthGrid — カレンダーグリッド
+// AddTaskForm — タスク追加フォーム（期限は選択日に設定）
+// ─────────────────────────────────────────
+function AddTaskForm({
+  selectedDate,
+  isToday,
+  onAdd,
+}: {
+  selectedDate: string;
+  isToday: boolean;
+  onAdd: (title: string, dueDate: string) => Promise<void>;
+}) {
+  const [open, setOpen] = useState(false);
+  const [title, setTitle] = useState("");
+  const [saving, setSaving] = useState(false);
+  const inputRef = useRef<HTMLInputElement>(null);
+
+  const reset = useCallback(() => {
+    setTitle("");
+    setOpen(false);
+  }, []);
+
+  useEffect(() => {
+    if (!open) return;
+    const handleKeyDown = (e: globalThis.KeyboardEvent) => {
+      if (e.key === "Escape") reset();
+    };
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [open, reset]);
+
+  const handleAdd = async () => {
+    if (!title.trim() || saving) return;
+    setSaving(true);
+    try {
+      await onAdd(title.trim(), selectedDate);
+      reset();
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const labelText = isToday ? "今日のタスクを追加" : "タスクを追加";
+
+  if (!open) {
+    return (
+      <button
+        onClick={() => {
+          setOpen(true);
+          setTimeout(() => inputRef.current?.focus(), 0);
+        }}
+        style={{
+          display: "flex",
+          alignItems: "center",
+          gap: "0.45rem",
+          background: "none",
+          border: "none",
+          padding: "0.65rem 0",
+          cursor: "pointer",
+          fontSize: "0.78rem",
+          color: C.charcoalLight,
+          letterSpacing: "0.02em",
+          fontWeight: 500,
+          transition: "color 0.15s ease",
+          width: "100%",
+        }}
+        onMouseEnter={(e) => (e.currentTarget.style.color = C.gold)}
+        onMouseLeave={(e) => (e.currentTarget.style.color = C.charcoalLight)}
+      >
+        <span style={{ fontSize: "1.05rem", lineHeight: 1 }}>+</span>
+        <span>{labelText}</span>
+      </button>
+    );
+  }
+
+  return (
+    <div
+      className="arca-card"
+      onKeyDown={(e) => {
+        if (e.key === "Escape") reset();
+      }}
+      style={{
+        padding: "1rem 1.15rem",
+        marginTop: "0.5rem",
+        animation: "arca-module-in 0.18s ease",
+      }}
+    >
+      <input
+        ref={inputRef}
+        type="text"
+        value={title}
+        onChange={(e) => setTitle(e.target.value)}
+        onKeyDown={(e) => {
+          if (e.key === "Enter") handleAdd();
+        }}
+        placeholder={isToday ? "今日のタスク名…" : "タスク名…"}
+        style={{
+          width: "100%",
+          boxSizing: "border-box",
+          background: "transparent",
+          border: "none",
+          borderBottom: `1px solid ${C.gold}`,
+          outline: "none",
+          fontSize: "0.875rem",
+          color: C.charcoal,
+          padding: "0.2rem 0",
+          letterSpacing: "0.01em",
+          marginBottom: "0.75rem",
+        }}
+      />
+
+      <div style={{ display: "flex", justifyContent: "flex-end", gap: "0.4rem" }}>
+        <button
+          onClick={reset}
+          style={{
+            background: "none",
+            border: "none",
+            padding: "0.35rem 0.75rem",
+            fontSize: "0.75rem",
+            color: C.charcoalLight,
+            cursor: "pointer",
+          }}
+        >
+          キャンセル
+        </button>
+        <button
+          onClick={handleAdd}
+          disabled={!title.trim() || saving}
+          style={{
+            background: title.trim() ? C.gold : "rgba(0, 0, 0, 0.06)",
+            color: title.trim() ? "#FDFCFA" : C.charcoalXLight,
+            border: "none",
+            borderRadius: "8px",
+            padding: "0.35rem 0.85rem",
+            fontSize: "0.75rem",
+            fontWeight: 600,
+            cursor: title.trim() ? "pointer" : "default",
+            transition: "all 0.15s ease",
+          }}
+        >
+          追加
+        </button>
+      </div>
+    </div>
+  );
+}
+
+// ─────────────────────────────────────────
+// MonthGrid — 月間カレンダーグリッド
 // ─────────────────────────────────────────
 function MonthGrid({
   year,
@@ -549,86 +696,95 @@ function MonthGrid({
   today: string;
   eventDates: Set<string>;
   taskDueDates: Set<string>;
-  onSelectDate: (date: string) => void;
+  onSelectDate: (d: string) => void;
   onPrevMonth: () => void;
   onNextMonth: () => void;
 }) {
   const { firstDay, daysInMonth, daysInPrev } = monthMeta(year, month);
 
-  // 42セル（6週）分の日付情報を生成
-  const cells: { dateStr: string; day: number; inMonth: boolean }[] = [];
-  for (let i = 0; i < 42; i++) {
-    const offset = i - firstDay;
-    if (offset < 0) {
-      const d = daysInPrev + offset + 1;
-      const prevMonth = month === 0 ? 11 : month - 1;
-      const prevYear = month === 0 ? year - 1 : year;
-      cells.push({ dateStr: toDateStr(prevYear, prevMonth, d), day: d, inMonth: false });
-    } else if (offset < daysInMonth) {
-      cells.push({ dateStr: toDateStr(year, month, offset + 1), day: offset + 1, inMonth: true });
-    } else {
-      const d = offset - daysInMonth + 1;
-      const nextMonth = month === 11 ? 0 : month + 1;
-      const nextYear = month === 11 ? year + 1 : year;
-      cells.push({ dateStr: toDateStr(nextYear, nextMonth, d), day: d, inMonth: false });
-    }
+  const cells: { dateStr: string; day: number; inMonth: boolean; isSun: boolean; isSat: boolean }[] = [];
+
+  for (let i = firstDay - 1; i >= 0; i--) {
+    const d = daysInPrev - i;
+    const prevM = month === 0 ? 11 : month - 1;
+    const prevY = month === 0 ? year - 1 : year;
+    const dayOfWeek = (firstDay - 1 - i + 7) % 7;
+    cells.push({
+      dateStr: toDateStr(prevY, prevM, d),
+      day: d,
+      inMonth: false,
+      isSun: dayOfWeek === 0,
+      isSat: dayOfWeek === 6,
+    });
+  }
+
+  for (let d = 1; d <= daysInMonth; d++) {
+    const dayOfWeek = (firstDay + d - 1) % 7;
+    cells.push({
+      dateStr: toDateStr(year, month, d),
+      day: d,
+      inMonth: true,
+      isSun: dayOfWeek === 0,
+      isSat: dayOfWeek === 6,
+    });
+  }
+
+  const remaining = (7 - (cells.length % 7)) % 7;
+  for (let d = 1; d <= remaining; d++) {
+    const nextM = month === 11 ? 0 : month + 1;
+    const nextY = month === 11 ? year + 1 : year;
+    const dayOfWeek = (cells.length) % 7;
+    cells.push({
+      dateStr: toDateStr(nextY, nextM, d),
+      day: d,
+      inMonth: false,
+      isSun: dayOfWeek === 0,
+      isSat: dayOfWeek === 6,
+    });
   }
 
   return (
-    <div
-      className="arca-card"
-      style={{
-        padding: "1.5rem",
-      }}
-    >
-      {/* 月ナビゲーション */}
-      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: "1.25rem" }}>
-        <button onClick={onPrevMonth} style={navBtnStyle} title="前月">
-          <ChevronLeft />
-        </button>
-        <span
-          style={{
-            fontSize: "0.92rem",
-            fontWeight: 650,
-            letterSpacing: "0.02em",
-            color: C.charcoal,
-          }}
-        >
+    <div className="arca-card" style={{ padding: "1.25rem 1.4rem" }}>
+      {/* 月ナビゲーションヘッダー */}
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: "1.1rem" }}>
+        <h2 style={{ fontSize: "1rem", fontWeight: 650, color: C.charcoal, margin: 0, letterSpacing: "-0.01em" }}>
           {year}年 {MONTHS_JA[month]}
-        </span>
-        <button onClick={onNextMonth} style={navBtnStyle} title="翌月">
-          <ChevronRight />
-        </button>
+        </h2>
+        <div style={{ display: "flex", gap: "0.25rem" }}>
+          <button onClick={onPrevMonth} style={navBtnStyle} title="前月">
+            <ChevronLeft />
+          </button>
+          <button onClick={onNextMonth} style={navBtnStyle} title="翌月">
+            <ChevronRight />
+          </button>
+        </div>
       </div>
 
       {/* 曜日ヘッダー */}
-      <div style={{ display: "grid", gridTemplateColumns: "repeat(7, 1fr)", marginBottom: "0.4rem" }}>
-        {WEEKDAYS.map((w, i) => (
-          <div
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(7, 1fr)", marginBottom: "0.4rem", textAlign: "center" }}>
+        {WEEKDAYS.map((w, idx) => (
+          <span
             key={w}
             style={{
-              textAlign: "center",
               fontSize: "0.68rem",
-              fontWeight: 600,
+              fontWeight: 500,
+              color: idx === 0 ? C.danger : idx === 6 ? "#5A7DA0" : C.charcoalLight,
               letterSpacing: "0.04em",
-              color: i === 0 ? C.danger : i === 6 ? "#5A7DA0" : C.charcoalLight,
-              paddingBottom: "0.5rem",
+              paddingBottom: "0.3rem",
             }}
           >
             {w}
-          </div>
+          </span>
         ))}
       </div>
 
       {/* 日付グリッド */}
-      <div style={{ display: "grid", gridTemplateColumns: "repeat(7, 1fr)", gap: "3px" }}>
-        {cells.map(({ dateStr, day, inMonth }, idx) => {
-          const isToday = dateStr === today;
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(7, 1fr)", gap: "2px" }}>
+        {cells.map(({ dateStr, day, inMonth, isSun, isSat }) => {
           const isSelected = dateStr === selectedDate;
+          const isToday = dateStr === today;
           const hasEvent = eventDates.has(dateStr);
           const hasTask = taskDueDates.has(dateStr);
-          const isSun = idx % 7 === 0;
-          const isSat = idx % 7 === 6;
 
           return (
             <button
@@ -640,7 +796,8 @@ function MonthGrid({
                 flexDirection: "column",
                 alignItems: "center",
                 justifyContent: "center",
-                padding: "0.5rem 0.2rem 0.55rem",
+                aspectRatio: "1 / 1",
+                minHeight: "36px",
                 background: isSelected
                   ? C.gold
                   : isToday
@@ -652,18 +809,7 @@ function MonthGrid({
                 transition: "all 0.15s ease",
                 outline: "none",
               }}
-              onMouseEnter={(e) => {
-                if (!isSelected && !isToday) {
-                  e.currentTarget.style.background = "rgba(0, 0, 0, 0.04)";
-                }
-              }}
-              onMouseLeave={(e) => {
-                if (!isSelected && !isToday) {
-                  e.currentTarget.style.background = "transparent";
-                }
-              }}
             >
-              {/* 日付数字 */}
               <span
                 style={{
                   fontSize: "0.82rem",
@@ -685,7 +831,6 @@ function MonthGrid({
                 {day}
               </span>
 
-              {/* イベント・タスクドット */}
               {(hasEvent || hasTask) && (
                 <div style={{ position: "absolute", bottom: "3px", display: "flex", gap: "2px" }}>
                   {hasEvent && (
@@ -774,7 +919,7 @@ export default function Calendar() {
   const [events, setEvents] = useState<CalendarEvent[]>([]);
   const [tasks, setTasks] = useState<Task[]>([]);
 
-  const { toast, showUndoToast, dismissToast, triggerUndo } = useUndoToast<CalendarEvent>();
+  const { toast, showUndoToast, showMessageToast, dismissToast, triggerUndo } = useUndoToast<CalendarEvent>();
 
   // ── Firestore: events リアルタイム購読 ──
   useEffect(() => {
@@ -789,7 +934,7 @@ export default function Calendar() {
     });
   }, []);
 
-  // ── Firestore: tasks リアルタイム購読（読み取り専用） ──
+  // ── Firestore: tasks リアルタイム購読 ──
   useEffect(() => {
     const q = query(collection(db, "tasks"), orderBy("createdAt", "asc"));
     return onSnapshot(q, (snap) => {
@@ -805,6 +950,7 @@ export default function Calendar() {
   // ── 選択日のフィルタリング ──
   const dayEvents = events.filter((e) => e.date === selectedDate);
   const dayTasks = tasks.filter((t) => t.dueDate === selectedDate);
+  const isSelectedToday = selectedDate === today;
 
   // ── カレンダー用のドットセット ──
   const eventDates = new Set(events.map((e) => e.date));
@@ -823,6 +969,22 @@ export default function Calendar() {
       createdAt: serverTimestamp(),
     });
   }, []);
+
+  // ── タスク追加（選択日 / 今日 を期限として保存） ──
+  const handleAddTask = useCallback(async (title: string, dueDate: string) => {
+    try {
+      await addDoc(collection(db, "tasks"), {
+        title,
+        dueDate,
+        completed: false,
+        createdAt: serverTimestamp(),
+      });
+      showMessageToast(`タスク「${title}」を追加しました`);
+    } catch (e) {
+      console.error("Failed to add task from calendar", e);
+      showMessageToast("タスクの追加に失敗しました");
+    }
+  }, [showMessageToast]);
 
   // ── 予定削除（Undo対応） ──
   const handleDeleteEvent = useCallback(async (event: CalendarEvent) => {
@@ -887,18 +1049,8 @@ export default function Calendar() {
   return (
     <div className="w-full max-w-xl mx-auto" style={{ padding: "2.8rem 1.5rem 6rem", boxSizing: "border-box" }}>
       
-      {/* ─── ヘッダー ─── */}
+      {/* ─── ヘッダー（統一された静かなデザイン） ─── */}
       <div style={{ marginBottom: "2rem", padding: "0 0.25rem" }}>
-        <p style={{
-          fontSize: "0.68rem",
-          fontWeight: 600,
-          letterSpacing: "0.18em",
-          textTransform: "uppercase",
-          color: C.gold,
-          marginBottom: "0.4rem",
-        }}>
-          Arca / Calendar
-        </p>
         <h1 style={{ fontSize: "1.75rem", fontWeight: 750, color: C.charcoal, margin: 0, letterSpacing: "-0.03em" }}>
           カレンダー
         </h1>
@@ -925,15 +1077,18 @@ export default function Calendar() {
         key={selectedDate}
         style={{
           marginTop: "2.2rem",
+          display: "flex",
+          flexDirection: "column",
+          gap: "1.4rem",
           animation: "arca-module-in 0.22s ease",
         }}
       >
         {/* 日付ラベル */}
-        <div style={{ marginBottom: "1rem", display: "flex", alignItems: "center", gap: "0.6rem", padding: "0 0.25rem" }}>
+        <div style={{ display: "flex", alignItems: "center", gap: "0.6rem", padding: "0 0.25rem" }}>
           <h2 style={{ fontSize: "1.1rem", fontWeight: 650, color: C.charcoal, margin: 0, letterSpacing: "-0.015em" }}>
             {selectedLabel}
           </h2>
-          {selectedDate === today && (
+          {isSelectedToday && (
             <span
               style={{
                 fontSize: "0.65rem",
@@ -952,7 +1107,7 @@ export default function Calendar() {
         </div>
 
         {/* ── 予定セクション ── */}
-        <div className="arca-card" style={{ padding: "1.15rem 1.4rem", marginBottom: dayTasks.length > 0 ? "1.5rem" : 0 }}>
+        <div className="arca-card" style={{ padding: "1.15rem 1.4rem" }}>
           <p style={sectionLabelStyle}>予定</p>
 
           {dayEvents.length === 0 ? (
@@ -970,24 +1125,36 @@ export default function Calendar() {
             </ul>
           )}
 
-          {/* 追加フォーム */}
+          {/* 予定追加フォーム */}
           <div style={{ marginTop: "0.4rem" }}>
             <AddEventForm selectedDate={selectedDate} onAdd={handleAddEvent} />
           </div>
         </div>
 
-        {/* ── タスク期限セクション（あれば表示） ── */}
-        {dayTasks.length > 0 && (
-          <div className="arca-card" style={{ padding: "1.15rem 1.4rem", marginTop: "1.2rem" }}>
-            <p style={sectionLabelStyle}>タスク期限</p>
+        {/* ── タスク期限セクション ── */}
+        <div className="arca-card" style={{ padding: "1.15rem 1.4rem" }}>
+          <p style={sectionLabelStyle}>タスク期限</p>
 
+          {dayTasks.length === 0 ? (
+            <p style={emptyStyle}>期限のタスクはありません</p>
+          ) : (
             <ul style={{ listStyle: "none", padding: 0, margin: 0 }}>
               {dayTasks.map((task) => (
                 <TaskDueRow key={task.id} task={task} />
               ))}
             </ul>
+          )}
+
+          {/* タスク追加フォーム（選択日 / 今日を期限として追加） */}
+          <div style={{ marginTop: "0.4rem" }}>
+            <AddTaskForm
+              selectedDate={selectedDate}
+              isToday={isSelectedToday}
+              onAdd={handleAddTask}
+            />
           </div>
-        )}
+        </div>
+
       </div>
 
       {/* ─── 共通 Undo トースト ─── */}

@@ -37,6 +37,13 @@ export type SuggestionState =
 // Tasks モジュール
 // ─────────────────────────────────────────
 
+/** サブタスク1件 */
+export interface SubTaskItem {
+  id: string;
+  title: string;
+  completed: boolean;
+}
+
 /** タスク1件 */
 export interface TaskItem {
   id: string;
@@ -44,6 +51,9 @@ export interface TaskItem {
   /** "YYYY-MM-DD" または null */
   dueDate: string | null;
   completed: boolean;
+  priority?: "low" | "medium" | "high";
+  googleTaskId?: string | null;
+  subtasks?: SubTaskItem[];
   createdAt: Timestamp | null;
 }
 
@@ -85,6 +95,19 @@ export interface AetherEvent {
   kind: AetherEventKind;
   payload: string;
   confidence: number; // 0.0 〜 1.0
+}
+
+/** Aether Core ノートからの横断抽出アイテム */
+export interface ExtractedActionableItems {
+  lists: {
+    title: string;
+    category?: string;
+  }[];
+  tasks: {
+    title: string;
+    priority: "low" | "medium" | "high";
+    dueDate?: string; // "YYYY-MM-DD"
+  }[];
 }
 
 // ─────────────────────────────────────────

@@ -22,6 +22,7 @@ vi.mock("firebase/firestore", () => ({
   addDoc: vi.fn(),
   updateDoc: vi.fn(),
   deleteDoc: vi.fn(),
+  getDocs: vi.fn().mockResolvedValue({ docs: [] }),
   doc: vi.fn(),
   onSnapshot: vi.fn(() => vi.fn()),
   query: vi.fn(),
@@ -33,6 +34,13 @@ vi.mock("firebase/firestore", () => ({
 
 vi.mock("../lib/aetherCore", () => ({
   suggestCategory: vi.fn().mockResolvedValue(null),
+  categorizeItems: vi.fn().mockResolvedValue({}),
+  suggestRelatedItems: vi.fn().mockResolvedValue([]),
+  breakdownTask: vi.fn().mockResolvedValue([]),
+  extractActionableItems: vi.fn().mockResolvedValue(null),
+  generateBriefing: vi.fn().mockReturnValue(""),
+  generateDailyBriefing: vi.fn().mockResolvedValue(null),
+  parseTaskInput: vi.fn().mockResolvedValue(null),
 }));
 
 vi.mock("../lib/googleTasks", () => ({

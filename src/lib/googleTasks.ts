@@ -19,6 +19,7 @@ export interface GTask {
   id: string;
   title: string;
   status: "needsAction" | "completed";
+  due?: string; // RFC 3339 (e.g. "2026-08-20T00:00:00.000Z")
   completed?: string; // ISO 8601
 }
 
@@ -61,7 +62,7 @@ export async function getTaskLists(token: string): Promise<GTaskList[]> {
 
 // ---------- タスク ----------
 
-/** 指定タスクリストの未完了タスクを取得する */
+/** 指定タスクリストのタスク一覧を取得する */
 export async function getTasks(
   token: string,
   tasklistId: string
@@ -77,14 +78,20 @@ export async function getTasks(
 export async function addTask(
   token: string,
   tasklistId: string,
-  title: string
+  title: string,
+  dueDate?: string // "YYYY-MM-DD"
 ): Promise<string> {
+  const body: { title: string; due?: string } = { title };
+  if (dueDate && /^\d{4}-\d{2}-\d{2}$/.test(dueDate)) {
+    body.due = `${dueDate}T00:00:00.000Z`;
+  }
+
   const task = await gFetch<GTask>(
     token,
     `/lists/${encodeURIComponent(tasklistId)}/tasks`,
     {
       method: "POST",
-      body: JSON.stringify({ title }),
+      body: JSON.stringify(body),
     }
   );
   return task.id;
@@ -104,9 +111,43 @@ export async function updateTaskStatus(
       method: "PATCH",
       body: JSON.stringify({
         status: completed ? "completed" : "needsAction",
-        // completed フィールドは status: needsAction の際にクリアが必要
         ...(completed ? {} : { completed: null }),
       }),
+    }
+  );
+}
+
+/** タスクのタイトルや期限日を更新する */
+export async function updateTask(
+  token: string,
+  tasklistId: string,
+  taskId: string,
+  patch: {
+    title?: string;
+    completed?: boolean;
+    dueDate?: string | null; // "YYYY-MM-DD" or null to clear
+  }
+): Promise<void> {
+  const body: Record<string, unknown> = {};
+  if (patch.title !== undefined) body.title = patch.title;
+  if (patch.completed !== undefined) {
+    body.status = patch.completed ? "completed" : "needsAction";
+    if (!patch.completed) body.completed = null;
+  }
+  if (patch.dueDate !== undefined) {
+    if (patch.dueDate && /^\d{4}-\d{2}-\d{2}$/.test(patch.dueDate)) {
+      body.due = `${patch.dueDate}T00:00:00.000Z`;
+    } else {
+      body.due = null;
+    }
+  }
+
+  await gFetch<GTask>(
+    token,
+    `/lists/${encodeURIComponent(tasklistId)}/tasks/${encodeURIComponent(taskId)}`,
+    {
+      method: "PATCH",
+      body: JSON.stringify(body),
     }
   );
 }
