@@ -27,6 +27,7 @@ export interface BackupCounts {
   tasks: number;
   events: number;
   notes: number;
+  recipes?: number;
 }
 
 export interface BackupData {
@@ -39,6 +40,7 @@ export interface BackupData {
     tasks: Record<string, unknown>[];
     events: Record<string, unknown>[];
     notes: Record<string, unknown>[];
+    recipes?: Record<string, unknown>[];
   };
 }
 
@@ -136,13 +138,14 @@ export function saveLastBackupInfo(info: LastBackupInfo): void {
 // 1. バックアップデータ集約生成
 // ─────────────────────────────────────────
 
-/** 全モジュール（Lists, Tasks, Events, Notes）の全データをFirestoreから集約 */
+/** 全モジュール（Lists, Tasks, Events, Notes, Recipes）の全データをFirestoreから集約 */
 export async function generateBackupData(): Promise<BackupData> {
-  const [listsSnap, tasksSnap, eventsSnap, notesSnap] = await Promise.all([
+  const [listsSnap, tasksSnap, eventsSnap, notesSnap, recipesSnap] = await Promise.all([
     getDocs(collection(db, "lists")),
     getDocs(collection(db, "tasks")),
     getDocs(collection(db, "events")),
     getDocs(collection(db, "notes")),
+    getDocs(collection(db, "recipes")),
   ]);
 
   const lists = listsSnap.docs.map((d) => ({
@@ -165,11 +168,17 @@ export async function generateBackupData(): Promise<BackupData> {
     ...sanitizeDocData(d.data()),
   }));
 
+  const recipes = recipesSnap.docs.map((d) => ({
+    id: d.id,
+    ...sanitizeDocData(d.data()),
+  }));
+
   const counts: BackupCounts = {
     lists: lists.length,
     tasks: tasks.length,
     events: events.length,
     notes: notes.length,
+    recipes: recipes.length,
   };
 
   return {
@@ -182,6 +191,7 @@ export async function generateBackupData(): Promise<BackupData> {
       tasks,
       events,
       notes,
+      recipes,
     },
   };
 }
@@ -387,10 +397,11 @@ export async function restoreFromJson(
   const tasksData = Array.isArray(backup.data.tasks) ? backup.data.tasks : [];
   const eventsData = Array.isArray(backup.data.events) ? backup.data.events : [];
   const notesData = Array.isArray(backup.data.notes) ? backup.data.notes : [];
+  const recipesData = Array.isArray(backup.data.recipes) ? backup.data.recipes : [];
 
   // 完全上書きモードの場合は既存データを削除
   if (mode === "overwrite") {
-    const collectionsToClear = ["lists", "tasks", "events", "notes"];
+    const collectionsToClear = ["lists", "tasks", "events", "notes", "recipes"];
     for (const colName of collectionsToClear) {
       const snap = await getDocs(collection(db, colName));
       const chunks: typeof snap.docs[] = [];
@@ -433,6 +444,7 @@ export async function restoreFromJson(
     writeCollection("tasks", tasksData),
     writeCollection("events", eventsData),
     writeCollection("notes", notesData),
+    writeCollection("recipes", recipesData),
   ]);
 
   return {
@@ -442,6 +454,7 @@ export async function restoreFromJson(
       tasks: tasksData.length,
       events: eventsData.length,
       notes: notesData.length,
+      recipes: recipesData.length,
     },
     mode,
   };

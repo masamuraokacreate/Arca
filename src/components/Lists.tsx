@@ -727,7 +727,10 @@ export default function Lists() {
       {/* ─── ヘッダー（統一された静かなデザイン） ─── */}
       <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", marginBottom: "2rem", padding: "0 0.25rem" }}>
         <div>
-          <h1 style={{ fontSize: "1.75rem", fontWeight: 750, color: C.charcoal, margin: 0, letterSpacing: "-0.03em" }}>
+          <p style={{ fontSize: "0.68rem", fontWeight: 650, color: C.charcoalLight, letterSpacing: "0.1em", textTransform: "uppercase", margin: 0 }}>
+            LISTS
+          </p>
+          <h1 style={{ fontSize: "1.75rem", fontWeight: 750, color: C.charcoal, margin: "0.15rem 0 0", letterSpacing: "-0.03em" }}>
             買い物リスト
           </h1>
           <p style={{ fontSize: "0.78rem", color: C.charcoalLight, margin: "0.3rem 0 0", letterSpacing: "0.01em" }}>
@@ -978,15 +981,15 @@ export default function Lists() {
                     style={{
                       display: "flex",
                       alignItems: "center",
-                      gap: "0.4rem",
-                      marginBottom: "0.5rem",
+                      gap: "0.45rem",
+                      marginBottom: "0.45rem",
                       padding: "0 0.5rem",
                     }}
                   >
-                    <span style={{ fontSize: "0.72rem", fontWeight: 700, color: C.gold, letterSpacing: "0.04em" }}>
+                    <span style={{ fontSize: "0.72rem", fontWeight: 700, color: C.goldDark, letterSpacing: "0.05em" }}>
                       ✦ {group.groupName}
                     </span>
-                    <span style={{ fontSize: "0.68rem", color: C.charcoalLight }}>
+                    <span style={{ fontSize: "0.68rem", color: C.charcoalLight, fontWeight: 500 }}>
                       ({group.items.length})
                     </span>
                   </div>

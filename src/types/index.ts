@@ -129,3 +129,11 @@ export interface NoteItem {
   /** 論理削除フラグ */
   isDeleted?: boolean;
 }
+
+// ─────────────────────────────────────────
+// Recipes モジュール
+// ─────────────────────────────────────────
+
+export * from "./recipe";
+
+

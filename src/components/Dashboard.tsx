@@ -208,16 +208,19 @@ export default function Dashboard({ onNavigate, onSelectNote }: DashboardProps =
         flexDirection: "column",
       }}
     >
-      {/* ─── 日付ヘッダー ─── */}
+      {/* ─── ヘッダー ─── */}
       <div style={{ marginBottom: "1.2rem", padding: "0 0.25rem", display: "flex", alignItems: "baseline", justifyContent: "space-between" }}>
         <div>
-          <h1 style={{ fontSize: "1.65rem", fontWeight: 750, color: C.charcoal, margin: 0, letterSpacing: "-0.03em" }}>
-            ホーム
-          </h1>
-          <p style={{ fontSize: "0.78rem", color: C.charcoalLight, margin: "0.25rem 0 0", letterSpacing: "0.01em" }}>
-            {displayDate}
+          <p style={{ fontSize: "0.68rem", fontWeight: 650, color: C.charcoalLight, letterSpacing: "0.1em", textTransform: "uppercase", margin: 0 }}>
+            DASHBOARD
           </p>
+          <h1 style={{ fontSize: "1.65rem", fontWeight: 750, color: C.charcoal, margin: "0.15rem 0 0", letterSpacing: "-0.03em" }}>
+            ダッシュボード
+          </h1>
         </div>
+        <p style={{ fontSize: "0.78rem", color: C.charcoalLight, margin: 0, letterSpacing: "0.01em" }}>
+          {displayDate}
+        </p>
       </div>
 
       {/* ─── Bento Grid メインレイアウト (PC: 2x2 等幅大型グリッド / Mobile: 1カラム) ─── */}

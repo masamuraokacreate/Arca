@@ -355,10 +355,14 @@ describe("Tasks コンポーネント", () => {
   // ─── 自然言語タスク入力推論テスト ───
 
   it("自然言語から期日と優先度が推論され、追加時に自動反映される", async () => {
+    const tomorrow = new Date();
+    tomorrow.setDate(tomorrow.getDate() + 1);
+    const tomorrowStr = `${tomorrow.getFullYear()}-${String(tomorrow.getMonth() + 1).padStart(2, "0")}-${String(tomorrow.getDate()).padStart(2, "0")}`;
+
     const { parseTaskInput } = await import("../lib/aetherCore");
     (parseTaskInput as Mock).mockResolvedValue({
       title: "書類提出",
-      dueDate: "2026-08-20",
+      dueDate: tomorrowStr,
       priority: "high",
     });
 
@@ -382,7 +386,7 @@ describe("Tasks コンポーネント", () => {
       expect(addDoc).toHaveBeenCalledTimes(1);
       const callArg = (addDoc as Mock).mock.calls[0][1];
       expect(callArg.title).toBe("書類提出");
-      expect(callArg.dueDate).toBe("2026-08-20");
+      expect(callArg.dueDate).toBe(tomorrowStr);
       expect(callArg.priority).toBe("high");
     });
   });

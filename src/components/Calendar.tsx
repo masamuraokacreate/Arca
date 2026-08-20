@@ -1051,7 +1051,10 @@ export default function Calendar() {
       
       {/* ─── ヘッダー（統一された静かなデザイン） ─── */}
       <div style={{ marginBottom: "2rem", padding: "0 0.25rem" }}>
-        <h1 style={{ fontSize: "1.75rem", fontWeight: 750, color: C.charcoal, margin: 0, letterSpacing: "-0.03em" }}>
+        <p style={{ fontSize: "0.68rem", fontWeight: 650, color: C.charcoalLight, letterSpacing: "0.1em", textTransform: "uppercase", margin: 0 }}>
+          CALENDAR
+        </p>
+        <h1 style={{ fontSize: "1.75rem", fontWeight: 750, color: C.charcoal, margin: "0.15rem 0 0", letterSpacing: "-0.03em" }}>
           カレンダー
         </h1>
         <p style={{ fontSize: "0.78rem", color: C.charcoalLight, margin: "0.3rem 0 0", letterSpacing: "0.01em" }}>

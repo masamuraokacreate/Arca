@@ -66,6 +66,16 @@ describe("backupService", () => {
           ],
         });
       }
+      if (colId === "recipes") {
+        return Promise.resolve({
+          docs: [
+            {
+              id: "recipe-1",
+              data: () => ({ title: "豚の生姜焼き", servings: "2人前", tags: ["和食"] }),
+            },
+          ],
+        });
+      }
       return Promise.resolve({ docs: [] });
     });
 
@@ -89,6 +99,7 @@ describe("backupService", () => {
         tasks: 1,
         events: 1,
         notes: 1,
+        recipes: 1,
       });
       expect(backup.data.lists[0]).toMatchObject({ id: "list-1", text: "牛乳" });
       expect(backup.data.tasks[0]).toMatchObject({ id: "task-1", title: "報告書作成" });
@@ -255,6 +266,7 @@ describe("backupService", () => {
         tasks: 1,
         events: 1,
         notes: 1,
+        recipes: 0,
       });
       expect(res.mode).toBe("merge");
     });

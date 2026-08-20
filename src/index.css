@@ -36,6 +36,40 @@
     -moz-osx-font-smoothing: grayscale;
     text-rendering: optimizeLegibility;
   }
+
+  /* ── Apple HIG: キーボードフォーカスリング ── */
+  :focus-visible {
+    outline: 2px solid var(--color-accent);
+    outline-offset: 2px;
+  }
+
+  /* ── 控えめで細身のスクロールバー (macOS/iOS ライク) ── */
+  ::-webkit-scrollbar {
+    width: 6px;
+    height: 6px;
+  }
+  ::-webkit-scrollbar-track {
+    background: transparent;
+  }
+  ::-webkit-scrollbar-thumb {
+    background: rgba(0, 0, 0, 0.12);
+    border-radius: 9999px;
+  }
+  ::-webkit-scrollbar-thumb:hover {
+    background: rgba(197, 160, 89, 0.4);
+  }
+}
+
+/* ── Apple HIG: 視覚効果低減 (Reduce Motion) のアクセシビリティ自動適応 ── */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
 }
 
 /* ── 共通カードスタイル（枠線完全排除・浮遊感） ── */
@@ -145,6 +179,158 @@
 @media (max-width: 640px) {
   .arca-nav-desktop-spacer {
     display: none !important;
+  }
+}
+
+/* ── サブヘッダーツールバー共通 (Notes, Recipes, etc.) ── */
+.arca-toolbar {
+  position: sticky;
+  top: calc(52px + env(safe-area-inset-top, 0px));
+  z-index: 50;
+  width: 100%;
+  height: 48px;
+  background: rgba(253, 252, 250, 0.88);
+  backdrop-filter: blur(16px) saturate(180%);
+  -webkit-backdrop-filter: blur(16px) saturate(180%);
+  box-shadow: 0 1px 0 rgba(0, 0, 0, 0.05);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 1.25rem;
+  box-sizing: border-box;
+  overflow-x: auto;
+  overflow-y: hidden;
+  white-space: nowrap;
+  -webkit-overflow-scrolling: touch;
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+}
+.arca-toolbar::-webkit-scrollbar {
+  display: none;
+}
+
+/* ツールバーボタン共通 */
+.arca-tb-btn {
+  white-space: nowrap;
+  flex-shrink: 0;
+  display: inline-flex;
+  flex-direction: row;
+  align-items: center;
+  justify-content: center;
+  gap: 0.35rem;
+  border-radius: 8px;
+  font-family: inherit;
+  font-size: 0.82rem;
+  font-weight: 500;
+  cursor: pointer;
+  border: none;
+  transition: all 0.15s ease;
+  user-select: none;
+  height: 32px;
+  padding: 0 0.75rem;
+  color: #5A5A57;
+  background: transparent;
+  text-decoration: none;
+  line-height: 1;
+  box-sizing: border-box;
+}
+.arca-tb-btn:hover {
+  color: #2C2C2E;
+  background: rgba(0, 0, 0, 0.04);
+}
+.arca-tb-btn:active {
+  transform: scale(0.97);
+}
+
+/* 削除ボタン（Apple HIG Destructive Action） */
+.arca-tb-btn-delete {
+  color: #c0614a !important;
+}
+.arca-tb-btn-delete:hover {
+  color: #a84b36 !important;
+  background: rgba(192, 97, 74, 0.08) !important;
+}
+
+/* アクティブボタン */
+.arca-tb-btn.active {
+  color: #C5A059;
+  background: rgba(197, 160, 89, 0.12);
+  font-weight: 600;
+}
+
+/* セグメントコントロール（閲覧 / 編集） */
+.arca-segment-control {
+  display: inline-flex;
+  align-items: center;
+  background: rgba(0, 0, 0, 0.05);
+  padding: 2px;
+  border-radius: 9px;
+  flex-shrink: 0;
+  gap: 1px;
+}
+.arca-segment-btn {
+  white-space: nowrap;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  border: none;
+  border-radius: 7px;
+  padding: 0.3rem 0.65rem;
+  cursor: pointer;
+  font-family: inherit;
+  font-size: 0.78rem;
+  font-weight: 500;
+  color: #8E8E93;
+  background: transparent;
+  transition: all 0.15s ease;
+  user-select: none;
+  height: 28px;
+  flex-shrink: 0;
+}
+.arca-segment-btn.active {
+  background: #FFFFFF;
+  color: #2C2C2E;
+  font-weight: 600;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.08), 0 0 1px rgba(0, 0, 0, 0.04);
+}
+
+/* 区切り線 */
+.arca-tb-divider {
+  width: 1px;
+  height: 18px;
+  background: rgba(0, 0, 0, 0.08);
+  flex-shrink: 0;
+  margin: 0 0.15rem;
+}
+
+/* レスポンシブラベル */
+.arca-btn-label-desktop {
+  display: inline;
+  white-space: nowrap;
+}
+.arca-btn-label-mobile {
+  display: none;
+  white-space: nowrap;
+}
+
+@media (max-width: 640px) {
+  .arca-toolbar {
+    padding: 0 0.75rem;
+    gap: 0.35rem;
+  }
+  .arca-btn-label-desktop {
+    display: none !important;
+  }
+  .arca-btn-label-mobile {
+    display: inline !important;
+  }
+  .arca-tb-btn {
+    padding: 0 0.5rem;
+    font-size: 0.78rem;
+  }
+  .arca-segment-btn {
+    padding: 0 0.5rem;
+    font-size: 0.72rem;
   }
 }
 

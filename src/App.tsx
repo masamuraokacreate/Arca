@@ -9,6 +9,7 @@ import Tasks from "./components/Tasks";
 import Calendar from "./components/Calendar";
 import Dashboard from "./components/Dashboard";
 import Notes from "./components/Notes";
+import Recipes from "./components/recipes/Recipes";
 import BackupModal from "./components/BackupModal";
 import { C } from "./lib/designSystem";
 import { useNetworkStatus } from "./hooks/useNetworkStatus";
@@ -84,14 +85,15 @@ function NetworkStatusBadge({ isOnline }: { isOnline: boolean }) {
 }
 
 // ---------- ナビゲーション定義 ----------
-type Module = "dashboard" | "tasks" | "lists" | "calendar" | "notes";
+type Module = "dashboard" | "tasks" | "lists" | "calendar" | "notes" | "recipes";
 
 const NAV_ITEMS: { id: Module; label: string; sub: string }[] = [
-  { id: "dashboard", label: "Home", sub: "ホーム" },
+  { id: "dashboard", label: "Dashboard", sub: "ダッシュボード" },
   { id: "tasks", label: "Tasks", sub: "タスク" },
-  { id: "lists", label: "Lists", sub: "買い物" },
+  { id: "lists", label: "Lists", sub: "買い物リスト" },
   { id: "calendar", label: "Calendar", sub: "カレンダー" },
-  { id: "notes", label: "Notes", sub: "記録" },
+  { id: "notes", label: "Notes", sub: "ノート" },
+  { id: "recipes", label: "Recipes", sub: "料理レシピ" },
 ];
 
 // ---------- ナビゲーションバー ----------
@@ -416,9 +418,9 @@ function App() {
       {/* メインコンテンツ領域（ナビバー分の余白 & セーフエリア） */}
       <main
         style={{
-          paddingTop: "calc(3.5rem + env(safe-area-inset-top, 0px))",
+          paddingTop: "calc(52px + env(safe-area-inset-top, 0px))",
           paddingBottom: "env(safe-area-inset-bottom, 0px)",
-          minHeight: "calc(100vh - 3.5rem - env(safe-area-inset-top, 0px))",
+          minHeight: "calc(100vh - 52px - env(safe-area-inset-top, 0px))",
           width: "100%",
         }}
       >
@@ -443,6 +445,9 @@ function App() {
               initialNoteId={selectedNoteId}
               onClearSelectedNote={handleClearSelectedNote}
             />
+          )}
+          {activeModule === "recipes" && (
+            <Recipes onNavigateToLists={() => handleNavigate("lists")} />
           )}
         </div>
       </main>
