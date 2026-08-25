@@ -30,6 +30,7 @@ describe("Dashboard コンポーネント", () => {
     expect(screen.getByRole("button", { name: /カレンダー/i })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /タスク/i })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /買い物リスト/i })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /レシピ/i })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /ノート/i })).toBeInTheDocument();
   });
 
@@ -50,6 +51,10 @@ describe("Dashboard コンポーネント", () => {
     // 買い物リストボタン
     await user.click(screen.getByRole("button", { name: /買い物リスト/i }));
     expect(handleNavigate).toHaveBeenCalledWith("lists");
+
+    // レシピボタン
+    await user.click(screen.getByRole("button", { name: /レシピ/i }));
+    expect(handleNavigate).toHaveBeenCalledWith("recipes");
 
     // ノートボタン
     await user.click(screen.getByRole("button", { name: /ノート/i }));
@@ -88,5 +93,95 @@ describe("Dashboard コンポーネント", () => {
 
     await user.click(noteItems[noteItems.length - 1]);
     expect(handleSelectNote).toHaveBeenCalledWith("note-123");
+  });
+
+  it("ヘッダーにシフト状態バッジが表示され、クリックで出勤ステータス確認モーダルが開くこと", async () => {
+    const user = userEvent.setup();
+    render(<Dashboard />);
+
+    const badge = screen.getByTestId("dashboard-shift-badge");
+    expect(badge).toBeInTheDocument();
+    expect(badge.textContent).toContain("休日");
+
+    await user.click(badge);
+    expect(screen.getByText("出勤ステータス確認")).toBeInTheDocument();
+    expect(screen.getByText("✦ 出勤日")).toBeInTheDocument();
+    expect(screen.getByText("🌙 休日（休み）")).toBeInTheDocument();
+  });
+
+  it("無題の空ノートおよび削除済みノート（isDeleted: true）はダッシュボードに表示されないこと", () => {
+    (onSnapshot as Mock).mockImplementation((q: any, callback: (snap: unknown) => void) => {
+      // notes コレクションまたはクエリの場合
+      const isNotesQuery = q?._query?.path?.segments?.includes("notes") || JSON.stringify(q || {}).includes("notes");
+      
+      if (isNotesQuery) {
+        callback({
+          docs: [
+            {
+              id: "note-empty",
+              data: () => ({
+                title: "",
+                content: "",
+                isDeleted: false,
+              }),
+            },
+            {
+              id: "note-deleted",
+              data: () => ({
+                title: "削除されたノート",
+                content: "本文",
+                isDeleted: true,
+              }),
+            },
+            {
+              id: "note-valid",
+              data: () => ({
+                title: "有効なノート",
+                content: "有効な本文",
+                isDeleted: false,
+              }),
+            },
+          ],
+        });
+      } else {
+        callback({ docs: [] });
+      }
+      return vi.fn();
+    });
+
+    render(<Dashboard />);
+    expect(screen.getByText("有効なノート")).toBeInTheDocument();
+    expect(screen.queryByText("削除されたノート")).not.toBeInTheDocument();
+    expect(screen.queryByText("無題のノート")).not.toBeInTheDocument();
+  });
+
+  it("料理レシピタイルにレシピデータが表示されること", () => {
+    (onSnapshot as Mock).mockImplementation((q: any, callback: (snap: unknown) => void) => {
+      const isRecipesQuery = q?._query?.path?.segments?.includes("recipes") || JSON.stringify(q || {}).includes("recipes");
+
+      if (isRecipesQuery) {
+        callback({
+          docs: [
+            {
+              id: "recipe-1",
+              data: () => ({
+                title: "濃厚カルボナーラ",
+                favorite: true,
+                servings: "2人前",
+                ingredients: [{ name: "パスタ", amount: "100g" }],
+                isDeleted: false,
+              }),
+            },
+          ],
+        });
+      } else {
+        callback({ docs: [] });
+      }
+      return vi.fn();
+    });
+
+    render(<Dashboard />);
+    expect(screen.getByText("濃厚カルボナーラ")).toBeInTheDocument();
+    expect(screen.getByText("料理レシピ")).toBeInTheDocument();
   });
 });

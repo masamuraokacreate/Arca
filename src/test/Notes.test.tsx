@@ -385,4 +385,53 @@ describe("NoteToolbar", () => {
     await userEvent.click(deleteBtn);
     expect(onDelete).toHaveBeenCalled();
   });
+
+  it("ごみ箱モーダルで「完全に削除」および「ごみ箱を空にする」が動作する", async () => {
+    const { onSnapshot, deleteDoc } = await import("firebase/firestore");
+    const Notes = (await import("../components/Notes")).default;
+
+    (onSnapshot as any).mockImplementation((_q: any, callback: any) => {
+      callback({
+        forEach: (fn: any) => {
+          fn({
+            id: "del-1",
+            data: () => ({
+              title: "ごみ箱のノート1",
+              content: "内容1",
+              isDeleted: true,
+            }),
+          });
+          fn({
+            id: "del-2",
+            data: () => ({
+              title: "ごみ箱のノート2",
+              content: "内容2",
+              isDeleted: true,
+            }),
+          });
+        },
+      });
+      return vi.fn();
+    });
+
+    render(<Notes />);
+
+    // ごみ箱ボタンをクリック
+    const trashBtn = screen.getByRole("button", { name: "ごみ箱" });
+    await userEvent.click(trashBtn);
+
+    // ごみ箱モーダルが開く
+    expect(screen.getByRole("heading", { name: "ごみ箱" })).toBeInTheDocument();
+    expect(screen.getByText("ごみ箱のノート1")).toBeInTheDocument();
+
+    // 完全に削除ボタンをクリック
+    const deleteBtns = screen.getAllByRole("button", { name: "完全に削除" });
+    await userEvent.click(deleteBtns[0]);
+    expect(deleteDoc).toHaveBeenCalled();
+
+    // ごみ箱を空にするボタンをクリック
+    const emptyTrashBtn = screen.getByRole("button", { name: "ごみ箱を空にする" });
+    await userEvent.click(emptyTrashBtn);
+    expect(deleteDoc).toHaveBeenCalled();
+  });
 });

@@ -21,16 +21,23 @@ import {
   updateDoc,
 } from "firebase/firestore";
 import { db } from "../lib/firebase";
-import type { CalendarEvent, TaskItem, ListItem, NoteItem } from "../types";
+import type { CalendarEvent, TaskItem, ListItem, NoteItem, SyncStatus } from "../types";
 import type { PMSettings, PMTemplateItem, PMLogItem } from "../types/pm";
+import type { Recipe } from "../types/recipe";
+import { subscribeRecipes } from "../lib/recipeStorage";
 import { C } from "../lib/designSystem";
 import {
-  getTodayPMItems,
-  computeDayResolution,
   recordPMLog,
   buildLogMapForDate,
   resolveItemStatus,
+  resolveShiftInfo,
+  saveShiftOverride,
+  getActivePMTasksForDate,
+  DEFAULT_PM_SETTINGS,
 } from "../services/pmCycleService";
+import { useGoogleAuth } from "../hooks/useGoogleAuth";
+import { syncGoogleCalendarToArca } from "../services/googleCalendarSync";
+import { PMShiftOverrideModal } from "./tasks/PMShiftOverrideModal";
 
 // ---------- ユーティリティ ----------
 function toDateStr(y: number, m: number, d: number): string {
@@ -130,7 +137,7 @@ function TileNavButton({
   );
 }
 
-export type Module = "dashboard" | "tasks" | "lists" | "calendar" | "notes";
+export type Module = "dashboard" | "tasks" | "lists" | "calendar" | "notes" | "recipes";
 
 export interface DashboardProps {
   onNavigate?: (module: Module) => void;
@@ -141,15 +148,35 @@ export interface DashboardProps {
 export default function Dashboard({ onNavigate, onSelectNote }: DashboardProps = {}) {
   const today = todayStr();
 
+  // Google カレンダー同期
+  const { isSignedIn, accessToken, signIn } = useGoogleAuth();
+  const [syncStatus, setSyncStatus] = useState<SyncStatus>("idle");
+
   const [events, setEvents] = useState<CalendarEvent[]>([]);
   const [tasks, setTasks] = useState<TaskItem[]>([]);
   const [lists, setLists] = useState<ListItem[]>([]);
   const [notes, setNotes] = useState<NoteItem[]>([]);
+  const [recipes, setRecipes] = useState<Recipe[]>([]);
+
+  // 手動同期ハンドラ
+  const handleManualSync = useCallback(async () => {
+    if (!isSignedIn || !accessToken) return;
+    setSyncStatus("syncing");
+    try {
+      await syncGoogleCalendarToArca(accessToken, events.length > 0 ? events : undefined);
+      setSyncStatus("done");
+      setTimeout(() => setSyncStatus("idle"), 3000);
+    } catch (err) {
+      console.error("Dashboard Google sync error:", err);
+      setSyncStatus("error");
+    }
+  }, [isSignedIn, accessToken, events]);
 
   // PM ステート
   const [pmSettings, setPmSettings] = useState<PMSettings | null>(null);
   const [pmTemplates, setPmTemplates] = useState<PMTemplateItem[]>([]);
   const [pmLogs, setPmLogs] = useState<PMLogItem[]>([]);
+  const [showShiftOverrideModal, setShowShiftOverrideModal] = useState(false);
 
   // Firestore リアルタイム同期
   useEffect(() => {
@@ -178,28 +205,36 @@ export default function Dashboard({ onNavigate, onSelectNote }: DashboardProps =
       setNotes(
         snap.docs.map((d) => ({
           id: d.id,
-          title: d.data().title || "無題のノート",
+          title: d.data().title || "",
           content: d.data().content || "",
           tags: d.data().tags || [],
           createdAt: d.data().createdAt?.toDate ? d.data().createdAt.toDate().toISOString() : new Date().toISOString(),
           updatedAt: d.data().updatedAt?.toDate ? d.data().updatedAt.toDate().toISOString() : new Date().toISOString(),
+          isDeleted: !!d.data().isDeleted,
         }))
       );
     });
     return unsub;
   }, []);
 
+  useEffect(() => {
+    const unsub = subscribeRecipes((fetched) => {
+      setRecipes(fetched);
+    });
+    return () => unsub();
+  }, []);
+
   // PM 設定・テンプレート・ログ
   useEffect(() => {
-    const fetchPMSettings = async () => {
-      try {
-        const snap = await getDoc(doc(db, "pm_settings", "main"));
-        if (snap?.exists?.()) setPmSettings(snap.data() as PMSettings);
-      } catch {
-        // ignore
+    const unsubSettings = onSnapshot(doc(db, "pm_settings", "main"), (snap) => {
+      if (snap?.exists?.()) {
+        setPmSettings(snap.data() as PMSettings);
+      } else {
+        getDoc(doc(db, "pm_settings", "config")).then((cSnap) => {
+          if (cSnap?.exists?.()) setPmSettings(cSnap.data() as PMSettings);
+        });
       }
-    };
-    fetchPMSettings();
+    });
 
     const unsubTemplates = onSnapshot(
       query(collection(db, "pm_templates"), orderBy("dayIndex", "asc")),
@@ -212,23 +247,30 @@ export default function Dashboard({ onNavigate, onSelectNote }: DashboardProps =
     );
 
     return () => {
+      unsubSettings();
       unsubTemplates();
       unsubLogs();
     };
   }, [today]);
 
-  // フィルタリング
+  // フィルタリング（無題ノートや削除済みを除外）
   const todayEvents = events.filter((e) => e.date === today).sort((a, b) => (a.startTime || "").localeCompare(b.startTime || ""));
   const todayTasks = tasks.filter((t) => !t.completed && (t.dueDate === today || !t.dueDate));
   const activeLists = lists.filter((l) => !l.completed);
-  const recentNotes = notes.slice(0, 6);
+  const activeNotes = notes.filter((n) => !n.isDeleted && (n.title.trim() !== "" || n.content.trim() !== ""));
+  const recentNotes = activeNotes.slice(0, 6);
+
+  const activeRecipes = recipes.filter((r) => !r.isDeleted);
+  const recentRecipes = activeRecipes.slice(0, 5);
+
+  // シフト判定（オーバーライド優先）
+  const currentShift = resolveShiftInfo(today, events, pmSettings);
 
   // PM 今日のプレビュー（未完了・完了含む、最大2件）
-  const pmTodayAll = pmSettings ? getTodayPMItems(pmSettings, pmTemplates) : [];
+  const pmTodayAll = pmSettings ? getActivePMTasksForDate(today, pmTemplates, events, pmSettings) : [];
   const pmLogMap = buildLogMapForDate(pmLogs, today);
   const pmTodayPending = pmTodayAll.filter((item) => resolveItemStatus(item, pmLogMap) === "pending");
   const pmTodayItems = pmTodayPending.slice(0, 2);
-  const pmDayResolution = pmSettings ? computeDayResolution(pmSettings, today) : null;
 
   // タスク完了トグル
   const toggleTask = useCallback(async (id: string, current: boolean) => {
@@ -237,19 +279,49 @@ export default function Dashboard({ onNavigate, onSelectNote }: DashboardProps =
 
   // PM 完了トグル
   const togglePMTask = useCallback(async (item: PMTemplateItem) => {
-    if (!pmDayResolution) return;
     try {
       await recordPMLog({
         date: today,
         templateId: item.id,
-        dayIndex: pmDayResolution.dayIndex,
+        dayIndex: currentShift.streakNumber,
         title: item.title,
         status: "completed",
       });
     } catch (err) {
       console.error("Failed to record PM log from dashboard:", err);
     }
-  }, [today, pmDayResolution]);
+  }, [today, currentShift.streakNumber]);
+
+  // 手動オーバーライド保存ハンドラ（楽観的即時反映）
+  const handleSaveShiftOverride = useCallback(
+    async (override: any) => {
+      // 1. ローカルステート即時更新（0ms 反映）
+      setPmSettings((prev) => {
+        const current = prev || { ...DEFAULT_PM_SETTINGS };
+        const newOverrides = { ...(current.overrides || {}) };
+        if (override === null) {
+          delete newOverrides[today];
+        } else {
+          newOverrides[today] = {
+            date: today,
+            type: override.type,
+            streakNumber: override.streakNumber,
+            shiftName: override.shiftName,
+            updatedAt: new Date().toISOString(),
+          };
+        }
+        return { ...current, overrides: newOverrides };
+      });
+
+      // 2. 永続化保存
+      try {
+        await saveShiftOverride(today, override);
+      } catch (err) {
+        console.error("Failed to save shift override:", err);
+      }
+    },
+    [today]
+  );
 
   // 買い物完了トグル
   const toggleList = useCallback(async (id: string, current: boolean) => {
@@ -284,10 +356,62 @@ export default function Dashboard({ onNavigate, onSelectNote }: DashboardProps =
             ダッシュボード
           </h1>
         </div>
-        <p style={{ fontSize: "0.78rem", color: C.charcoalLight, margin: 0, letterSpacing: "0.01em" }}>
-          {displayDate}
-        </p>
+        <div style={{ display: "flex", alignItems: "center", gap: "0.6rem" }}>
+          {/* シフト状態バッジ（クリックで手動補正） */}
+          <button
+            type="button"
+            onClick={() => setShowShiftOverrideModal(true)}
+            data-testid="dashboard-shift-badge"
+            style={{
+              background: currentShift.type === "holiday" ? "rgba(82, 121, 111, 0.12)" : C.goldFaint,
+              color: currentShift.type === "holiday" ? C.sage : C.goldDark,
+              border: currentShift.isOverridden
+                ? `1px dashed ${currentShift.type === "holiday" ? C.sage : C.gold}`
+                : "1px solid transparent",
+              borderRadius: "9999px",
+              padding: "0.22rem 0.65rem",
+              fontSize: "0.72rem",
+              fontWeight: 700,
+              letterSpacing: "0.02em",
+              cursor: "pointer",
+              display: "inline-flex",
+              alignItems: "center",
+              gap: "0.35rem",
+              transition: "all 0.15s ease",
+            }}
+            title="クリックして勤務・休日ステータスを手動補正"
+          >
+            <span>
+              {currentShift.type === "holiday"
+                ? `🌙 休日 ${currentShift.streakNumber}日目`
+                : `✦ 出勤 ${currentShift.streakNumber}日目${currentShift.shiftName ? ` (${currentShift.shiftName})` : ""}`}
+            </span>
+            {currentShift.isOverridden && (
+              <span style={{ fontSize: "0.62rem", opacity: 0.85 }}>(手動)</span>
+            )}
+            <svg viewBox="0 0 24 24" fill="none" strokeWidth={2} stroke="currentColor" style={{ width: "0.68rem", height: "0.68rem", opacity: 0.7 }}>
+              <path strokeLinecap="round" strokeLinejoin="round" d="m16.862 4.487 1.687-1.688a1.875 1.875 0 1 1 2.652 2.652L10.582 16.07a4.5 4.5 0 0 1-1.897 1.13L6 18l.8-2.685a4.5 4.5 0 0 1 1.13-1.897l8.932-8.931Zm0 0L19.5 7.125" />
+            </svg>
+          </button>
+          <p style={{ fontSize: "0.78rem", color: C.charcoalLight, margin: 0, letterSpacing: "0.01em" }}>
+            {displayDate}
+          </p>
+        </div>
       </div>
+
+      {/* 出勤ステータス確認 & 手動調整モーダル */}
+      <PMShiftOverrideModal
+        isOpen={showShiftOverrideModal}
+        targetDate={today}
+        currentShift={currentShift}
+        events={events}
+        googleSyncStatus={syncStatus}
+        isGoogleSignedIn={isSignedIn}
+        onGoogleSignIn={signIn}
+        onGoogleSync={handleManualSync}
+        onClose={() => setShowShiftOverrideModal(false)}
+        onSave={handleSaveShiftOverride}
+      />
 
       {/* ─── Bento Grid メインレイアウト (PC: 2x2 等幅大型グリッド / Mobile: 1カラム) ─── */}
       <div
@@ -498,21 +622,19 @@ export default function Dashboard({ onNavigate, onSelectNote }: DashboardProps =
                       }}
                       title="クリックでタスク画面のPMセクションへ移動"
                     >
-                      {pmDayResolution && !pmDayResolution.isRestDay && (
-                        <span
-                          style={{
-                            fontSize: "0.65rem",
-                            fontWeight: 700,
-                            color: C.goldDark,
-                            background: "rgba(197, 160, 89, 0.15)",
-                            padding: "0.1rem 0.45rem",
-                            borderRadius: "4px",
-                            flexShrink: 0,
-                          }}
-                        >
-                          PM Day {pmDayResolution.dayIndex}
-                        </span>
-                      )}
+                      <span
+                        style={{
+                          fontSize: "0.65rem",
+                          fontWeight: 700,
+                          color: currentShift.type === "holiday" ? C.sage : C.goldDark,
+                          background: currentShift.type === "holiday" ? "rgba(82, 121, 111, 0.15)" : "rgba(197, 160, 89, 0.15)",
+                          padding: "0.1rem 0.45rem",
+                          borderRadius: "4px",
+                          flexShrink: 0,
+                        }}
+                      >
+                        {currentShift.type === "holiday" ? "PM 休日" : "PM 出勤"}
+                      </span>
                       <span
                         style={{
                           fontSize: "0.86rem",
@@ -613,7 +735,102 @@ export default function Dashboard({ onNavigate, onSelectNote }: DashboardProps =
           </div>
         </div>
 
-        {/* ─── タイルD: Notes（直近のノート） ─── */}
+        {/* ─── タイルD: Recipes（料理レシピ） ─── */}
+        <div
+          className="arca-card"
+          style={{
+            padding: "1.4rem 1.6rem 1.2rem",
+            display: "flex",
+            flexDirection: "column",
+            minHeight: "310px",
+            boxSizing: "border-box",
+            borderRadius: "20px",
+          }}
+        >
+          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: "0.9rem" }}>
+            <div style={{ display: "flex", alignItems: "center", gap: "0.45rem" }}>
+              <span style={{ fontSize: "0.85rem", fontWeight: 700, color: C.charcoal, letterSpacing: "0.02em" }}>
+                料理レシピ
+              </span>
+              <span style={{ fontSize: "0.74rem", color: C.charcoalLight }}>
+                ({activeRecipes.length})
+              </span>
+            </div>
+            <TileNavButton
+              label="レシピ"
+              onClick={() => onNavigate?.("recipes")}
+            />
+          </div>
+
+          {/* 内部スクロール */}
+          <div style={{ flex: 1, overflowY: "auto", paddingRight: "0.25rem" }}>
+            {recentRecipes.length === 0 ? (
+              <div style={{ height: "100%", display: "flex", alignItems: "center", justifyContent: "center" }}>
+                <p style={{ margin: 0, fontSize: "0.85rem", color: C.charcoalLight }}>
+                  登録されたレシピはありません
+                </p>
+              </div>
+            ) : (
+              <ul style={{ listStyle: "none", margin: 0, padding: 0, display: "flex", flexDirection: "column", gap: "0.45rem" }}>
+                {recentRecipes.map((recipe) => (
+                  <li
+                    key={recipe.id}
+                    onClick={() => onNavigate?.("recipes")}
+                    style={{
+                      padding: "0.55rem 0.65rem",
+                      borderRadius: "10px",
+                      background: "rgba(0, 0, 0, 0.015)",
+                      cursor: "pointer",
+                      transition: "background 0.15s ease",
+                      display: "flex",
+                      alignItems: "center",
+                      justifyContent: "space-between",
+                      gap: "0.5rem",
+                    }}
+                    onMouseEnter={(e) => {
+                      (e.currentTarget as HTMLLIElement).style.background = "rgba(0, 0, 0, 0.04)";
+                    }}
+                    onMouseLeave={(e) => {
+                      (e.currentTarget as HTMLLIElement).style.background = "rgba(0, 0, 0, 0.015)";
+                    }}
+                  >
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      <div style={{ display: "flex", alignItems: "center", gap: "0.35rem" }}>
+                        {recipe.favorite && (
+                          <span style={{ color: C.gold, fontSize: "0.75rem" }}>★</span>
+                        )}
+                        <p style={{ margin: 0, fontSize: "0.86rem", fontWeight: 600, color: C.charcoal, letterSpacing: "0.01em", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                          {recipe.title}
+                        </p>
+                      </div>
+                      {recipe.ingredients && recipe.ingredients.length > 0 && (
+                        <p style={{ margin: "0.15rem 0 0", fontSize: "0.72rem", color: C.charcoalLight, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                          {recipe.ingredients.slice(0, 3).map((i) => i.name).join(" / ")}
+                        </p>
+                      )}
+                    </div>
+                    {(recipe.servings || (recipe.tags && recipe.tags.length > 0)) && (
+                      <span
+                        style={{
+                          fontSize: "0.68rem",
+                          color: C.charcoalLight,
+                          background: "rgba(0, 0, 0, 0.04)",
+                          padding: "0.15rem 0.45rem",
+                          borderRadius: "6px",
+                          flexShrink: 0,
+                        }}
+                      >
+                        {recipe.servings || recipe.tags[0]}
+                      </span>
+                    )}
+                  </li>
+                ))}
+              </ul>
+            )}
+          </div>
+        </div>
+
+        {/* ─── タイルE: Notes（直近のノート） ─── */}
         <div
           className="arca-card"
           style={{
@@ -631,7 +848,7 @@ export default function Dashboard({ onNavigate, onSelectNote }: DashboardProps =
                 最近のノート
               </span>
               <span style={{ fontSize: "0.74rem", color: C.charcoalLight }}>
-                ({notes.length})
+                ({activeNotes.length})
               </span>
             </div>
             <TileNavButton

@@ -390,4 +390,29 @@ describe("Tasks コンポーネント", () => {
       expect(callArg.priority).toBe("high");
     });
   });
+
+  it("小タブ（タスク / 買い物リスト）をクリックして切り替えられる", async () => {
+    const user = userEvent.setup();
+    render(<Tasks />);
+
+    // 初期状態はタスクタブ
+    expect(screen.getByPlaceholderText(/タスクを追加…/)).toBeInTheDocument();
+
+    // 買い物リストタブをクリック
+    const listsTabBtn = screen.getByRole("button", { name: /買い物リスト/i });
+    await user.click(listsTabBtn);
+
+    // 買い物リスト入力欄が表示される
+    expect(screen.getByPlaceholderText(/アイテムを追加…/)).toBeInTheDocument();
+
+    // 再びタスクタブをクリック
+    const tasksTabBtn = screen.getByRole("button", { name: /タスク/i });
+    await user.click(tasksTabBtn);
+    expect(screen.getByPlaceholderText(/タスクを追加…/)).toBeInTheDocument();
+  });
+
+  it("initialTab='lists' の場合は最初から買い物リストが表示される", () => {
+    render(<Tasks initialTab="lists" />);
+    expect(screen.getByPlaceholderText(/アイテムを追加…/)).toBeInTheDocument();
+  });
 });

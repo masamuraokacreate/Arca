@@ -24,7 +24,7 @@ import {
   serverTimestamp,
 } from "firebase/firestore";
 import { db } from "../lib/firebase";
-import type { PMSettings, PMTemplateItem, PMLogItem, PMDayOverride, PMDayResolution, DateShiftInfo } from "../types/pm";
+import type { PMSettings, PMTemplateItem, PMLogItem, PMDayOverride, PMDayResolution, DateShiftInfo, ShiftInfo, ShiftOverride } from "../types/pm";
 import type { CalendarEvent } from "../types";
 
 // ═══════════════════════════════════════════════════════════
@@ -34,8 +34,11 @@ import type { CalendarEvent } from "../types";
 /** デフォルトサイクル長（日数） */
 export const DEFAULT_CYCLE_LENGTH = 6;
 
-/** 勤務系キーワード正規表現（シフト自動検出に使用） */
-export const WORK_SHIFT_KEYWORDS = /仕事|早番|遅番|勤務|日勤|当直|夜勤|出勤|シフト/i;
+/** 勤務系キーワード正規表現（シフト自動検出に使用: 出勤予定、仕事、日勤、シフト等） */
+export const WORK_SHIFT_KEYWORDS = /仕事|出勤|勤務|日勤|早番|遅番|当直|夜勤|シフト|work|shift/i;
+
+/** 休日系キーワード正規表現（公休、休み、有休、休暇等） */
+export const HOLIDAY_KEYWORDS = /公休|休み|休養|有休|有給|休暇|特休|振休|代休|off|holiday/i;
 
 /** デフォルト PM 設定 */
 export const DEFAULT_PM_SETTINGS: PMSettings = {
@@ -303,16 +306,6 @@ export interface WorkShiftAnchor {
 
 /**
  * Google カレンダー予定からシフト連続勤務の初日（Day 1 起点）を自動検出する。
- *
- * アルゴリズム:
- *  1. WORK_SHIFT_KEYWORDS に合致する予定を日付でマップ化
- *  2. 基準日（referenceDate、省略時は今日）以前に絞り込む
- *  3. 「前日に勤務予定がない」かつ「当日に勤務予定がある」日 = 連続勤務の初日
- *  4. 条件を満たす日のうち基準日に最も近い（直近の）日を返す
- *
- * @param events       CalendarEvent[]
- * @param referenceDate  基準日 "YYYY-MM-DD"（省略時: 今日）
- * @returns 検出結果 or null
  */
 export function detectAnchorFromEvents(
   events: CalendarEvent[],
@@ -321,11 +314,9 @@ export function detectAnchorFromEvents(
   const refDate = referenceDate ?? todayDateStr();
   const refEpoch = dateStrToEpochDays(refDate);
 
-  // 勤務系予定を日付セット（date → title）でマップ化
   const workDays = new Map<string, string>();
   for (const event of events) {
     if (WORK_SHIFT_KEYWORDS.test(event.title)) {
-      // 同日に複数ある場合は最初のものを保持
       if (!workDays.has(event.date)) {
         workDays.set(event.date, event.title);
       }
@@ -334,12 +325,10 @@ export function detectAnchorFromEvents(
 
   if (workDays.size === 0) return null;
 
-  // 基準日以前の勤務日だけ抽出し、降順ソート（直近優先）
   const candidateDates = Array.from(workDays.keys())
     .filter((d) => dateStrToEpochDays(d) <= refEpoch)
     .sort((a, b) => dateStrToEpochDays(b) - dateStrToEpochDays(a));
 
-  // 前日に勤務予定がない日 = 連続勤務の初日
   for (const dateStr of candidateDates) {
     const prevDateStr = epochDaysToDateStr(dateStrToEpochDays(dateStr) - 1);
     if (!workDays.has(prevDateStr)) {
@@ -351,7 +340,6 @@ export function detectAnchorFromEvents(
     }
   }
 
-  // 連続初日が見つからない場合（全日連勤など）は最も古い勤務日を起点とする
   const oldestDate = candidateDates[candidateDates.length - 1];
   if (oldestDate) {
     return {
@@ -399,74 +387,228 @@ export function resolveAnchorFromWorkShift(
 // SECTION E-2: 日別シフト詳細判定 & タイミング別タスク抽出
 // ═══════════════════════════════════════════════════════════
 
-/**
- * 指定日の勤務シフト状態（仕事/休み、連続何日目か）を解決する
- *
- * @param targetDate 対象日 "YYYY-MM-DD"
- * @param events カレンダーイベント一覧
- */
-export function resolveDateShiftInfo(
-  targetDate: string,
-  events: CalendarEvent[]
-): DateShiftInfo {
-  const targetEpoch = dateStrToEpochDays(targetDate);
-  const workDays = new Map<string, string>();
-
-  for (const event of events) {
-    if (WORK_SHIFT_KEYWORDS.test(event.title)) {
-      if (!workDays.has(event.date)) {
-        workDays.set(event.date, event.title);
-      }
+/** 特定の日付における勤務/休日ステータスを判定（手動オーバーライド最優先 ➔ 出勤/休日キーワード判定） */
+function getDayShiftStatus(
+  dateStr: string,
+  events: CalendarEvent[],
+  settings?: PMSettings | null
+): { isWork: boolean; shiftName?: string; isOverridden: boolean; streakOverride?: number } {
+  // 1. 手動オーバーライドチェック
+  const rawOverride = settings?.overrides?.[dateStr];
+  if (rawOverride) {
+    if ("type" in rawOverride && rawOverride.type) {
+      return {
+        isWork: rawOverride.type === "work",
+        shiftName: rawOverride.shiftName,
+        isOverridden: true,
+        streakOverride: rawOverride.streakNumber,
+      };
+    }
+    if (rawOverride.isRestDay) {
+      return {
+        isWork: false,
+        shiftName: rawOverride.note,
+        isOverridden: true,
+        streakOverride: rawOverride.streakNumber,
+      };
+    }
+    if (rawOverride.type) {
+      return {
+        isWork: rawOverride.type === "work",
+        shiftName: rawOverride.shiftName || rawOverride.note,
+        isOverridden: true,
+        streakOverride: rawOverride.streakNumber,
+      };
     }
   }
 
-  // イベントに仕事予定が1件もない場合は即座に安全な休日情報を返す
-  if (workDays.size === 0) {
+  // イベントからの判定
+  const dayEvents = events.filter((e) => e.date === dateStr);
+  const workEvent = dayEvents.find((e) => WORK_SHIFT_KEYWORDS.test(e.title));
+  if (workEvent) {
     return {
-      date: targetDate,
-      isWorkDay: false,
-      isRestDay: true,
-      shiftTitle: undefined,
-      consecutiveIndex: 1,
-      isFirstDayOfStreak: true,
-      isLastDayOfStreak: true,
+      isWork: true,
+      shiftName: workEvent.title,
+      isOverridden: false,
     };
   }
 
-  const isWorkDay = workDays.has(targetDate);
-  const isRestDay = !isWorkDay;
-  const shiftTitle = workDays.get(targetDate);
+  const holidayEvent = dayEvents.find((e) => HOLIDAY_KEYWORDS.test(e.title));
+  if (holidayEvent) {
+    return {
+      isWork: false,
+      shiftName: holidayEvent.title,
+      isOverridden: false,
+    };
+  }
 
-  // 連続日数の計算（過去方向へ最大30日探索）
+  return {
+    isWork: false,
+    shiftName: undefined,
+    isOverridden: false,
+  };
+}
+
+/**
+ * 指定日の勤務シフト状態（出勤/休日、連続日数、シフト名）を解決する
+ *
+ * 優先順位:
+ *  1. 手動オーバーライド (settings.overrides[targetDate])
+ *  2. カレンダーイベント (events) からの自動判定
+ *  3. 連続日数の過去最大30日探索（過去の手動オーバーライド・イベントも正確に加味）
+ *
+ * @param targetDate 対象日 "YYYY-MM-DD"
+ * @param events カレンダーイベント一覧
+ * @param settings PMSettings (オーバーライド設定含む)
+ */
+export function resolveShiftInfo(
+  targetDate: string,
+  events: CalendarEvent[],
+  settings?: PMSettings | null
+): ShiftInfo {
+  // 1. 対象日のステータス取得（手動オーバーライド最優先）
+  const currentStatus = getDayShiftStatus(targetDate, events, settings);
+
+  // 対象日自身が手動オーバーライドされている場合は最優先でそのまま返す
+  if (currentStatus.isOverridden) {
+    return {
+      date: targetDate,
+      type: currentStatus.isWork ? "work" : "holiday",
+      streakNumber: currentStatus.streakOverride ?? 1,
+      shiftName: currentStatus.shiftName,
+      isOverridden: true,
+    };
+  }
+
+  // 2. カレンダー・オーバーライド全体に仕事予定が存在するかチェック
+  const hasAnyWork =
+    events.some((e) => WORK_SHIFT_KEYWORDS.test(e.title)) ||
+    Object.values(settings?.overrides || {}).some((o) => (o as any)?.type === "work");
+
+  // 仕事予定が全期間で0件の場合
+  if (!hasAnyWork) {
+    if (settings?.manualAnchorDate) {
+      const anchorEpoch = dateStrToEpochDays(settings.manualAnchorDate);
+      const targetEpoch = dateStrToEpochDays(targetDate);
+      const cycleLen = settings.cycleLength || DEFAULT_CYCLE_LENGTH;
+      const diff = targetEpoch - anchorEpoch;
+      const dayIndex = (((diff % cycleLen) + cycleLen) % cycleLen) + (settings.manualAnchorDay || 1);
+      const normDay = ((dayIndex - 1) % cycleLen) + 1;
+      return {
+        date: targetDate,
+        type: "holiday",
+        streakNumber: normDay,
+        shiftName: undefined,
+        isOverridden: false,
+      };
+    }
+    return {
+      date: targetDate,
+      type: "holiday",
+      streakNumber: 1,
+      shiftName: undefined,
+      isOverridden: false,
+    };
+  }
+
+  // 3. 自動判定: 連続日数の計算（過去方向へ最大30日探索）
+  const targetEpoch = dateStrToEpochDays(targetDate);
+  const isWorkDay = currentStatus.isWork;
+
   let streakCount = 1;
   let cursorEpoch = targetEpoch - 1;
+  let foundBoundary = false;
+
   while (streakCount < 30) {
     const prevDateStr = epochDaysToDateStr(cursorEpoch);
-    const prevIsWork = workDays.has(prevDateStr);
-    if (isWorkDay ? prevIsWork : !prevIsWork) {
+    const prevStatus = getDayShiftStatus(prevDateStr, events, settings);
+
+    if (isWorkDay ? prevStatus.isWork : !prevStatus.isWork) {
       streakCount++;
       cursorEpoch--;
     } else {
+      foundBoundary = true;
       break;
     }
   }
 
-  // 初日判定（前日が異なる状態か）
-  const prevDayStr = epochDaysToDateStr(targetEpoch - 1);
-  const isFirstDayOfStreak = isWorkDay ? !workDays.has(prevDayStr) : workDays.has(prevDayStr);
+  // 過去30日探索しても境界が見つからなかった場合
+  if (!foundBoundary && streakCount >= 30) {
+    streakCount = 1;
+  }
 
-  // 最終日判定（翌日が異なる状態か）
-  const nextDayStr = epochDaysToDateStr(targetEpoch + 1);
-  const isLastDayOfStreak = isWorkDay ? !workDays.has(nextDayStr) : workDays.has(nextDayStr);
+  return {
+    date: targetDate,
+    type: isWorkDay ? "work" : "holiday",
+    streakNumber: streakCount,
+    shiftName: currentStatus.shiftName || undefined,
+    isOverridden: false,
+  };
+}
+
+/**
+ * 指定日の手動シフトオーバーライドを保存またはリセットする
+ *
+ * @param date 対象日 "YYYY-MM-DD"
+ * @param override オーバーライド設定（null でリセット・自動判定に戻す）
+ */
+export async function saveShiftOverride(
+  date: string,
+  override: Omit<ShiftOverride, "date" | "updatedAt"> | null
+): Promise<void> {
+  const currentSettings = await getPMSettings();
+  const overrides = { ...(currentSettings.overrides || {}) };
+
+  if (override === null) {
+    delete overrides[date];
+  } else {
+    overrides[date] = {
+      date,
+      type: override.type,
+      streakNumber: override.streakNumber,
+      shiftName: override.shiftName,
+      updatedAt: new Date().toISOString(),
+    };
+  }
+
+  await savePMSettings({ overrides });
+}
+
+/**
+ * 指定日の勤務シフト状態（DateShiftInfo 形式）を解決する（後方互換対応）
+ *
+ * @param targetDate 対象日 "YYYY-MM-DD"
+ * @param events カレンダーイベント一覧
+ * @param settings PMSettings (オーバーライド設定含む)
+ */
+export function resolveDateShiftInfo(
+  targetDate: string,
+  events: CalendarEvent[],
+  settings?: PMSettings | null
+): DateShiftInfo {
+  const shift = resolveShiftInfo(targetDate, events, settings);
+  const isWorkDay = shift.type === "work";
+  const isRestDay = !isWorkDay;
+
+  const targetEpoch = dateStrToEpochDays(targetDate);
+  const prevDateStr = epochDaysToDateStr(targetEpoch - 1);
+  const nextDateStr = epochDaysToDateStr(targetEpoch + 1);
+
+  const prevShift = resolveShiftInfo(prevDateStr, events, settings);
+  const nextShift = resolveShiftInfo(nextDateStr, events, settings);
+
+  const isFirstDayOfStreak = isWorkDay ? prevShift.type !== "work" : prevShift.type !== "holiday";
+  const isLastDayOfStreak = isWorkDay ? nextShift.type !== "work" : nextShift.type !== "holiday";
 
   return {
     date: targetDate,
     isWorkDay,
     isRestDay,
-    shiftTitle,
-    consecutiveIndex: streakCount,
+    shiftTitle: shift.shiftName,
+    consecutiveIndex: shift.streakNumber,
     isFirstDayOfStreak,
     isLastDayOfStreak,
+    isOverridden: shift.isOverridden,
   };
 }
 
@@ -481,9 +623,6 @@ export function isTemplateActiveForDate(
   detectedAnchor?: string
 ): boolean {
   if (template.enabled === false) return false;
-
-  // 単日オーバーライドが休養日の場合
-  if (settings.overrides?.[targetDate]?.isRestDay) return false;
 
   // 1. timing が明示されている場合
   if (template.timing) {
@@ -532,7 +671,7 @@ export function getActivePMTasksForDate(
   events: CalendarEvent[],
   settings: PMSettings
 ): PMTemplateItem[] {
-  const shiftInfo = resolveDateShiftInfo(targetDate, events);
+  const shiftInfo = resolveDateShiftInfo(targetDate, events, settings);
   const detectedAnchor = detectAnchorFromEvents(events, targetDate)?.anchorDate;
 
   return templates
@@ -597,24 +736,54 @@ export async function seedDefaultPMTemplatesIfEmpty(): Promise<PMTemplateItem[]>
 // ─────────────────────────────────────────
 
 const PM_SETTINGS_COL = "pm_settings";
-const PM_SETTINGS_DOC_ID = "config";
+export const PM_SETTINGS_DOC_ID = "main";
+const LOCAL_STORAGE_PM_SETTINGS_KEY = "arca_pm_settings";
 
-/** Firestore から PM 設定を取得する（存在しない場合はデフォルトを返す） */
+/** Firestore から PM 設定を取得する（main なければ config / localStorage から取得、存在しない場合はデフォルトを返す） */
 export async function getPMSettings(): Promise<PMSettings> {
-  const snap = await getDoc(doc(db, PM_SETTINGS_COL, PM_SETTINGS_DOC_ID));
-  if (snap.exists()) {
-    return snap.data() as PMSettings;
+  try {
+    const snap = await getDoc(doc(db, PM_SETTINGS_COL, PM_SETTINGS_DOC_ID));
+    if (snap.exists()) {
+      const data = snap.data() as PMSettings;
+      try {
+        localStorage.setItem(LOCAL_STORAGE_PM_SETTINGS_KEY, JSON.stringify(data));
+      } catch {}
+      return data;
+    }
+    // 後方互換: 旧 config ドキュメントからのフォールバック
+    const configSnap = await getDoc(doc(db, PM_SETTINGS_COL, "config"));
+    if (configSnap.exists()) {
+      const data = configSnap.data() as PMSettings;
+      try {
+        localStorage.setItem(LOCAL_STORAGE_PM_SETTINGS_KEY, JSON.stringify(data));
+      } catch {}
+      return data;
+    }
+  } catch {
+    // Firestore エラー時は localStorage からフォールバック取得
   }
+
+  try {
+    const cached = localStorage.getItem(LOCAL_STORAGE_PM_SETTINGS_KEY);
+    if (cached) return JSON.parse(cached) as PMSettings;
+  } catch {}
+
   return { ...DEFAULT_PM_SETTINGS };
 }
 
 /**
- * PM 設定を Firestore に保存する（部分更新・マージ）
+ * PM 設定を Firestore に保存する（部分更新・マージ & localStorage ローカルファースト即時反映）
  * @param settings 更新したいフィールドのみ渡す（Partial）
  */
 export async function savePMSettings(settings: Partial<PMSettings>): Promise<void> {
   const existing = await getPMSettings();
   const merged: PMSettings = { ...existing, ...settings };
+
+  // 即座に localStorage へ保存（ローカルファースト）
+  try {
+    localStorage.setItem(LOCAL_STORAGE_PM_SETTINGS_KEY, JSON.stringify(merged));
+  } catch {}
+
   await setDoc(doc(db, PM_SETTINGS_COL, PM_SETTINGS_DOC_ID), merged);
 }
 
@@ -698,8 +867,11 @@ export async function recordPMLog(params: RecordPMLogParams): Promise<PMLogItem>
   };
 
   await setDoc(doc(db, PM_LOGS_COL, docId), data, { merge: false });
-
-  return { id: docId, ...data } as unknown as PMLogItem;
+  return {
+    id: docId,
+    ...params,
+    completedAt: data.completedAt || undefined,
+  } as unknown as PMLogItem;
 }
 
 // ─────────────────────────────────────────

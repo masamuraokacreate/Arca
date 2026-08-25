@@ -142,24 +142,47 @@ export function subscribeRecipes(
     q,
     (snapshot) => {
       const recipes: Recipe[] = [];
-      snapshot.forEach((docSnap) => {
-        const data = docSnap.data();
-        recipes.push({
-          id: docSnap.id,
-          title: data.title || "",
-          sourceUrl: data.sourceUrl || undefined,
-          imageUrl: data.imageUrl || undefined,
-          servings: data.servings || undefined,
-          ingredients: Array.isArray(data.ingredients) ? data.ingredients : [],
-          steps: Array.isArray(data.steps) ? data.steps : [],
-          notes: data.notes || undefined,
-          tags: Array.isArray(data.tags) ? data.tags : [],
-          favorite: !!data.favorite,
-          createdAt: typeof data.createdAt === "number" ? data.createdAt : Date.now(),
-          updatedAt: typeof data.updatedAt === "number" ? data.updatedAt : Date.now(),
-          isDeleted: !!data.isDeleted,
+      const docsList = snapshot?.docs || [];
+
+      if (docsList.length > 0 || (snapshot && Array.isArray(snapshot.docs))) {
+        docsList.forEach((docSnap: any) => {
+          const data = typeof docSnap.data === "function" ? docSnap.data() : (docSnap.data || {});
+          recipes.push({
+            id: docSnap.id,
+            title: data.title || "",
+            sourceUrl: data.sourceUrl || undefined,
+            imageUrl: data.imageUrl || undefined,
+            servings: data.servings || undefined,
+            ingredients: Array.isArray(data.ingredients) ? data.ingredients : [],
+            steps: Array.isArray(data.steps) ? data.steps : [],
+            notes: data.notes || undefined,
+            tags: Array.isArray(data.tags) ? data.tags : [],
+            favorite: !!data.favorite,
+            createdAt: typeof data.createdAt === "number" ? data.createdAt : Date.now(),
+            updatedAt: typeof data.updatedAt === "number" ? data.updatedAt : Date.now(),
+            isDeleted: !!data.isDeleted,
+          });
         });
-      });
+      } else if (typeof snapshot?.forEach === "function") {
+        snapshot.forEach((docSnap: any) => {
+          const data = typeof docSnap.data === "function" ? docSnap.data() : (docSnap.data || {});
+          recipes.push({
+            id: docSnap.id,
+            title: data.title || "",
+            sourceUrl: data.sourceUrl || undefined,
+            imageUrl: data.imageUrl || undefined,
+            servings: data.servings || undefined,
+            ingredients: Array.isArray(data.ingredients) ? data.ingredients : [],
+            steps: Array.isArray(data.steps) ? data.steps : [],
+            notes: data.notes || undefined,
+            tags: Array.isArray(data.tags) ? data.tags : [],
+            favorite: !!data.favorite,
+            createdAt: typeof data.createdAt === "number" ? data.createdAt : Date.now(),
+            updatedAt: typeof data.updatedAt === "number" ? data.updatedAt : Date.now(),
+            isDeleted: !!data.isDeleted,
+          });
+        });
+      }
       onUpdate(recipes);
     },
     (err) => {

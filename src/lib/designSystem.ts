@@ -49,11 +49,13 @@ export const C = {
   cardShadowHover: "0 6px 28px rgba(0, 0, 0, 0.07), 0 2px 6px rgba(0, 0, 0, 0.03)",
   cardShadowActive: "0 1px 6px rgba(0, 0, 0, 0.03)",
   toastShadow: "0 10px 40px rgba(0, 0, 0, 0.14), 0 2px 8px rgba(0, 0, 0, 0.06)",
+  modalShadow: "0 12px 48px rgba(0, 0, 0, 0.16), 0 4px 16px rgba(0, 0, 0, 0.08)",
   briefingShadow: "0 4px 32px rgba(197, 160, 89, 0.10), 0 1px 4px rgba(0, 0, 0, 0.02)",
 
   // ── 角丸 (HIG 準拠) ──
   radiusCard: "20px",
   radiusCardLg: "24px",
+  radiusModal: "24px",
   radiusPill: "9999px",
   radiusBtn: "10px",
   radiusSm: "6px",

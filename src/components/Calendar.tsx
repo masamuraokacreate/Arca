@@ -37,13 +37,16 @@ import { useUndoToast } from "../hooks/useUndoToast";
 import { UndoToast } from "./common/UndoToast";
 import {
   buildCalendarPMDates,
-  computeDayResolution,
   recordPMLog,
   buildLogMapForDate,
   resolveItemStatus,
   resolveDateShiftInfo,
+  resolveShiftInfo,
+  saveShiftOverride,
   getActivePMTasksForDate,
+  DEFAULT_PM_SETTINGS,
 } from "../services/pmCycleService";
+import { PMShiftOverrideModal } from "./tasks/PMShiftOverrideModal";
 
 type Task = CalendarTask;
 
@@ -707,6 +710,7 @@ function MonthGrid({
   eventDates,
   taskDueDates,
   pmDates,
+  settings,
   onSelectDate,
   onPrevMonth,
   onNextMonth,
@@ -720,18 +724,34 @@ function MonthGrid({
   taskDueDates: Set<string>;
   /** date → Day番号 の Map（PMタスクがある日のみ） */
   pmDates: Map<string, number>;
+  settings?: PMSettings | null;
   onSelectDate: (d: string) => void;
   onPrevMonth: () => void;
   onNextMonth: () => void;
 }) {
   const { firstDay, daysInMonth, daysInPrev } = monthMeta(year, month);
 
-  // 勤務・シフト予定のマップ化
+  // 勤務・シフト予定のマップ化（手動オーバーライドも考慮）
   const shiftMap = new Map<string, { isWork: boolean; title?: string }>();
   for (const ev of events) {
     const isWork = /仕事|早番|遅番|勤務|日勤|当直|夜勤|出勤|シフト/i.test(ev.title);
     if (isWork && !shiftMap.has(ev.date)) {
       shiftMap.set(ev.date, { isWork: true, title: ev.title });
+    }
+  }
+  if (settings?.overrides) {
+    for (const [date, override] of Object.entries(settings.overrides)) {
+      if ("type" in override && override.type) {
+        shiftMap.set(date, {
+          isWork: override.type === "work",
+          title: override.shiftName,
+        });
+      } else if ("isRestDay" in override && override.isRestDay) {
+        shiftMap.set(date, {
+          isWork: false,
+          title: (override as any).note,
+        });
+      }
     }
   }
 
@@ -1180,6 +1200,7 @@ export default function Calendar() {
   const [pmSettings, setPmSettings] = useState<PMSettings | null>(null);
   const [pmTemplates, setPmTemplates] = useState<PMTemplateItem[]>([]);
   const [pmLogs, setPmLogs] = useState<PMLogItem[]>([]);
+  const [showShiftOverrideModal, setShowShiftOverrideModal] = useState(false);
 
   const { isReady, isSignedIn, accessToken, signIn, signOut } = useGoogleAuth();
   const { toast, showUndoToast, showMessageToast, dismissToast, triggerUndo } = useUndoToast<CalendarEvent>();
@@ -1199,15 +1220,16 @@ export default function Calendar() {
 
   // ── Firestore: PM 設定・テンプレート・ログ 購読 ──
   useEffect(() => {
-    const fetchPMSettings = async () => {
-      try {
-        const snap = await getDoc(doc(db, "pm_settings", "main"));
-        if (snap?.exists?.()) setPmSettings(snap.data() as PMSettings);
-      } catch {
-        // ignore
+    const unsubSettings = onSnapshot(doc(db, "pm_settings", "main"), (snap) => {
+      if (snap?.exists?.()) {
+        setPmSettings(snap.data() as PMSettings);
+      } else {
+        // フォールバック: config
+        getDoc(doc(db, "pm_settings", "config")).then((cSnap) => {
+          if (cSnap?.exists?.()) setPmSettings(cSnap.data() as PMSettings);
+        });
       }
-    };
-    fetchPMSettings();
+    });
 
     const unsubTemplates = onSnapshot(
       query(collection(db, "pm_templates"), orderBy("dayIndex", "asc")),
@@ -1220,6 +1242,7 @@ export default function Calendar() {
     );
 
     return () => {
+      unsubSettings();
       unsubTemplates();
       unsubLogs();
     };
@@ -1230,7 +1253,7 @@ export default function Calendar() {
     if (!isSignedIn || !accessToken) return;
     try {
       setSyncStatus("syncing");
-      await syncGoogleCalendarToArca(accessToken, events);
+      await syncGoogleCalendarToArca(accessToken, events.length > 0 ? events : undefined);
       setSyncStatus("done");
       setTimeout(() => {
         setSyncStatus("idle");
@@ -1282,15 +1305,47 @@ export default function Calendar() {
     return buildCalendarPMDates(pmSettings, pmTemplates, fromDate, toDate);
   })();
 
-  // ── 選択日のシフト情報 ──
-  const selectedShiftInfo = resolveDateShiftInfo(selectedDate, events);
+  // ── 選択日のシフト情報（手動オーバーライド優先） ──
+  const selectedShift = resolveShiftInfo(selectedDate, events, pmSettings);
+  const selectedShiftInfo = resolveDateShiftInfo(selectedDate, events, pmSettings);
 
   // ── 選択日の PM 情報（シフト連動タスク抽出） ──
-  const selectedDatePMResolution = pmSettings ? computeDayResolution(pmSettings, selectedDate) : null;
   const selectedDatePMItems = pmSettings
     ? getActivePMTasksForDate(selectedDate, pmTemplates, events, pmSettings)
     : [];
   const pmLogMap = buildLogMapForDate(pmLogs, selectedDate);
+
+  // ── シフト手動オーバーライド保存（楽観的即時反映） ──
+  const handleSaveShiftOverride = useCallback(
+    async (override: any) => {
+      // 1. ローカルステートを即時楽観的更新（0ms 反映）
+      setPmSettings((prev) => {
+        const current = prev || { ...DEFAULT_PM_SETTINGS };
+        const newOverrides = { ...(current.overrides || {}) };
+        if (override === null) {
+          delete newOverrides[selectedDate];
+        } else {
+          newOverrides[selectedDate] = {
+            date: selectedDate,
+            type: override.type,
+            streakNumber: override.streakNumber,
+            shiftName: override.shiftName,
+            updatedAt: new Date().toISOString(),
+          };
+        }
+        return { ...current, overrides: newOverrides };
+      });
+
+      // 2. 永続化保存
+      try {
+        await saveShiftOverride(selectedDate, override);
+        showMessageToast(override ? "シフト状態を手動設定しました" : "シフト状態を自動判定に戻しました");
+      } catch (err) {
+        console.error("Failed to save shift override from calendar:", err);
+      }
+    },
+    [selectedDate, showMessageToast]
+  );
 
   // ── PM 完了トグル ──
   const handleTogglePMComplete = useCallback(async (item: PMTemplateItem) => {
@@ -1301,7 +1356,7 @@ export default function Calendar() {
       await recordPMLog({
         date: selectedDate,
         templateId: item.id,
-        dayIndex: item.dayIndex || selectedDatePMResolution?.dayIndex || 1,
+        dayIndex: item.dayIndex || selectedShift.streakNumber || 1,
         title: item.title,
         status: "completed",
       });
@@ -1309,7 +1364,7 @@ export default function Calendar() {
     } catch (err) {
       console.error("Failed to record PM log from calendar", err);
     }
-  }, [selectedDate, selectedDatePMResolution, pmLogMap, showMessageToast]);
+  }, [selectedDate, selectedShift.streakNumber, pmLogMap, showMessageToast]);
 
 
   // ── 予定追加（Google Calendar 連動） ──
@@ -1444,10 +1499,9 @@ export default function Calendar() {
     });
   }, []);
 
-  // ── 選択日の表示ラベル ──
-  const selectedLabel = (() => {
+  // ── 選択日の表示ラベル（「今日」「Today」は含めず日付曜日のみ表示） ──
+  const selectedFullLabel = (() => {
     const d = new Date(`${selectedDate}T00:00:00`);
-    if (selectedDate === today) return "今日";
     return d.toLocaleDateString("ja-JP", { month: "long", day: "numeric", weekday: "short" });
   })();
 
@@ -1455,7 +1509,7 @@ export default function Calendar() {
     <div className="w-full max-w-5xl mx-auto" style={{ padding: "2.8rem 1.5rem 6rem", boxSizing: "border-box" }}>
       
       {/* ─── ヘッダー（統一された静かなデザイン） ─── */}
-      <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", marginBottom: "2rem", padding: "0 0.25rem" }}>
+      <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", marginBottom: "1.75rem", padding: "0 0.25rem" }}>
         <div>
           <p style={{ fontSize: "0.68rem", fontWeight: 650, color: C.charcoalLight, letterSpacing: "0.1em", textTransform: "uppercase", margin: 0 }}>
             CALENDAR
@@ -1478,7 +1532,60 @@ export default function Calendar() {
         />
       </div>
 
-      {/* ─── 左右2ペイン（PC: 2カラム / モバイル: 縦積み） ─── */}
+      {/* ─── 選択日ステータスバー（日付の横に休日/出勤ボタンを横並び配置） ─── */}
+      <div
+        style={{
+          display: "flex",
+          alignItems: "center",
+          gap: "0.75rem",
+          marginBottom: "1.25rem",
+          padding: "0 0.35rem",
+          flexWrap: "wrap",
+        }}
+      >
+        <h2 style={{ fontSize: "1.15rem", fontWeight: 700, color: C.charcoal, margin: 0, letterSpacing: "-0.015em" }}>
+          {selectedFullLabel}
+        </h2>
+
+        {/* シフト状態バッジ（クリックで出勤ステータス確認モーダル） */}
+        <button
+          type="button"
+          onClick={() => setShowShiftOverrideModal(true)}
+          data-testid="calendar-shift-badge"
+          style={{
+            fontSize: "0.72rem",
+            fontWeight: 650,
+            color: selectedShift.type === "holiday" ? C.sage : C.goldDark,
+            background: selectedShift.type === "holiday" ? "rgba(82, 121, 111, 0.10)" : C.goldFaint,
+            border: selectedShift.isOverridden
+              ? `1px dashed ${selectedShift.type === "holiday" ? C.sage : C.gold}`
+              : "1px solid transparent",
+            padding: "0.22rem 0.75rem",
+            borderRadius: "9999px",
+            cursor: "pointer",
+            display: "inline-flex",
+            alignItems: "center",
+            gap: "0.35rem",
+            transition: "all 0.15s ease",
+            boxShadow: "0 1px 4px rgba(0,0,0,0.02)",
+          }}
+          title="クリックして出勤ステータス確認・手動調整"
+        >
+          <span>
+            {selectedShift.type === "holiday"
+              ? `🌙 休日 ${selectedShift.streakNumber}日目`
+              : `✦ 出勤 ${selectedShift.streakNumber}日目${selectedShift.shiftName ? ` (${selectedShift.shiftName})` : ""}`}
+          </span>
+          {selectedShift.isOverridden && (
+            <span style={{ fontSize: "0.62rem", opacity: 0.85 }}>(手動)</span>
+          )}
+          <svg viewBox="0 0 24 24" fill="none" strokeWidth={2} stroke="currentColor" style={{ width: "0.68rem", height: "0.68rem", opacity: 0.7 }}>
+            <path strokeLinecap="round" strokeLinejoin="round" d="m16.862 4.487 1.687-1.688a1.875 1.875 0 1 1 2.652 2.652L10.582 16.07a4.5 4.5 0 0 1-1.897 1.13L6 18l.8-2.685a4.5 4.5 0 0 1 1.13-1.897l8.932-8.931Zm0 0L19.5 7.125" />
+          </svg>
+        </button>
+      </div>
+
+      {/* ─── 左右2ペイン（PC: 2カラム横並び / モバイル: 縦積み） ─── */}
       <div className="grid grid-cols-1 md:grid-cols-12 gap-6 items-start">
         
         {/* 左ペイン: 月間カレンダー */}
@@ -1492,6 +1599,7 @@ export default function Calendar() {
             eventDates={eventDates}
             taskDueDates={taskDueDates}
             pmDates={pmDates}
+            settings={pmSettings}
             onSelectDate={setSelectedDate}
             onPrevMonth={goPrevMonth}
             onNextMonth={goNextMonth}
@@ -1504,47 +1612,6 @@ export default function Calendar() {
           className="md:col-span-5 flex flex-col gap-4"
           style={{ animation: "arca-module-in 0.22s ease" }}
         >
-          {/* 日付ヘッダー & シフトピル */}
-          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "0 0.25rem" }}>
-            <div style={{ display: "flex", alignItems: "center", gap: "0.5rem" }}>
-              <h2 style={{ fontSize: "1.1rem", fontWeight: 700, color: C.charcoal, margin: 0, letterSpacing: "-0.015em" }}>
-                {selectedLabel}
-              </h2>
-              {isSelectedToday && (
-                <span
-                  style={{
-                    fontSize: "0.65rem",
-                    fontWeight: 650,
-                    letterSpacing: "0.08em",
-                    textTransform: "uppercase",
-                    color: C.gold,
-                    background: C.goldFaint2,
-                    padding: "0.15rem 0.5rem",
-                    borderRadius: "9999px",
-                  }}
-                >
-                  Today
-                </span>
-              )}
-            </div>
-
-            {/* シフト状態ピル */}
-            <span
-              style={{
-                fontSize: "0.68rem",
-                fontWeight: 650,
-                color: selectedShiftInfo.isRestDay ? C.sage : C.goldDark,
-                background: selectedShiftInfo.isRestDay ? "rgba(82, 121, 111, 0.10)" : C.goldFaint,
-                padding: "0.15rem 0.55rem",
-                borderRadius: "9999px",
-              }}
-            >
-              {selectedShiftInfo.isRestDay
-                ? `🌙 休日 ${selectedShiftInfo.consecutiveIndex}日目`
-                : `✦ 出勤 ${selectedShiftInfo.consecutiveIndex}日目${selectedShiftInfo.shiftTitle ? ` (${selectedShiftInfo.shiftTitle})` : ""}`}
-            </span>
-          </div>
-
           {/* ── 予定セクション ── */}
           <div className="arca-card" style={{ padding: "1.15rem 1.4rem" }}>
             <p style={sectionLabelStyle}>予定</p>
@@ -1699,6 +1766,20 @@ export default function Calendar() {
 
         </div>
       </div>
+
+      {/* ─── 出勤ステータス確認 & 手動調整モーダル ─── */}
+      <PMShiftOverrideModal
+        isOpen={showShiftOverrideModal}
+        targetDate={selectedDate}
+        currentShift={selectedShift}
+        events={events}
+        googleSyncStatus={syncStatus}
+        isGoogleSignedIn={isSignedIn}
+        onGoogleSignIn={signIn}
+        onGoogleSync={syncCalendar}
+        onClose={() => setShowShiftOverrideModal(false)}
+        onSave={handleSaveShiftOverride}
+      />
 
       {/* ─── 共通 Undo トースト ─── */}
       <UndoToast toast={toast} onUndo={triggerUndo} onDismiss={dismissToast} />

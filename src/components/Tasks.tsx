@@ -41,7 +41,11 @@ import { C } from "../lib/designSystem";
 import { useUndoToast } from "../hooks/useUndoToast";
 import { UndoToast } from "./common/UndoToast";
 import { PMSection } from "./tasks/PMSection";
+import Lists from "./Lists";
 
+export interface TasksProps {
+  initialTab?: "tasks" | "lists";
+}
 
 type Task = TaskItem;
 
@@ -603,12 +607,19 @@ function TaskRow({
 }
 
 // ---------- メインコンポーネント ----------
-export default function Tasks() {
+export default function Tasks({ initialTab = "tasks" }: TasksProps = {}) {
+  const [activeTab, setActiveTab] = useState<"tasks" | "lists">(initialTab);
   const [tasks, setTasks] = useState<Task[]>([]);
   const [titleInput, setTitleInput] = useState("");
   const [dueInput, setDueInput] = useState("");
   const [isAdding, setIsAdding] = useState(false);
   const [syncStatus, setSyncStatus] = useState<SyncStatus>("idle");
+
+  useEffect(() => {
+    if (initialTab) {
+      setActiveTab(initialTab);
+    }
+  }, [initialTab]);
 
   // 自然言語推論ステート
   const [parsedInfo, setParsedInfo] = useState<{
@@ -920,222 +931,285 @@ export default function Tasks() {
     <div className="w-full max-w-xl mx-auto" style={{ padding: "2.8rem 1.5rem 6rem", boxSizing: "border-box" }}>
       
       {/* ─── ヘッダー（統一された静かなデザイン） ─── */}
-      <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", marginBottom: "2rem", padding: "0 0.25rem" }}>
+      <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", marginBottom: "1.2rem", padding: "0 0.25rem" }}>
         <div>
           <p style={{ fontSize: "0.68rem", fontWeight: 650, color: C.charcoalLight, letterSpacing: "0.1em", textTransform: "uppercase", margin: 0 }}>
-            TASKS
+            TASKS & LISTS
           </p>
           <h1 style={{ fontSize: "1.75rem", fontWeight: 750, color: C.charcoal, margin: "0.15rem 0 0", letterSpacing: "-0.03em" }}>
-            タスク
+            {activeTab === "tasks" ? "タスク" : "買い物リスト"}
           </h1>
-          <p style={{ fontSize: "0.78rem", color: C.charcoalLight, margin: "0.3rem 0 0", letterSpacing: "0.01em" }}>
-            {pending.length}件の未完了タスク
-          </p>
+          {activeTab === "tasks" && (
+            <p style={{ fontSize: "0.78rem", color: C.charcoalLight, margin: "0.3rem 0 0", letterSpacing: "0.01em" }}>
+              {pending.length}件の未完了タスク
+            </p>
+          )}
         </div>
 
-        <SyncBadge
-          isReady={isReady}
-          isSignedIn={isSignedIn}
-          syncStatus={syncStatus}
-          onSignIn={signIn}
-          onSignOut={signOut}
-        />
+        {activeTab === "tasks" && (
+          <SyncBadge
+            isReady={isReady}
+            isSignedIn={isSignedIn}
+            syncStatus={syncStatus}
+            onSignIn={signIn}
+            onSignOut={signOut}
+          />
+        )}
       </div>
 
-      {/* ─── 入力フォーム（自然言語推論プレビュー付き） ─── */}
-      <div style={{ marginBottom: "2.2rem" }}>
+      {/* ─── サブタブ（小タブ切り替え: [ タスク | 買い物リスト ]） ─── */}
+      <div style={{ marginBottom: "1.8rem", padding: "0 0.25rem" }}>
         <div
-          className="arca-card"
           style={{
-            display: "flex",
+            display: "inline-flex",
             alignItems: "center",
-            padding: "0.55rem 0.85rem",
-            gap: "0.45rem",
-            width: "100%",
-            maxWidth: "100%",
-            boxSizing: "border-box",
-            overflow: "hidden",
+            background: "rgba(0, 0, 0, 0.04)",
+            padding: "3px",
+            borderRadius: "9999px",
+            gap: "3px",
           }}
         >
-          {/* テキスト入力欄: minWidth: 0 で縮退可能にし、はみ出しを防止 */}
-          <input
-            ref={inputRef}
-            type="text"
-            value={titleInput}
-            onChange={handleInputChange}
-            onKeyDown={handleKeyDown}
-            placeholder="タスクを追加…（例: 明日15時に書類提出）"
-            style={{
-              flex: 1,
-              minWidth: 0,
-              background: "transparent",
-              border: "none",
-              outline: "none",
-              fontSize: "0.92rem",
-              color: C.charcoal,
-              letterSpacing: "0.01em",
-            }}
-          />
-
-          {/* AI推論プレビューバッジ（期日・優先度） */}
-          {parsedInfo && (
-            <div style={{ display: "flex", alignItems: "center", gap: "0.3rem", flexShrink: 0 }}>
-              {parsedInfo.dueDate && (
-                <span
-                  style={{
-                    display: "inline-flex",
-                    alignItems: "center",
-                    gap: "0.25rem",
-                    fontSize: "0.68rem",
-                    fontWeight: 600,
-                    color: C.goldDark,
-                    background: "rgba(184, 150, 106, 0.12)",
-                    padding: "0.2rem 0.5rem",
-                    borderRadius: "9999px",
-                    whiteSpace: "nowrap",
-                  }}
-                  title={`推論された期日: ${parsedInfo.dueDate}`}
-                >
-                  <CalendarIcon />
-                  <span>{formatDue(parsedInfo.dueDate)}</span>
-                </span>
-              )}
-              {parsedInfo.priority === "high" && (
-                <span
-                  style={{
-                    display: "inline-flex",
-                    alignItems: "center",
-                    gap: "0.2rem",
-                    fontSize: "0.68rem",
-                    fontWeight: 600,
-                    color: C.danger,
-                    background: "rgba(224, 86, 74, 0.12)",
-                    padding: "0.2rem 0.5rem",
-                    borderRadius: "9999px",
-                    whiteSpace: "nowrap",
-                  }}
-                  title="優先度: 高"
-                >
-                  <ZapIcon />
-                  <span>高</span>
-                </span>
-              )}
-            </div>
-          )}
-
-          {/* 期限日手動選択 */}
-          <input
-            type="date"
-            value={dueInput}
-            onChange={(e) => setDueInput(e.target.value)}
-            style={{
-              flexShrink: 0,
-              width: "auto",
-              maxWidth: "115px",
-              background: "rgba(0, 0, 0, 0.03)",
-              borderRadius: "8px",
-              padding: "0.3rem 0.4rem",
-              border: "none",
-              outline: "none",
-              fontSize: "0.72rem",
-              color: dueInput ? C.charcoalMid : C.charcoalXLight,
-              cursor: "pointer",
-              fontFamily: "-apple-system, sans-serif",
-            }}
-            title="期限日を設定"
-          />
-
-          {/* 追加ボタン */}
           <button
-            onClick={handleAdd}
-            disabled={!titleInput.trim() || isAdding}
+            type="button"
+            onClick={() => setActiveTab("tasks")}
             style={{
-              flexShrink: 0,
-              background: titleInput.trim() ? C.gold : "rgba(0, 0, 0, 0.06)",
-              color: titleInput.trim() ? "#FDFCFA" : C.charcoalXLight,
               border: "none",
-              borderRadius: "10px",
-              padding: "0.45rem 0.85rem",
+              borderRadius: "9999px",
+              padding: "0.35rem 0.95rem",
               fontSize: "0.78rem",
-              fontWeight: 600,
-              cursor: titleInput.trim() ? "pointer" : "default",
-              transition: "all 0.15s ease",
-              minWidth: "44px",
-              minHeight: "34px",
+              fontWeight: activeTab === "tasks" ? 650 : 450,
+              color: activeTab === "tasks" ? C.charcoal : C.charcoalLight,
+              background: activeTab === "tasks" ? C.white : "transparent",
+              boxShadow: activeTab === "tasks" ? "0 1px 4px rgba(0,0,0,0.08)" : "none",
+              cursor: "pointer",
+              transition: "all 0.18s ease",
             }}
           >
-            追加
+            ✦ タスク
+          </button>
+          <button
+            type="button"
+            onClick={() => setActiveTab("lists")}
+            style={{
+              border: "none",
+              borderRadius: "9999px",
+              padding: "0.35rem 0.95rem",
+              fontSize: "0.78rem",
+              fontWeight: activeTab === "lists" ? 650 : 450,
+              color: activeTab === "lists" ? C.charcoal : C.charcoalLight,
+              background: activeTab === "lists" ? C.white : "transparent",
+              boxShadow: activeTab === "lists" ? "0 1px 4px rgba(0,0,0,0.08)" : "none",
+              cursor: "pointer",
+              transition: "all 0.18s ease",
+            }}
+          >
+            🛒 買い物リスト
           </button>
         </div>
       </div>
 
-      {/* ─── タスク一覧 ─── */}
-      <div style={{ display: "flex", flexDirection: "column", gap: "1.8rem" }}>
-        
-        {/* 未完了タスク */}
-        <div
-          className="arca-card"
-          style={{
-            padding: "0.8rem 1.25rem",
-          }}
-        >
-          {pending.length === 0 ? (
-            <p style={{ margin: 0, fontSize: "0.85rem", color: C.charcoalLight, textAlign: "center", padding: "2rem 0" }}>
-              タスクはありません
-            </p>
-          ) : (
-            <ul style={{ listStyle: "none", margin: 0, padding: 0, display: "flex", flexDirection: "column" }}>
-              {pending.map((task) => (
-                <TaskRow
-                  key={task.id}
-                  task={task}
-                  onToggle={handleToggle}
-                  onDelete={handleDelete}
-                  onToggleSubtask={handleToggleSubtask}
-                  onAddSubtask={handleAddSubtask}
-                  onDeleteSubtask={handleDeleteSubtask}
-                  onAiBreakdown={handleAiBreakdown}
-                />
-              ))}
-            </ul>
-          )}
-        </div>
+      {/* ─── 買い物リスト 小タブ表示 ─── */}
+      {activeTab === "lists" ? (
+        <Lists isEmbedded={true} />
+      ) : (
+        /* ─── タスク表示 ─── */
+        <>
+          {/* ─── 入力フォーム（自然言語推論プレビュー付き） ─── */}
+          <div style={{ marginBottom: "2.2rem" }}>
+            <div
+              className="arca-card"
+              style={{
+                display: "flex",
+                alignItems: "center",
+                padding: "0.55rem 0.85rem",
+                gap: "0.45rem",
+                width: "100%",
+                maxWidth: "100%",
+                boxSizing: "border-box",
+                overflow: "hidden",
+              }}
+            >
+              {/* テキスト入力欄: minWidth: 0 で縮退可能にし、はみ出しを防止 */}
+              <input
+                ref={inputRef}
+                type="text"
+                value={titleInput}
+                onChange={handleInputChange}
+                onKeyDown={handleKeyDown}
+                placeholder="タスクを追加…（例: 明日15時に書類提出）"
+                style={{
+                  flex: 1,
+                  minWidth: 0,
+                  background: "transparent",
+                  border: "none",
+                  outline: "none",
+                  fontSize: "0.92rem",
+                  color: C.charcoal,
+                  letterSpacing: "0.01em",
+                }}
+              />
 
-        {/* 完了済みタスク */}
-        {done.length > 0 && (
-          <div>
-            <span style={{ fontSize: "0.72rem", color: C.charcoalLight, letterSpacing: "0.06em", padding: "0 0.5rem", display: "block", marginBottom: "0.6rem" }}>
-              完了済み ({done.length})
-            </span>
+              {/* AI推論プレビューバッジ（期日・優先度） */}
+              {parsedInfo && (
+                <div style={{ display: "flex", alignItems: "center", gap: "0.3rem", flexShrink: 0 }}>
+                  {parsedInfo.dueDate && (
+                    <span
+                      style={{
+                        display: "inline-flex",
+                        alignItems: "center",
+                        gap: "0.25rem",
+                        fontSize: "0.68rem",
+                        fontWeight: 600,
+                        color: C.goldDark,
+                        background: "rgba(184, 150, 106, 0.12)",
+                        padding: "0.2rem 0.5rem",
+                        borderRadius: "9999px",
+                        whiteSpace: "nowrap",
+                      }}
+                      title={`推論された期日: ${parsedInfo.dueDate}`}
+                    >
+                      <CalendarIcon />
+                      <span>{formatDue(parsedInfo.dueDate)}</span>
+                    </span>
+                  )}
+                  {parsedInfo.priority === "high" && (
+                    <span
+                      style={{
+                        display: "inline-flex",
+                        alignItems: "center",
+                        gap: "0.2rem",
+                        fontSize: "0.68rem",
+                        fontWeight: 600,
+                        color: C.danger,
+                        background: "rgba(224, 86, 74, 0.12)",
+                        padding: "0.2rem 0.5rem",
+                        borderRadius: "9999px",
+                        whiteSpace: "nowrap",
+                      }}
+                      title="優先度: 高"
+                    >
+                      <ZapIcon />
+                      <span>高</span>
+                    </span>
+                  )}
+                </div>
+              )}
+
+              {/* 期限日手動選択 */}
+              <input
+                type="date"
+                value={dueInput}
+                onChange={(e) => setDueInput(e.target.value)}
+                style={{
+                  flexShrink: 0,
+                  width: "auto",
+                  maxWidth: "115px",
+                  background: "rgba(0, 0, 0, 0.03)",
+                  borderRadius: "8px",
+                  padding: "0.3rem 0.4rem",
+                  border: "none",
+                  outline: "none",
+                  fontSize: "0.72rem",
+                  color: dueInput ? C.charcoalMid : C.charcoalXLight,
+                  cursor: "pointer",
+                  fontFamily: "-apple-system, sans-serif",
+                }}
+                title="期限日を設定"
+              />
+
+              {/* 追加ボタン */}
+              <button
+                onClick={handleAdd}
+                disabled={!titleInput.trim() || isAdding}
+                style={{
+                  flexShrink: 0,
+                  background: titleInput.trim() ? C.gold : "rgba(0, 0, 0, 0.06)",
+                  color: titleInput.trim() ? "#FDFCFA" : C.charcoalXLight,
+                  border: "none",
+                  borderRadius: "10px",
+                  padding: "0.45rem 0.85rem",
+                  fontSize: "0.78rem",
+                  fontWeight: 600,
+                  cursor: titleInput.trim() ? "pointer" : "default",
+                  transition: "all 0.15s ease",
+                  minWidth: "44px",
+                  minHeight: "34px",
+                }}
+              >
+                追加
+              </button>
+            </div>
+          </div>
+
+          {/* ─── タスク一覧 ─── */}
+          <div style={{ display: "flex", flexDirection: "column", gap: "1.8rem" }}>
+            
+            {/* 未完了タスク */}
             <div
               className="arca-card"
               style={{
                 padding: "0.8rem 1.25rem",
-                opacity: 0.85,
               }}
             >
-              <ul style={{ listStyle: "none", margin: 0, padding: 0, display: "flex", flexDirection: "column" }}>
-                {done.map((task) => (
-                  <TaskRow
-                    key={task.id}
-                    task={task}
-                    onToggle={handleToggle}
-                    onDelete={handleDelete}
-                    onToggleSubtask={handleToggleSubtask}
-                    onAddSubtask={handleAddSubtask}
-                    onDeleteSubtask={handleDeleteSubtask}
-                    onAiBreakdown={handleAiBreakdown}
-                  />
-                ))}
-              </ul>
+              {pending.length === 0 ? (
+                <p style={{ margin: 0, fontSize: "0.85rem", color: C.charcoalLight, textAlign: "center", padding: "2rem 0" }}>
+                  タスクはありません
+                </p>
+              ) : (
+                <ul style={{ listStyle: "none", margin: 0, padding: 0, display: "flex", flexDirection: "column" }}>
+                  {pending.map((task) => (
+                    <TaskRow
+                      key={task.id}
+                      task={task}
+                      onToggle={handleToggle}
+                      onDelete={handleDelete}
+                      onToggleSubtask={handleToggleSubtask}
+                      onAddSubtask={handleAddSubtask}
+                      onDeleteSubtask={handleDeleteSubtask}
+                      onAiBreakdown={handleAiBreakdown}
+                    />
+                  ))}
+                </ul>
+              )}
             </div>
+
+            {/* 完了済みタスク */}
+            {done.length > 0 && (
+              <div>
+                <span style={{ fontSize: "0.72rem", color: C.charcoalLight, letterSpacing: "0.06em", padding: "0 0.5rem", display: "block", marginBottom: "0.6rem" }}>
+                  完了済み ({done.length})
+                </span>
+                <div
+                  className="arca-card"
+                  style={{
+                    padding: "0.8rem 1.25rem",
+                    opacity: 0.85,
+                  }}
+                >
+                  <ul style={{ listStyle: "none", margin: 0, padding: 0, display: "flex", flexDirection: "column" }}>
+                    {done.map((task) => (
+                      <TaskRow
+                        key={task.id}
+                        task={task}
+                        onToggle={handleToggle}
+                        onDelete={handleDelete}
+                        onToggleSubtask={handleToggleSubtask}
+                        onAddSubtask={handleAddSubtask}
+                        onDeleteSubtask={handleDeleteSubtask}
+                        onAiBreakdown={handleAiBreakdown}
+                      />
+                    ))}
+                  </ul>
+                </div>
+              </div>
+            )}
+
+            {/* ─── PM（予防保全）セクション ─── */}
+            <PMSection />
+
           </div>
-        )}
-
-        {/* ─── PM（予防保全）セクション ─── */}
-        <PMSection />
-
-      </div>
+        </>
+      )}
 
       {/* ─── 共通 Undo トースト ─── */}
       <UndoToast toast={toast} onUndo={triggerUndo} onDismiss={dismissToast} />

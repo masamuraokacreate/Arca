@@ -36,10 +36,14 @@ import {
   deletePMTemplate,
   seedDefaultPMTemplatesIfEmpty,
   resolveDateShiftInfo,
+  resolveShiftInfo,
+  saveShiftOverride,
   getActivePMTasksForDate,
+  DEFAULT_PM_SETTINGS,
 } from "../../services/pmCycleService";
 import { PMSkipReasonModal } from "./PMSkipReasonModal";
 import { PMSettingsModal } from "./PMSettingsModal";
+import { PMShiftOverrideModal } from "./PMShiftOverrideModal";
 
 // ─────────────────────────────────────────
 // インライン SVG アイコン
@@ -106,31 +110,25 @@ export function PMSection({ date, events }: PMSectionProps) {
   const [loading, setLoading] = useState(false);
 
   const [showSettings, setShowSettings] = useState(false);
+  const [showShiftOverrideModal, setShowShiftOverrideModal] = useState(false);
   const [skipTarget, setSkipTarget] = useState<PMTemplateItem | null>(null);
 
   // ── Firestore リアルタイム同期 ──
   useEffect(() => {
     let isCancelled = false;
 
-    // 設定取得（main または config）
-    const fetchSettings = async () => {
-      try {
-        const snap = await getDoc(doc(db, "pm_settings", "main"));
-        if (isCancelled) return;
-        if (snap?.exists?.()) {
-          setSettings(snap.data() as PMSettings);
-        } else {
-          const cSnap = await getDoc(doc(db, "pm_settings", "config"));
-          if (isCancelled) return;
-          if (cSnap?.exists?.()) setSettings(cSnap.data() as PMSettings);
-        }
-      } catch {
-        // モック未設定時などのエラーを安全に無視
-      } finally {
-        if (!isCancelled) setLoading(false);
+    // 設定リアルタイム購読（main または config）
+    const unsubSettings = onSnapshot(doc(db, "pm_settings", "main"), (snap) => {
+      if (isCancelled) return;
+      if (snap?.exists?.()) {
+        setSettings(snap.data() as PMSettings);
+      } else {
+        getDoc(doc(db, "pm_settings", "config")).then((cSnap) => {
+          if (!isCancelled && cSnap?.exists?.()) setSettings(cSnap.data() as PMSettings);
+        });
       }
-    };
-    fetchSettings();
+      setLoading(false);
+    });
 
     // テンプレート
     const unsubTemplates = onSnapshot(
@@ -166,6 +164,7 @@ export function PMSection({ date, events }: PMSectionProps) {
 
     return () => {
       isCancelled = true;
+      if (typeof unsubSettings === "function") unsubSettings();
       if (typeof unsubTemplates === "function") unsubTemplates();
       if (typeof unsubLogs === "function") unsubLogs();
       if (typeof unsubEvents === "function") unsubEvents();
@@ -189,8 +188,9 @@ export function PMSection({ date, events }: PMSectionProps) {
     wasModalOpenRef.current = showSettings;
   }, [showSettings]);
 
-  // シフト状態判定
-  const shiftInfo = resolveDateShiftInfo(targetDate, calendarEvents);
+  // シフト状態判定（手動オーバーライド最優先）
+  const currentShift = resolveShiftInfo(targetDate, calendarEvents, settings);
+  const shiftInfo = resolveDateShiftInfo(targetDate, calendarEvents, settings);
   const detectedAnchor = calendarEvents.length > 0 ? detectAnchorFromEvents(calendarEvents)?.anchorDate : undefined;
 
   // Day 計算（フォールバック用）
@@ -210,6 +210,37 @@ export function PMSection({ date, events }: PMSectionProps) {
   const skippedCount = todayTemplates.filter((t) => logMap.get(t.id)?.status === "skipped").length;
   const allFinished = todayTemplates.length > 0 && completedCount + skippedCount === todayTemplates.length;
 
+  // ── シフト手動オーバーライド保存（楽観的即時反映） ──
+  const handleSaveShiftOverride = useCallback(
+    async (override: any) => {
+      // 1. ローカルステート即時更新（0ms 反映）
+      setSettings((prev) => {
+        const current = prev || { ...DEFAULT_PM_SETTINGS };
+        const newOverrides = { ...(current.overrides || {}) };
+        if (override === null) {
+          delete newOverrides[targetDate];
+        } else {
+          newOverrides[targetDate] = {
+            date: targetDate,
+            type: override.type,
+            streakNumber: override.streakNumber,
+            shiftName: override.shiftName,
+            updatedAt: new Date().toISOString(),
+          };
+        }
+        return { ...current, overrides: newOverrides };
+      });
+
+      // 2. 永続化保存
+      try {
+        await saveShiftOverride(targetDate, override);
+      } catch (err) {
+        console.error("Failed to save shift override from PMSection:", err);
+      }
+    },
+    [targetDate]
+  );
+
   // ── 完了トグルハンドラ ──
   const handleToggleComplete = useCallback(
     async (item: PMTemplateItem) => {
@@ -225,7 +256,7 @@ export function PMSection({ date, events }: PMSectionProps) {
           status: "completed",
         });
       } catch (err) {
-        console.error("Failed to record completed PM log:", err);
+        console.error("PMSection recordPMLog error:", err);
       }
     },
     [targetDate, dayInfo.dayIndex, logMap]
@@ -293,21 +324,41 @@ export function PMSection({ date, events }: PMSectionProps) {
 
             {/* シフト・サイクルピル */}
             {settings && (
-              <span
+              <button
+                type="button"
+                onClick={() => setShowShiftOverrideModal(true)}
+                data-testid="pm-shift-badge"
                 style={{
                   fontSize: "0.68rem",
                   fontWeight: 700,
                   color: shiftInfo.isRestDay ? C.sage : C.goldDark,
                   background: shiftInfo.isRestDay ? "rgba(82, 121, 111, 0.10)" : C.goldFaint,
+                  border: currentShift.isOverridden
+                    ? `1px dashed ${shiftInfo.isRestDay ? C.sage : C.gold}`
+                    : "1px solid transparent",
                   padding: "0.15rem 0.55rem",
                   borderRadius: "9999px",
                   letterSpacing: "0.03em",
+                  cursor: "pointer",
+                  display: "inline-flex",
+                  alignItems: "center",
+                  gap: "0.25rem",
+                  transition: "all 0.15s ease",
                 }}
+                title="クリックして勤務・休日ステータスを手動補正"
               >
-                {shiftInfo.isRestDay
-                  ? `🌙 休日 ${shiftInfo.consecutiveIndex}日目`
-                  : `✦ 出勤 ${shiftInfo.consecutiveIndex}日目${shiftInfo.shiftTitle ? ` (${shiftInfo.shiftTitle})` : ""}`}
-              </span>
+                <span>
+                  {shiftInfo.isRestDay
+                    ? `🌙 休日 ${shiftInfo.consecutiveIndex}日目`
+                    : `✦ 出勤 ${shiftInfo.consecutiveIndex}日目${shiftInfo.shiftTitle ? ` (${shiftInfo.shiftTitle})` : ""}`}
+                </span>
+                {currentShift.isOverridden && (
+                  <span style={{ fontSize: "0.6rem", opacity: 0.85 }}>(手動)</span>
+                )}
+                <svg viewBox="0 0 24 24" fill="none" strokeWidth={2} stroke="currentColor" style={{ width: "0.62rem", height: "0.62rem", opacity: 0.7 }}>
+                  <path strokeLinecap="round" strokeLinejoin="round" d="m16.862 4.487 1.687-1.688a1.875 1.875 0 1 1 2.652 2.652L10.582 16.07a4.5 4.5 0 0 1-1.897 1.13L6 18l.8-2.685a4.5 4.5 0 0 1 1.13-1.897l8.932-8.931Zm0 0L19.5 7.125" />
+                </svg>
+              </button>
             )}
           </div>
 
@@ -431,17 +482,8 @@ export function PMSection({ date, events }: PMSectionProps) {
             </div>
           )}
 
-          {/* 休養日ステート */}
-          {dayInfo.isRestDay && (
-            <div style={{ textAlign: "center", padding: "1.4rem 0" }}>
-              <p style={{ margin: 0, fontSize: "0.86rem", color: C.charcoalMid }}>
-                本日のPM計画はすべて完了しています。心地よい休息を。
-              </p>
-            </div>
-          )}
-
           {/* 全タスク完了時の演出 */}
-          {!dayInfo.isRestDay && allFinished && todayTemplates.length > 0 && (
+          {allFinished && todayTemplates.length > 0 && (
             <div style={{ textAlign: "center", padding: "1.2rem 0" }}>
               <p style={{ margin: 0, fontSize: "0.86rem", color: C.sage, fontWeight: 550 }}>
                 本日のPM計画はすべて完了しています。心地よい休息を。
@@ -450,7 +492,7 @@ export function PMSection({ date, events }: PMSectionProps) {
           )}
 
           {/* タスクリスト */}
-          {!dayInfo.isRestDay && todayTemplates.length > 0 && (
+          {todayTemplates.length > 0 && (
             <ul
               style={{
                 listStyle: "none",
@@ -597,9 +639,9 @@ export function PMSection({ date, events }: PMSectionProps) {
           )}
 
           {/* テンプレートなし */}
-          {!dayInfo.isRestDay && settings?.manualAnchorDate && todayTemplates.length === 0 && (
+          {settings?.manualAnchorDate && todayTemplates.length === 0 && (
             <p style={{ margin: 0, fontSize: "0.82rem", color: C.charcoalLight, textAlign: "center", padding: "1.2rem 0" }}>
-              本日（Day {dayInfo.dayIndex}）に登録されたPMタスクはありません
+              本日予定されているPMタスクはありません。心地よい休息を。
             </p>
           )}
         </div>
@@ -628,6 +670,16 @@ export function PMSection({ date, events }: PMSectionProps) {
           onDeleteTemplate={deletePMTemplate}
         />
       )}
+
+      {/* ─── 出勤ステータス確認 & 手動調整モーダル ─── */}
+      <PMShiftOverrideModal
+        isOpen={showShiftOverrideModal}
+        targetDate={targetDate}
+        currentShift={currentShift}
+        events={calendarEvents}
+        onClose={() => setShowShiftOverrideModal(false)}
+        onSave={handleSaveShiftOverride}
+      />
     </>
   );
 }

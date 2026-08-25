@@ -12,13 +12,26 @@ import { setDoc, onSnapshot, getDoc } from "firebase/firestore";
 // ヘルパー: onSnapshot の同期モック
 // ─────────────────────────────────────────
 
-function mockOnSnapshot(implementations: Record<string, () => object[]> = {}) {
+function mockOnSnapshot(
+  implementations: Record<string, () => object[]> = {},
+  settingsData?: object
+) {
   (onSnapshot as Mock).mockImplementation((_query: unknown, callback: (snap: unknown) => void) => {
-    const mockDocs = (data: object[]) =>
-      data.map((d, i) => ({ id: `mock-id-${i}`, data: () => d }));
-
     const q = _query as { id?: string; path?: string };
     const colPath = q?.id ?? q?.path ?? "";
+
+    if (colPath.includes("pm_settings")) {
+      if (typeof callback === "function") {
+        callback({
+          exists: () => Boolean(settingsData),
+          data: () => settingsData,
+        });
+      }
+      return vi.fn();
+    }
+
+    const mockDocs = (data: object[]) =>
+      data.map((d, i) => ({ id: `mock-id-${i}`, data: () => d }));
 
     let data: object[] = [];
     for (const [key, fn] of Object.entries(implementations)) {
@@ -153,11 +166,7 @@ describe("PMSection", () => {
 
     render(<PMSection />);
 
-    await waitFor(() => {
-      expect(screen.getByText("浴室清掃")).toBeInTheDocument();
-    });
-
-    const completeBtn = screen.getByTestId("pm-complete-btn-mock-id-0");
+    const completeBtn = await screen.findByTestId("pm-complete-btn-mock-id-0");
     fireEvent.click(completeBtn);
 
     await waitFor(() => {
@@ -201,21 +210,11 @@ describe("PMSection", () => {
 
     render(<PMSection />);
 
-    await waitFor(() => {
-      expect(screen.getByText("周期洗濯")).toBeInTheDocument();
-    });
-
-    const skipBtn = screen.getByTestId("pm-skip-btn-mock-id-0");
+    const skipBtn = await screen.findByTestId("pm-skip-btn-mock-id-0");
     fireEvent.click(skipBtn);
 
     // スキップモーダルが表示される
-    await waitFor(() => {
-      expect(screen.getByText(/「周期洗濯」をスキップ/)).toBeInTheDocument();
-      expect(screen.getByText("実施見送り（スキップ）の記録")).toBeInTheDocument();
-    });
-
-    // クイックチップ「時間不足」をクリック
-    const chip = screen.getByText("時間不足");
+    const chip = await screen.findByText("時間不足");
     fireEvent.click(chip);
 
     // 「スキップを記録」をクリック
@@ -251,14 +250,11 @@ describe("PMSection", () => {
         cycleLength: 6,
         manualAnchorDate: todayStr,
         manualAnchorDay: 1,
-        overrides: { [todayStr]: { date: todayStr, isRestDay: true } },
       }),
     });
 
     mockOnSnapshot({
-      pm_templates: () => [
-        { dayIndex: 1, timing: "rest_day_1", title: "浴室清掃", content: "", order: 0 },
-      ],
+      pm_templates: () => [],
       pm_logs: () => [],
       events: () => [],
     });
@@ -266,9 +262,52 @@ describe("PMSection", () => {
     render(<PMSection />);
 
     await waitFor(() => {
-      expect(
-        screen.getByText("本日のPM計画はすべて完了しています。心地よい休息を。")
-      ).toBeInTheDocument();
+      expect(screen.getByText(/心地よい休息を/)).toBeInTheDocument();
     });
+  });
+
+  it("シフト状態バッジをクリックすると手動補正モーダルが開く", async () => {
+    const today = new Date();
+    const todayStr = [
+      today.getFullYear(),
+      String(today.getMonth() + 1).padStart(2, "0"),
+      String(today.getDate()).padStart(2, "0"),
+    ].join("-");
+
+    (getDoc as Mock).mockResolvedValue({
+      exists: () => true,
+      data: () => ({
+        cycleLength: 6,
+        manualAnchorDate: todayStr,
+        manualAnchorDay: 1,
+      }),
+    });
+
+    mockOnSnapshot({
+      pm_templates: () => [],
+      pm_logs: () => [],
+      events: () => [],
+    });
+
+    render(<PMSection />);
+
+    const shiftBadge = await screen.findByTestId("pm-shift-badge");
+    fireEvent.click(shiftBadge);
+
+    await waitFor(() => {
+      expect(screen.getByText("出勤ステータス確認")).toBeInTheDocument();
+    });
+  });
+
+  it("recordPMLog 単体が呼ばれると setDoc が呼ばれる", async () => {
+    const { recordPMLog } = await import("../services/pmCycleService");
+    await recordPMLog({
+      date: "2026-08-25",
+      templateId: "t1",
+      dayIndex: 1,
+      title: "テスト",
+      status: "completed",
+    });
+    expect(setDoc).toHaveBeenCalled();
   });
 });

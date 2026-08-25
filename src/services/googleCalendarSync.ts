@@ -243,6 +243,9 @@ export async function deleteGoogleCalendarEvent(
   );
 }
 
+// 同期多重実行防止用フラグ
+let isCalendarSyncInProgress = false;
+
 /**
  * Google カレンダーから Arca (Firestore) への双方向 Upsert 同期
  * 
@@ -256,92 +259,121 @@ export async function syncGoogleCalendarToArca(
   token: string,
   providedExistingEvents?: CalendarEvent[]
 ): Promise<{ added: number; updated: number }> {
-  const gEvents = await fetchPrimaryCalendarEvents(token);
-  let added = 0;
-  let updated = 0;
-
-  // 冪等性担保: 引数が渡されていない場合のみ Firestore を参照
-  let existingEvents = providedExistingEvents;
-  if (existingEvents === undefined) {
-    try {
-      const snap = await getDocs(collection(db, "events"));
-      existingEvents = snap?.docs ? snap.docs.map((d) => {
-        const rawData = typeof d.data === "function" ? d.data() : d.data;
-        return {
-          id: d.id,
-          ...(rawData as Omit<CalendarEvent, "id">),
-        };
-      }) : [];
-    } catch {
-      existingEvents = [];
-    }
+  if (isCalendarSyncInProgress) {
+    return { added: 0, updated: 0 };
   }
+  isCalendarSyncInProgress = true;
 
-  for (const gEvent of gEvents) {
-    const { date, startTime, endTime } = parseGoogleEventDateTime(
-      gEvent.start,
-      gEvent.end
-    );
-    const title = (gEvent.summary || "(無題)").trim();
-    const note = (gEvent.description || "").trim();
+  try {
+    const gEvents = await fetchPrimaryCalendarEvents(token);
+    let added = 0;
+    let updated = 0;
 
-    // 1) googleEventId が完全一致する既存予定
-    const matchById = existingEvents.find(
-      (e) => e.googleEventId === gEvent.id
-    );
-
-    if (matchById) {
-      const hasDiff =
-        matchById.title.trim() !== title ||
-        matchById.date !== date ||
-        (matchById.startTime || "") !== startTime ||
-        (matchById.endTime || "") !== endTime ||
-        (matchById.note || "").trim() !== note;
-
-      if (hasDiff) {
-        await updateDoc(doc(db, "events", matchById.id), {
-          title,
-          date,
-          startTime,
-          endTime,
-          note,
-        });
-        updated++;
+    // 冪等性担保: 引数が空配列または未指定の場合は Firestore を直接参照
+    let existingEvents: CalendarEvent[] = [];
+    if (providedExistingEvents && providedExistingEvents.length > 0) {
+      existingEvents = [...providedExistingEvents];
+    } else {
+      try {
+        const snap = await getDocs(collection(db, "events"));
+        existingEvents = snap?.docs
+          ? snap.docs.map((d) => {
+              const rawData = typeof d.data === "function" ? d.data() : d.data;
+              return {
+                id: d.id,
+                ...(rawData as Omit<CalendarEvent, "id">),
+              };
+            })
+          : [];
+      } catch {
+        existingEvents = [];
       }
-      continue;
     }
 
-    // 2) googleEventId が未設定で、タイトルと日付が同一の既存予定
-    const matchByTitleAndDate = existingEvents.find(
-      (e) =>
-        !e.googleEventId &&
-        e.title.trim() === title &&
-        e.date === date
-    );
+    for (const gEvent of gEvents) {
+      const { date, startTime, endTime } = parseGoogleEventDateTime(
+        gEvent.start,
+        gEvent.end
+      );
+      const title = (gEvent.summary || "(無題)").trim();
+      const note = (gEvent.description || "").trim();
 
-    if (matchByTitleAndDate) {
-      await updateDoc(doc(db, "events", matchByTitleAndDate.id), {
+      // 1) googleEventId が完全一致する既存予定
+      const matchById = existingEvents.find(
+        (e) => e.googleEventId === gEvent.id
+      );
+
+      if (matchById) {
+        const hasDiff =
+          matchById.title.trim() !== title ||
+          matchById.date !== date ||
+          (matchById.startTime || "") !== startTime ||
+          (matchById.endTime || "") !== endTime ||
+          (matchById.note || "").trim() !== note;
+
+        if (hasDiff) {
+          await updateDoc(doc(db, "events", matchById.id), {
+            title,
+            date,
+            startTime,
+            endTime,
+            note,
+          });
+          matchById.title = title;
+          matchById.date = date;
+          matchById.startTime = startTime;
+          matchById.endTime = endTime;
+          matchById.note = note;
+          updated++;
+        }
+        continue;
+      }
+
+      // 2) googleEventId が未設定で、タイトルと日付が同一の既存予定
+      const matchByTitleAndDate = existingEvents.find(
+        (e) =>
+          !e.googleEventId &&
+          e.title.trim() === title &&
+          e.date === date
+      );
+
+      if (matchByTitleAndDate) {
+        await updateDoc(doc(db, "events", matchByTitleAndDate.id), {
+          googleEventId: gEvent.id,
+          startTime: startTime || matchByTitleAndDate.startTime || "",
+          endTime: endTime || matchByTitleAndDate.endTime || "",
+          note: note || matchByTitleAndDate.note || "",
+        });
+        matchByTitleAndDate.googleEventId = gEvent.id;
+        updated++;
+        continue;
+      }
+
+      // 3) どちらにも該当しない場合のみ新規追加
+      const docRef = await addDoc(collection(db, "events"), {
+        title,
+        date,
+        startTime,
+        endTime,
+        note,
         googleEventId: gEvent.id,
-        startTime: startTime || matchByTitleAndDate.startTime || "",
-        endTime: endTime || matchByTitleAndDate.endTime || "",
-        note: note || matchByTitleAndDate.note || "",
+        createdAt: serverTimestamp(),
       });
-      updated++;
-      continue;
+      existingEvents.push({
+        id: docRef.id,
+        title,
+        date,
+        startTime,
+        endTime,
+        note,
+        googleEventId: gEvent.id,
+        createdAt: null,
+      });
+      added++;
     }
 
-    // 3) どちらにも該当しない場合のみ新規追加
-    await addDoc(collection(db, "events"), {
-      title,
-      date,
-      startTime,
-      endTime,
-      note,
-      googleEventId: gEvent.id,
-      createdAt: serverTimestamp(),
-    });
-    added++;
+    return { added, updated };
+  } finally {
+    isCalendarSyncInProgress = false;
   }
-
-  return { added, updated };
 }

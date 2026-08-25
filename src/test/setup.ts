@@ -68,7 +68,11 @@ vi.mock("firebase/firestore", () => ({
   query: vi.fn((col: unknown) => (typeof col === "object" && col !== null ? col : {})),
   onSnapshot: vi.fn((_q: unknown, cb: unknown) => {
     if (typeof cb === "function") {
-      cb({ docs: [] });
+      cb({
+        docs: [],
+        exists: () => false,
+        data: () => ({}),
+      });
     }
     return vi.fn();
   }),

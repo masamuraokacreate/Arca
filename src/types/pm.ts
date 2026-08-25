@@ -33,9 +33,28 @@ export const PM_TIMING_LABELS: Record<PMShiftTiming, string> = {
 };
 
 // ─────────────────────────────────────────
-// 日付ごとのシフト情報
+// 日付ごとのシフト情報（Sprint 9 拡張）
 // ─────────────────────────────────────────
 
+/** 日付ごとのシフト判定結果（公式定義） */
+export interface ShiftInfo {
+  date: string;              // "YYYY-MM-DD"
+  type: "work" | "holiday";  // 出勤 ("work") または 休日 ("holiday")
+  streakNumber: number;      // 1, 2, 3... 連続何日目か
+  shiftName?: string;        // 例: "早番", "遅番", "出勤", "日勤", "当直"
+  isOverridden: boolean;     // 手動上書きされたデータかどうか
+}
+
+/** 手動オーバーライド用設定（公式定義） */
+export interface ShiftOverride {
+  date: string;              // "YYYY-MM-DD"
+  type: "work" | "holiday";
+  streakNumber: number;
+  shiftName?: string;
+  updatedAt: string;         // ISO 8601
+}
+
+/** 日付ごとのシフト情報（後方互換用） */
 export interface DateShiftInfo {
   date: string;              // "YYYY-MM-DD"
   isWorkDay: boolean;        // 出勤日か
@@ -44,6 +63,7 @@ export interface DateShiftInfo {
   consecutiveIndex: number;  // 連続何日目か (1-based: 連勤1日目、連休1日目)
   isFirstDayOfStreak: boolean; // 連勤・連休の初日か
   isLastDayOfStreak: boolean;  // 連勤・連休の最終日か
+  isOverridden?: boolean;    // 手動上書きされたかどうか
 }
 
 // ─────────────────────────────────────────
@@ -82,7 +102,7 @@ export interface PMLogItem {
 }
 
 // ─────────────────────────────────────────
-// PM 日別オーバーライド
+// PM 日別オーバーライド（後方互換用）
 // ─────────────────────────────────────────
 
 /** 単日オーバーライド（特定日だけのDay差し替え・休日扱い等） */
@@ -91,6 +111,9 @@ export interface PMDayOverride {
   overrideDayIndex?: number; // その日だけ強制適用するDay番号 (1〜N)
   isRestDay?: boolean;       // その日をPM休養日とするフラグ
   note?: string;
+  type?: "work" | "holiday";
+  streakNumber?: number;
+  shiftName?: string;
 }
 
 // ─────────────────────────────────────────
@@ -103,7 +126,7 @@ export interface PMSettings {
   manualAnchorDate?: string;  // "YYYY-MM-DD" (手動起点日)
   manualAnchorDay?: number;   // 起点日におけるDay番号 (デフォルト: 1)
   autoDetectWorkShift?: boolean; // Googleカレンダーからの自動検出有効化 (デフォルト: true)
-  overrides?: Record<string, PMDayOverride>; // key: "YYYY-MM-DD"
+  overrides?: Record<string, ShiftOverride | PMDayOverride>; // key: "YYYY-MM-DD"
 }
 
 // ─────────────────────────────────────────

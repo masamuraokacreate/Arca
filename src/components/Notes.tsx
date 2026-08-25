@@ -31,6 +31,7 @@ import {
   collection,
   addDoc,
   updateDoc,
+  deleteDoc,
   doc,
   onSnapshot,
   query,
@@ -1068,10 +1069,14 @@ function NoteCard({
 function TrashModal({
   deletedNotes,
   onRestore,
+  onPermanentDelete,
+  onEmptyTrash,
   onClose,
 }: {
   deletedNotes: NoteItem[];
   onRestore: (id: string) => void;
+  onPermanentDelete: (id: string) => void;
+  onEmptyTrash: () => void;
   onClose: () => void;
 }) {
   return (
@@ -1102,7 +1107,28 @@ function TrashModal({
         }}
       >
         <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "1.5rem 2rem", borderBottom: `1px solid ${C.ivory2}` }}>
-          <h2 style={{ fontSize: "1.2rem", fontWeight: 700, margin: 0, color: C.charcoal }}>ごみ箱</h2>
+          <div style={{ display: "flex", alignItems: "center", gap: "1rem" }}>
+            <h2 style={{ fontSize: "1.2rem", fontWeight: 700, margin: 0, color: C.charcoal }}>ごみ箱</h2>
+            {deletedNotes.length > 0 && (
+              <button
+                type="button"
+                onClick={onEmptyTrash}
+                style={{
+                  background: "rgba(224, 86, 74, 0.08)",
+                  border: "none",
+                  borderRadius: "6px",
+                  padding: "0.3rem 0.65rem",
+                  fontSize: "0.75rem",
+                  fontWeight: 600,
+                  color: C.danger,
+                  cursor: "pointer",
+                  transition: "all 0.15s ease",
+                }}
+              >
+                ごみ箱を空にする
+              </button>
+            )}
+          </div>
           <button onClick={onClose} aria-label="閉じる" style={{ background: "transparent", border: "none", cursor: "pointer", fontSize: "1.2rem", color: C.charcoalLight }}>✕</button>
         </div>
         <div className="arca-scroll" style={{ padding: "2rem", overflowY: "auto", flex: 1, display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(220px, 1fr))", gap: "1rem" }}>
@@ -1113,7 +1139,10 @@ function TrashModal({
               <div key={n.id} style={{ background: C.ivory, borderRadius: "12px", padding: "1.2rem", display: "flex", flexDirection: "column", gap: "0.6rem" }}>
                 <h3 style={{ fontSize: "0.95rem", margin: 0, color: C.charcoal, fontWeight: 650, display: "-webkit-box", WebkitLineClamp: 1, WebkitBoxOrient: "vertical", overflow: "hidden" }}>{n.title || "（タイトルなし）"}</h3>
                 <p style={{ fontSize: "0.75rem", color: C.charcoalMid, margin: 0, display: "-webkit-box", WebkitLineClamp: 2, WebkitBoxOrient: "vertical", overflow: "hidden", lineHeight: 1.5 }}>{getExcerpt(n.content, 60)}</p>
-                <button onClick={() => onRestore(n.id)} style={{ marginTop: "auto", alignSelf: "flex-start", background: C.white, border: `1px solid ${C.ivory2}`, borderRadius: "6px", padding: "0.4rem 0.8rem", fontSize: "0.75rem", cursor: "pointer", color: C.charcoal, fontWeight: 600, transition: "background 0.15s" }}>復元する</button>
+                <div style={{ marginTop: "auto", display: "flex", alignItems: "center", gap: "0.5rem" }}>
+                  <button onClick={() => onRestore(n.id)} style={{ background: C.white, border: `1px solid ${C.ivory2}`, borderRadius: "6px", padding: "0.4rem 0.8rem", fontSize: "0.75rem", cursor: "pointer", color: C.charcoal, fontWeight: 600, transition: "background 0.15s" }}>復元する</button>
+                  <button onClick={() => onPermanentDelete(n.id)} style={{ background: "rgba(224, 86, 74, 0.08)", border: "none", borderRadius: "6px", padding: "0.4rem 0.8rem", fontSize: "0.75rem", cursor: "pointer", color: C.danger, fontWeight: 600, transition: "background 0.15s" }}>完全に削除</button>
+                </div>
               </div>
             ))
           )}
@@ -1734,10 +1763,48 @@ export default function Notes({
     setView({ type: "viewer", noteId: id });
   }, []);
 
-  const handleBack = useCallback(() => {
+  const handleBack = useCallback(async () => {
+    if (view.type === "viewer" && view.noteId) {
+      const note = notes.find((n) => n.id === view.noteId);
+      if (note && !note.title.trim() && !note.content.trim()) {
+        try {
+          await deleteDoc(doc(db, "notes", note.id));
+          setNotes((prev) => prev.filter((n) => n.id !== note.id));
+        } catch (e) {
+          console.error("Failed to cleanup empty note", e);
+        }
+      }
+    }
     setView({ type: "dashboard" });
     onClearSelectedNote?.();
-  }, [onClearSelectedNote]);
+  }, [view, notes, onClearSelectedNote]);
+
+  const handlePermanentDelete = useCallback(
+    async (id: string) => {
+      try {
+        await deleteDoc(doc(db, "notes", id));
+        setNotes((prev) => prev.filter((n) => n.id !== id));
+        showMessageToast("ノートを完全に削除しました");
+      } catch (e) {
+        console.error("Permanent delete failed", e);
+        showMessageToast("削除中にエラーが発生しました");
+      }
+    },
+    [showMessageToast]
+  );
+
+  const handleEmptyTrash = useCallback(async () => {
+    if (deletedNotes.length === 0) return;
+    try {
+      await Promise.all(deletedNotes.map((n) => deleteDoc(doc(db, "notes", n.id))));
+      setNotes((prev) => prev.filter((n) => !n.isDeleted));
+      setShowTrash(false);
+      showMessageToast("ごみ箱を空にしました");
+    } catch (e) {
+      console.error("Empty trash failed", e);
+      showMessageToast("削除中にエラーが発生しました");
+    }
+  }, [deletedNotes, showMessageToast]);
 
   const mutateNote = useCallback(
     (id: string, patch: Partial<Omit<NoteItem, "id" | "createdAt" | "updatedAt">>) => {
@@ -1844,6 +1911,8 @@ export default function Notes({
             mutateNote(id, { isDeleted: false });
             setShowTrash(false);
           }}
+          onPermanentDelete={handlePermanentDelete}
+          onEmptyTrash={handleEmptyTrash}
           onClose={() => setShowTrash(false)}
         />
       )}

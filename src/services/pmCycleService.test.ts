@@ -24,6 +24,7 @@ import {
   DEFAULT_PM_SETTINGS,
   WORK_SHIFT_KEYWORDS,
   resolveDateShiftInfo,
+  resolveShiftInfo,
   getActivePMTasksForDate,
 } from "./pmCycleService";
 import type { PMSettings, PMTemplateItem, PMLogItem } from "../types/pm";
@@ -581,5 +582,182 @@ describe("resolveDateShiftInfo & getActivePMTasksForDate (Sprint 9 改修)", () 
     // 2026-08-02: 休日1日目
     const restTasks = getActivePMTasksForDate("2026-08-02", templates, events, settings);
     expect(restTasks.map((t: PMTemplateItem) => t.id)).toEqual(["t1", "t3"]);
+  });
+
+  it("resolveShiftInfo が手動オーバーライドを最優先で適用する", () => {
+    const events: CalendarEvent[] = [
+      { id: "1", title: "日勤", date: "2026-08-10", startTime: "09:00", endTime: "18:00", note: "", createdAt: null },
+    ];
+    const settings: PMSettings = {
+      cycleLength: 6,
+      overrides: {
+        "2026-08-10": {
+          date: "2026-08-10",
+          type: "holiday",
+          streakNumber: 2,
+          shiftName: "急遽有休",
+          updatedAt: "2026-08-10T00:00:00Z",
+        },
+      },
+    };
+
+    // 本来は日勤（出勤）だが、手動オーバーライドで「休日 2日目」が返る
+    const shift = resolveShiftInfo("2026-08-10", events, settings);
+    expect(shift.type).toBe("holiday");
+    expect(shift.streakNumber).toBe(2);
+    expect(shift.shiftName).toBe("急遽有休");
+    expect(shift.isOverridden).toBe(true);
+
+    // オーバーライドのない日は自動判定される
+    const shiftNext = resolveShiftInfo("2026-08-11", events, settings);
+    expect(shiftNext.type).toBe("holiday");
+    expect(shiftNext.streakNumber).toBe(1);
+    expect(shiftNext.isOverridden).toBe(false);
+  });
+
+  it("Googleカレンダーの「出勤予定」というタイトルから出勤日と連続日数を高精度に自動判定する", () => {
+    const events: CalendarEvent[] = [
+      { id: "e1", title: "出勤予定", date: "2026-08-25", startTime: "09:00", endTime: "18:00", note: "", createdAt: null },
+      { id: "e2", title: "出勤予定", date: "2026-08-26", startTime: "09:00", endTime: "18:00", note: "", createdAt: null },
+    ];
+    const shiftDay1 = resolveShiftInfo("2026-08-25", events);
+    expect(shiftDay1.type).toBe("work");
+    expect(shiftDay1.streakNumber).toBe(1);
+    expect(shiftDay1.shiftName).toBe("出勤予定");
+
+    const shiftDay2 = resolveShiftInfo("2026-08-26", events);
+    expect(shiftDay2.type).toBe("work");
+    expect(shiftDay2.streakNumber).toBe(2);
+  });
+
+  it("一昨日が出勤で昨日・今日が休みの場合、今日が自動的に「休日 2日目」と判定される", () => {
+    const events: CalendarEvent[] = [
+      { id: "e1", title: "日勤", date: "2026-08-23", startTime: "09:00", endTime: "18:00", note: "", createdAt: null },
+    ];
+    // 8月24日: 休日1日目
+    const shiftAug24 = resolveShiftInfo("2026-08-24", events);
+    expect(shiftAug24.type).toBe("holiday");
+    expect(shiftAug24.streakNumber).toBe(1);
+
+    // 8月25日: 休日2日目
+    const shiftAug25 = resolveShiftInfo("2026-08-25", events);
+    expect(shiftAug25.type).toBe("holiday");
+    expect(shiftAug25.streakNumber).toBe(2);
+  });
+
+  it("手動オーバーライドで「休日 2日目」に指定した場合、イベントの有無に関わらず確実に適用される", () => {
+    const settings: PMSettings = {
+      cycleLength: 6,
+      overrides: {
+        "2026-08-25": {
+          date: "2026-08-25",
+          type: "holiday",
+          streakNumber: 2,
+          updatedAt: new Date().toISOString(),
+        },
+      },
+    };
+    const shift = resolveShiftInfo("2026-08-25", [], settings);
+    expect(shift.type).toBe("holiday");
+    expect(shift.streakNumber).toBe(2);
+    expect(shift.isOverridden).toBe(true);
+  });
+
+  it("3日連続出勤 ➔ 3日連続休日のシフト遷移が全日で完全に算出される", () => {
+    const events: CalendarEvent[] = [
+      { id: "e1", title: "日勤", date: "2026-08-20", startTime: "09:00", endTime: "18:00", note: "", createdAt: null },
+      { id: "e2", title: "日勤", date: "2026-08-21", startTime: "09:00", endTime: "18:00", note: "", createdAt: null },
+      { id: "e3", title: "夜勤", date: "2026-08-22", startTime: "17:00", endTime: "09:00", note: "", createdAt: null },
+    ];
+
+    // 出勤期間
+    const d1 = resolveShiftInfo("2026-08-20", events);
+    expect(d1.type).toBe("work");
+    expect(d1.streakNumber).toBe(1);
+    expect(d1.shiftName).toBe("日勤");
+
+    const d2 = resolveShiftInfo("2026-08-21", events);
+    expect(d2.type).toBe("work");
+    expect(d2.streakNumber).toBe(2);
+
+    const d3 = resolveShiftInfo("2026-08-22", events);
+    expect(d3.type).toBe("work");
+    expect(d3.streakNumber).toBe(3);
+    expect(d3.shiftName).toBe("夜勤");
+
+    // 休日期間（予定なし）
+    const h1 = resolveShiftInfo("2026-08-23", events);
+    expect(h1.type).toBe("holiday");
+    expect(h1.streakNumber).toBe(1);
+
+    const h2 = resolveShiftInfo("2026-08-24", events);
+    expect(h2.type).toBe("holiday");
+    expect(h2.streakNumber).toBe(2);
+
+    const h3 = resolveShiftInfo("2026-08-25", events);
+    expect(h3.type).toBe("holiday");
+    expect(h3.streakNumber).toBe(3);
+  });
+
+  it("明示的な「公休」「有休」予定が含まれる場合も正しく休日ステータスとシフト名が算出される", () => {
+    const events: CalendarEvent[] = [
+      { id: "e1", title: "日勤", date: "2026-08-20", startTime: "09:00", endTime: "18:00", note: "", createdAt: null },
+      { id: "e2", title: "公休", date: "2026-08-21", startTime: "", endTime: "", note: "", createdAt: null },
+      { id: "e3", title: "有休", date: "2026-08-22", startTime: "", endTime: "", note: "", createdAt: null },
+    ];
+
+    const h1 = resolveShiftInfo("2026-08-21", events);
+    expect(h1.type).toBe("holiday");
+    expect(h1.streakNumber).toBe(1);
+    expect(h1.shiftName).toBe("公休");
+
+    const h2 = resolveShiftInfo("2026-08-22", events);
+    expect(h2.type).toBe("holiday");
+    expect(h2.streakNumber).toBe(2);
+    expect(h2.shiftName).toBe("有休");
+  });
+
+  it("飛び石シフト（1日出勤 ➔ 1日休み ➔ 1日出勤）で連日カウントが適切にリセットされる", () => {
+    const events: CalendarEvent[] = [
+      { id: "e1", title: "日勤", date: "2026-08-20", startTime: "09:00", endTime: "18:00", note: "", createdAt: null },
+      { id: "e2", title: "日勤", date: "2026-08-22", startTime: "09:00", endTime: "18:00", note: "", createdAt: null },
+    ];
+
+    const d1 = resolveShiftInfo("2026-08-20", events);
+    expect(d1.type).toBe("work");
+    expect(d1.streakNumber).toBe(1);
+
+    const h1 = resolveShiftInfo("2026-08-21", events);
+    expect(h1.type).toBe("holiday");
+    expect(h1.streakNumber).toBe(1);
+
+    const d2 = resolveShiftInfo("2026-08-22", events);
+    expect(d2.type).toBe("work");
+    expect(d2.streakNumber).toBe(1); // 休日を挟んだため再び 1日目
+  });
+
+  it("【全日ストレステスト】1年365日のすべての日付で例外なく有効なシフトが高速に算出される", () => {
+    const sampleEvents: CalendarEvent[] = [
+      { id: "e1", title: "日勤", date: "2026-01-05", startTime: "09:00", endTime: "18:00", note: "", createdAt: null },
+      { id: "e2", title: "日勤", date: "2026-01-06", startTime: "09:00", endTime: "18:00", note: "", createdAt: null },
+      { id: "e3", title: "出勤予定", date: "2026-06-15", startTime: "09:00", endTime: "18:00", note: "", createdAt: null },
+      { id: "e4", title: "夜勤", date: "2026-08-20", startTime: "17:00", endTime: "09:00", note: "", createdAt: null },
+    ];
+
+    const startDate = new Date(2026, 0, 1);
+    for (let dayOffset = 0; dayOffset < 365; dayOffset++) {
+      const cur = new Date(startDate.getTime() + dayOffset * 86_400_000);
+      const y = cur.getFullYear();
+      const m = String(cur.getMonth() + 1).padStart(2, "0");
+      const d = String(cur.getDate()).padStart(2, "0");
+      const dateStr = `${y}-${m}-${d}`;
+
+      const res = resolveShiftInfo(dateStr, sampleEvents);
+      expect(res).toBeDefined();
+      expect(res.date).toBe(dateStr);
+      expect(["work", "holiday"]).toContain(res.type);
+      expect(typeof res.streakNumber).toBe("number");
+      expect(res.streakNumber).toBeGreaterThanOrEqual(1);
+    }
   });
 });

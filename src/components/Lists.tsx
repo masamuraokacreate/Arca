@@ -382,8 +382,12 @@ function CategorySuggestion({
   return <div style={{ height: "1.75rem" }} />;
 }
 
+export interface ListsProps {
+  isEmbedded?: boolean;
+}
+
 // ---------- メインコンポーネント ----------
-export default function Lists() {
+export default function Lists({ isEmbedded = false }: ListsProps = {}) {
   const [items, setItems] = useState<ListItem[]>([]);
   const [inputValue, setInputValue] = useState("");
   const [isAdding, setIsAdding] = useState(false);
@@ -392,6 +396,20 @@ export default function Lists() {
   // 表示モード & ソート状態
   const [viewMode, setViewMode] = useState<"all" | "grouped">("all");
   const [isRouteSorted, setIsRouteSorted] = useState(false);
+  const [collapsedGroups, setCollapsedGroups] = useState<Set<string>>(new Set());
+
+  // グループ折りたたみトグル
+  const toggleGroupCollapse = (groupName: string) => {
+    setCollapsedGroups((prev) => {
+      const next = new Set(prev);
+      if (next.has(groupName)) {
+        next.delete(groupName);
+      } else {
+        next.add(groupName);
+      }
+      return next;
+    });
+  };
 
   // 削除確認モーダル状態
   const [confirmClearModal, setConfirmClearModal] = useState(false);
@@ -749,31 +767,52 @@ export default function Lists() {
   }, [rawPending]);
 
   return (
-    <div className="w-full max-w-xl mx-auto" style={{ padding: "2.8rem 1.5rem 6rem", boxSizing: "border-box" }}>
-      
-      {/* ─── ヘッダー（統一された静かなデザイン） ─── */}
-      <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", marginBottom: "2rem", padding: "0 0.25rem" }}>
-        <div>
-          <p style={{ fontSize: "0.68rem", fontWeight: 650, color: C.charcoalLight, letterSpacing: "0.1em", textTransform: "uppercase", margin: 0 }}>
-            LISTS
-          </p>
-          <h1 style={{ fontSize: "1.75rem", fontWeight: 750, color: C.charcoal, margin: "0.15rem 0 0", letterSpacing: "-0.03em" }}>
-            買い物リスト
-          </h1>
-          <p style={{ fontSize: "0.78rem", color: C.charcoalLight, margin: "0.3rem 0 0", letterSpacing: "0.01em" }}>
+    <div
+      className="w-full max-w-xl mx-auto"
+      style={{
+        padding: isEmbedded ? "0.5rem 0 4rem" : "2.8rem 1.5rem 6rem",
+        boxSizing: "border-box",
+      }}
+    >
+      {/* ─── ヘッダー（単体表示時のみフル表示） ─── */}
+      {!isEmbedded ? (
+        <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", marginBottom: "2rem", padding: "0 0.25rem" }}>
+          <div>
+            <p style={{ fontSize: "0.68rem", fontWeight: 650, color: C.charcoalLight, letterSpacing: "0.1em", textTransform: "uppercase", margin: 0 }}>
+              LISTS
+            </p>
+            <h1 style={{ fontSize: "1.75rem", fontWeight: 750, color: C.charcoal, margin: "0.15rem 0 0", letterSpacing: "-0.03em" }}>
+              買い物リスト
+            </h1>
+            <p style={{ fontSize: "0.78rem", color: C.charcoalLight, margin: "0.3rem 0 0", letterSpacing: "0.01em" }}>
+              {rawPending.length}件のアイテム
+            </p>
+          </div>
+
+          <SyncBadge
+            isReady={isReady}
+            isSignedIn={isSignedIn}
+            syncStatus={syncStatus}
+            onSignIn={signIn}
+            onSignOut={signOut}
+            onManualSync={syncTasks}
+          />
+        </div>
+      ) : (
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: "1rem", padding: "0 0.25rem" }}>
+          <p style={{ fontSize: "0.82rem", color: C.charcoalLight, margin: 0, fontWeight: 500 }}>
             {rawPending.length}件のアイテム
           </p>
+          <SyncBadge
+            isReady={isReady}
+            isSignedIn={isSignedIn}
+            syncStatus={syncStatus}
+            onSignIn={signIn}
+            onSignOut={signOut}
+            onManualSync={syncTasks}
+          />
         </div>
-
-        <SyncBadge
-          isReady={isReady}
-          isSignedIn={isSignedIn}
-          syncStatus={syncStatus}
-          onSignIn={signIn}
-          onSignOut={signOut}
-          onManualSync={syncTasks}
-        />
-      </div>
+      )}
 
       {/* ─── 入力フォーム ─── */}
       <div style={{ marginBottom: "1.4rem" }}>
@@ -993,7 +1032,7 @@ export default function Lists() {
             )}
           </div>
         ) : (
-          /* グループ表示モード */
+          /* グループ表示モード（アコーディオン開閉対応） */
           <div style={{ display: "flex", flexDirection: "column", gap: "1.2rem" }}>
             {groupedPending.length === 0 ? (
               <div className="arca-card" style={{ padding: "2rem 1.25rem", textAlign: "center" }}>
@@ -1002,42 +1041,72 @@ export default function Lists() {
                 </p>
               </div>
             ) : (
-              groupedPending.map((group) => (
-                <div key={group.groupName}>
-                  {/* グループセクションヘッダー */}
-                  <div
-                    style={{
-                      display: "flex",
-                      alignItems: "center",
-                      gap: "0.45rem",
-                      marginBottom: "0.45rem",
-                      padding: "0 0.5rem",
-                    }}
-                  >
-                    <span style={{ fontSize: "0.72rem", fontWeight: 700, color: C.goldDark, letterSpacing: "0.05em" }}>
-                      ✦ {group.groupName}
-                    </span>
-                    <span style={{ fontSize: "0.68rem", color: C.charcoalLight, fontWeight: 500 }}>
-                      ({group.items.length})
-                    </span>
-                  </div>
+              groupedPending.map((group) => {
+                const isCollapsed = collapsedGroups.has(group.groupName);
+                return (
+                  <div key={group.groupName}>
+                    {/* グループセクションヘッダー（クリックで開閉） */}
+                    <button
+                      type="button"
+                      onClick={() => toggleGroupCollapse(group.groupName)}
+                      style={{
+                        display: "flex",
+                        alignItems: "center",
+                        justifyContent: "space-between",
+                        width: "100%",
+                        background: "transparent",
+                        border: "none",
+                        cursor: "pointer",
+                        marginBottom: "0.45rem",
+                        padding: "0.2rem 0.5rem",
+                        textAlign: "left",
+                        userSelect: "none",
+                      }}
+                    >
+                      <div style={{ display: "flex", alignItems: "center", gap: "0.45rem" }}>
+                        <span style={{ fontSize: "0.74rem", fontWeight: 700, color: C.goldDark, letterSpacing: "0.05em" }}>
+                          ✦ {group.groupName}
+                        </span>
+                        <span style={{ fontSize: "0.68rem", color: C.charcoalLight, fontWeight: 500 }}>
+                          ({group.items.length})
+                        </span>
+                      </div>
+                      <svg
+                        viewBox="0 0 24 24"
+                        fill="none"
+                        strokeWidth={2}
+                        stroke="currentColor"
+                        style={{
+                          width: "0.8rem",
+                          height: "0.8rem",
+                          color: C.charcoalLight,
+                          transform: isCollapsed ? "rotate(-90deg)" : "rotate(0deg)",
+                          transition: "transform 0.2s cubic-bezier(0.16, 1, 0.3, 1)",
+                        }}
+                      >
+                        <path strokeLinecap="round" strokeLinejoin="round" d="m19.5 8.25-7.5 7.5-7.5-7.5" />
+                      </svg>
+                    </button>
 
-                  {/* グループカード */}
-                  <div className="arca-card" style={{ padding: "0.6rem 1.25rem" }}>
-                    <ul style={{ listStyle: "none", margin: 0, padding: 0, display: "flex", flexDirection: "column" }}>
-                      {group.items.map((item) => (
-                        <ListItemRow
-                          key={item.id}
-                          item={item}
-                          onToggle={handleToggle}
-                          onUpdateTitle={handleUpdateTitle}
-                          onDelete={handleDelete}
-                        />
-                      ))}
-                    </ul>
+                    {/* グループカード */}
+                    {!isCollapsed && (
+                      <div className="arca-card" style={{ padding: "0.6rem 1.25rem" }}>
+                        <ul style={{ listStyle: "none", margin: 0, padding: 0, display: "flex", flexDirection: "column" }}>
+                          {group.items.map((item) => (
+                            <ListItemRow
+                              key={item.id}
+                              item={item}
+                              onToggle={handleToggle}
+                              onUpdateTitle={handleUpdateTitle}
+                              onDelete={handleDelete}
+                            />
+                          ))}
+                        </ul>
+                      </div>
+                    )}
                   </div>
-                </div>
-              ))
+                );
+              })
             )}
           </div>
         )}

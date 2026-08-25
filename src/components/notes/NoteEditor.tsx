@@ -207,28 +207,40 @@ export const NoteEditor = forwardRef<NoteEditorHandles, NoteEditorProps>(functio
   ref
 ) {
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const isComposingRef = useRef(false);
+  const cursorPositionRef = useRef<number | null>(null);
+
   const [slashActive, setSlashActive] = useState(false);
   const [slashQuery, setSlashQuery] = useState("");
   const [slashLineIdx, setSlashLineIdx] = useState(0);
 
-  // 安定した Auto-resize 処理（field-sizing: content 対応）
+  // iOS Safari に安全な Auto-resize 処理（スクロール位置やキャレット位置を破壊しない）
   const autoResize = useCallback(() => {
     const el = textareaRef.current;
     if (!el) return;
 
-    // field-sizing: content がサポートされているブラウザでは自動処理
+    // field-sizing: content がサポートされている場合はブラウザネイティブに任せる
     if (typeof CSS !== "undefined" && CSS.supports && CSS.supports("field-sizing", "content")) {
       return;
     }
 
-    const prevHeight = el.offsetHeight;
-    el.style.height = "auto";
-    const targetHeight = Math.max(el.scrollHeight, window.innerHeight * 0.4);
-    el.style.height = `${targetHeight}px`;
+    // 変換中は高さ計算によるリフローを抑制
+    if (isComposingRef.current) return;
 
-    // 高さが急激に変化した場合のみスクロール位置を保護
-    if (Math.abs(prevHeight - targetHeight) > 200) {
-      // no-op
+    const currentScrollTop = window.scrollY || document.documentElement.scrollTop;
+    const caretStart = el.selectionStart;
+    const caretEnd = el.selectionEnd;
+
+    // 最小高さを確保しつつ scrollHeight に追従
+    const minHeight = Math.max(300, window.innerHeight * 0.45);
+    if (el.scrollHeight > el.offsetHeight) {
+      el.style.height = `${Math.max(el.scrollHeight + 40, minHeight)}px`;
+    }
+
+    // キャレット位置とスクロール位置の保護
+    if (document.activeElement === el && caretStart !== null) {
+      el.setSelectionRange(caretStart, caretEnd);
+      window.scrollTo(0, currentScrollTop);
     }
   }, []);
 
@@ -238,6 +250,7 @@ export const NoteEditor = forwardRef<NoteEditorHandles, NoteEditorProps>(functio
 
   // スラッシュコマンド検出
   const detectSlash = useCallback((text: string, cursorPos: number) => {
+    if (isComposingRef.current) return;
     const before = text.slice(0, cursorPos);
     const lines = before.split("\n");
     const cur = lines[lines.length - 1];
@@ -252,20 +265,38 @@ export const NoteEditor = forwardRef<NoteEditorHandles, NoteEditorProps>(functio
     }
   }, []);
 
-  const handleContentChange = (val: string) => {
+  const handleContentChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
+    const val = e.target.value;
+    const pos = e.target.selectionStart;
+    cursorPositionRef.current = pos;
     onChange(val);
+
+    if (!isComposingRef.current) {
+      autoResize();
+      detectSlash(val, pos);
+    }
+  };
+
+  const handleCompositionStart = () => {
+    isComposingRef.current = true;
+  };
+
+  const handleCompositionEnd = (e: React.CompositionEvent<HTMLTextAreaElement>) => {
+    isComposingRef.current = false;
+    const target = e.currentTarget;
     autoResize();
-    const pos = textareaRef.current?.selectionStart ?? 0;
-    detectSlash(val, pos);
+    detectSlash(target.value, target.selectionStart);
   };
 
   const handleKeyUp = (e: KeyboardEvent<HTMLTextAreaElement>) => {
+    if (isComposingRef.current) return;
     if (e.key === "Escape" && slashActive) {
       setSlashActive(false);
       return;
     }
     const el = textareaRef.current;
     if (el) {
+      cursorPositionRef.current = el.selectionStart;
       detectSlash(el.value, el.selectionStart);
     }
   };
@@ -367,11 +398,16 @@ export const NoteEditor = forwardRef<NoteEditorHandles, NoteEditorProps>(functio
         ref={textareaRef}
         className="arca-editor-ta arca-scroll"
         value={content}
-        onChange={(e) => handleContentChange(e.target.value)}
+        onChange={handleContentChange}
+        onCompositionStart={handleCompositionStart}
+        onCompositionEnd={handleCompositionEnd}
         onKeyUp={handleKeyUp}
         onClick={() => {
           const el = textareaRef.current;
-          if (el) detectSlash(el.value, el.selectionStart);
+          if (el) {
+            cursorPositionRef.current = el.selectionStart;
+            detectSlash(el.value, el.selectionStart);
+          }
         }}
         placeholder={placeholder || "Markdownで書き始める…\n\n行頭で / と入力するとブロックメニューが開きます"}
         style={{

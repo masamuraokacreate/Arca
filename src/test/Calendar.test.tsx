@@ -25,6 +25,13 @@ function mockSnapshot(
   (query as Mock).mockImplementation((col) => col);
 
   (onSnapshot as Mock).mockImplementation((q, callback) => {
+    if (typeof q === "object" && q !== null && "path" in q && (q as any).path?.includes?.("pm_settings")) {
+      callback({
+        exists: () => false,
+        data: () => ({}),
+      });
+      return vi.fn();
+    }
     const docs = q === "events" ? eventsData : tasksData;
     callback({
       docs: docs.map((d) => ({
@@ -71,10 +78,11 @@ describe("Calendar コンポーネント", () => {
     expect(screen.getByText("カレンダー")).toBeInTheDocument();
   });
 
-  it("「Today」バッジが表示される（初期選択が今日）", () => {
+  it("初期選択日の日付ラベルとシフトバッジが表示される", () => {
     mockSnapshot([], []);
     render(<Calendar />);
-    expect(screen.getByText("Today")).toBeInTheDocument();
+    const shiftBadge = screen.getByTestId("calendar-shift-badge");
+    expect(shiftBadge).toBeInTheDocument();
   });
 
   it("曜日ヘッダー（日〜土）が表示される", () => {
@@ -212,6 +220,21 @@ describe("Calendar コンポーネント", () => {
     await waitFor(() => {
       expect(globalThis.fetch).toHaveBeenCalled();
     });
+  });
+
+  it("シフト状態バッジが表示され、クリックで出勤ステータス確認モーダルが開く", async () => {
+    mockSnapshot([], []);
+    const user = userEvent.setup({ delay: null });
+    render(<Calendar />);
+
+    const shiftBadge = screen.getByTestId("calendar-shift-badge");
+    expect(shiftBadge).toBeInTheDocument();
+    expect(shiftBadge.textContent).toContain("休日");
+
+    await user.click(shiftBadge);
+    expect(screen.getByText("出勤ステータス確認")).toBeInTheDocument();
+    expect(screen.getByText("✦ 出勤日")).toBeInTheDocument();
+    expect(screen.getByText("🌙 休日（休み）")).toBeInTheDocument();
   });
 });
 

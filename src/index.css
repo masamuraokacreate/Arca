@@ -31,7 +31,7 @@
     background-image: linear-gradient(155deg, #FAF8F5 0%, #F5F0E8 50%, #F0EAE0 100%);
     background-attachment: fixed;
     color: var(--color-text);
-    font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "SF Pro Display", "Hiragino Sans", "Hiragino Kaku Gothic ProN", "Segoe UI", Roboto, sans-serif;
+    font-family: "Noto Sans JP", "Noto Sans", -apple-system, BlinkMacSystemFont, "SF Pro Text", "Hiragino Sans", "Hiragino Kaku Gothic ProN", "Segoe UI", sans-serif;
     -webkit-font-smoothing: antialiased;
     -moz-osx-font-smoothing: grayscale;
     text-rendering: optimizeLegibility;
