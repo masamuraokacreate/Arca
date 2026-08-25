@@ -9,7 +9,9 @@ import Calendar from "./components/Calendar";
 import Dashboard from "./components/Dashboard";
 import Notes from "./components/Notes";
 import Recipes from "./components/recipes/Recipes";
+import Finance from "./components/finance/Finance";
 import BackupModal from "./components/BackupModal";
+import ThemeModal from "./components/ThemeModal";
 import { C } from "./lib/designSystem";
 import { useNetworkStatus } from "./hooks/useNetworkStatus";
 import { logoutUser } from "./components/AuthGate";
@@ -84,7 +86,7 @@ function NetworkStatusBadge({ isOnline }: { isOnline: boolean }) {
 }
 
 // ---------- ナビゲーション定義 ----------
-type Module = "dashboard" | "tasks" | "calendar" | "notes" | "recipes";
+type Module = "dashboard" | "tasks" | "calendar" | "notes" | "recipes" | "finance";
 
 const NAV_ITEMS: { id: Module; label: string; sub: string }[] = [
   { id: "dashboard", label: "Dashboard", sub: "ダッシュボード" },
@@ -92,6 +94,7 @@ const NAV_ITEMS: { id: Module; label: string; sub: string }[] = [
   { id: "calendar", label: "Calendar", sub: "カレンダー" },
   { id: "notes", label: "Notes", sub: "ノート" },
   { id: "recipes", label: "Recipes", sub: "料理レシピ" },
+  { id: "finance", label: "Finance", sub: "家計・支出" },
 ];
 
 // ---------- ナビゲーションバー ----------
@@ -99,10 +102,12 @@ function NavBar({
   active,
   onChange,
   onOpenBackup,
+  onOpenTheme,
 }: {
   active: Module;
   onChange: (m: Module) => void;
   onOpenBackup?: () => void;
+  onOpenTheme?: () => void;
 }) {
   const { isOnline } = useNetworkStatus();
   const navTrackRef = useRef<HTMLDivElement>(null);
@@ -187,10 +192,10 @@ function NavBar({
         left: 0,
         right: 0,
         zIndex: 100,
-        background: "rgba(253, 252, 250, 0.88)",
+        background: "var(--bg-surface-glass)",
         backdropFilter: "blur(20px) saturate(180%)",
         WebkitBackdropFilter: "blur(20px) saturate(180%)",
-        boxShadow: "0 1px 0 rgba(0, 0, 0, 0.04)",
+        boxShadow: "0 1px 0 var(--border-subtle)",
         height: isMobile
           ? "calc(94px + env(safe-area-inset-top, 0px))"
           : "calc(52px + env(safe-area-inset-top, 0px))",
@@ -254,8 +259,30 @@ function NavBar({
 
         {/* モバイル表示時の右端コントロール */}
         {isMobile && (
-          <div style={{ display: "flex", alignItems: "center", gap: "0.4rem" }}>
+          <div style={{ display: "flex", alignItems: "center", gap: "0.35rem" }}>
             <NetworkStatusBadge isOnline={isOnline} />
+
+            {/* 外観・テーマ設定 */}
+            <button
+              onClick={onOpenTheme}
+              style={{
+                display: "inline-flex",
+                alignItems: "center",
+                gap: "0.22rem",
+                background: "transparent",
+                border: "none",
+                borderRadius: "8px",
+                padding: "0.25rem 0.4rem",
+                fontSize: "0.72rem",
+                color: C.charcoalLight,
+                cursor: "pointer",
+              }}
+              title="外観・テーマ設定"
+            >
+              <svg viewBox="0 0 24 24" fill="none" strokeWidth={1.75} stroke="currentColor" style={{ width: "0.88rem", height: "0.88rem" }}>
+                <path strokeLinecap="round" strokeLinejoin="round" d="M4.098 19.902a3.75 3.75 0 0 0 5.304 0l6.401-6.402M6.75 21A3.75 3.75 0 0 1 3 17.25V4.125C3 3.504 3.504 3 4.125 3h5.25c.621 0 1.125.504 1.125 1.125v4.072M6.75 21a3.75 3.75 0 0 0 3.75-3.75V8.197M6.75 21h13.125c.621 0 1.125-.504 1.125-1.125v-5.25c0-.621-.504-1.125-1.125-1.125h-4.072M10.5 8.197l9.75 9.75" />
+              </svg>
+            </button>
 
             {/* データ保護 / バックアップ */}
             <button
@@ -321,7 +348,7 @@ function NavBar({
             position: "relative",
             display: "flex",
             alignItems: "center",
-            background: "rgba(0, 0, 0, 0.04)",
+            background: "var(--bg-nav-track)",
             padding: "3px",
             borderRadius: "9999px",
             gap: "2px",
@@ -340,7 +367,7 @@ function NavBar({
               transform: `translate3d(${indicator.left}px, 0, 0)`,
               width: indicator.width,
               height: indicator.height,
-              background: C.white,
+              background: "var(--bg-nav-pill)",
               borderRadius: "9999px",
               boxShadow: "0 1px 4px rgba(0, 0, 0, 0.08), 0 0 1px rgba(0, 0, 0, 0.04)",
               transition: indicator.ready
@@ -398,6 +425,39 @@ function NavBar({
       {!isMobile && (
         <div style={{ display: "flex", alignItems: "center", justifyContent: "flex-end", gap: "0.45rem", flexShrink: 0, minWidth: "24px" }}>
           <NetworkStatusBadge isOnline={isOnline} />
+
+          {/* 外観・テーマ設定 */}
+          <button
+            onClick={onOpenTheme}
+            style={{
+              display: "inline-flex",
+              alignItems: "center",
+              gap: "0.22rem",
+              background: "transparent",
+              border: "none",
+              borderRadius: "8px",
+              padding: "0.25rem 0.45rem",
+              fontSize: "0.72rem",
+              color: C.charcoalLight,
+              cursor: "pointer",
+              transition: "all 0.15s ease",
+              userSelect: "none",
+            }}
+            title="外観・テーマ設定"
+            onMouseEnter={(e) => {
+              (e.currentTarget as HTMLButtonElement).style.color = C.goldDark;
+              (e.currentTarget as HTMLButtonElement).style.background = C.goldFaint;
+            }}
+            onMouseLeave={(e) => {
+              (e.currentTarget as HTMLButtonElement).style.color = C.charcoalLight;
+              (e.currentTarget as HTMLButtonElement).style.background = "transparent";
+            }}
+          >
+            <svg viewBox="0 0 24 24" fill="none" strokeWidth={1.75} stroke="currentColor" style={{ width: "0.85rem", height: "0.85rem", flexShrink: 0 }}>
+              <path strokeLinecap="round" strokeLinejoin="round" d="M4.098 19.902a3.75 3.75 0 0 0 5.304 0l6.401-6.402M6.75 21A3.75 3.75 0 0 1 3 17.25V4.125C3 3.504 3.504 3 4.125 3h5.25c.621 0 1.125.504 1.125 1.125v4.072M6.75 21a3.75 3.75 0 0 0 3.75-3.75V8.197M6.75 21h13.125c.621 0 1.125-.504 1.125-1.125v-5.25c0-.621-.504-1.125-1.125-1.125h-4.072M10.5 8.197l9.75 9.75" />
+            </svg>
+            <span className="hidden sm:inline">外観</span>
+          </button>
 
           {/* データ保護 / バックアップモーダルボタン */}
           <button
@@ -476,6 +536,7 @@ function App() {
   const [tasksTab, setTasksTab] = useState<"tasks" | "lists">("tasks");
   const [selectedNoteId, setSelectedNoteId] = useState<string | null>(null);
   const [isBackupModalOpen, setIsBackupModalOpen] = useState(false);
+  const [isThemeModalOpen, setIsThemeModalOpen] = useState(false);
   const [isMobile, setIsMobile] = useState(typeof window !== "undefined" ? window.innerWidth < 640 : false);
 
   useEffect(() => {
@@ -514,6 +575,7 @@ function App() {
         active={activeModule}
         onChange={(m) => handleNavigate(m, "tasks")}
         onOpenBackup={() => setIsBackupModalOpen(true)}
+        onOpenTheme={() => setIsThemeModalOpen(true)}
       />
 
       {/* メインコンテンツ領域（ナビバー分の余白 & セーフエリア） */}
@@ -556,6 +618,7 @@ function App() {
           {activeModule === "recipes" && (
             <Recipes onNavigateToLists={() => handleNavigate("tasks", "lists")} />
           )}
+          {activeModule === "finance" && <Finance />}
         </div>
       </main>
 
@@ -563,6 +626,12 @@ function App() {
       <BackupModal
         isOpen={isBackupModalOpen}
         onClose={() => setIsBackupModalOpen(false)}
+      />
+
+      {/* 外観 ＆ テーマ設定モーダル */}
+      <ThemeModal
+        isOpen={isThemeModalOpen}
+        onClose={() => setIsThemeModalOpen(false)}
       />
     </div>
   );

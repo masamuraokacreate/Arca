@@ -1284,13 +1284,16 @@ export default function Calendar() {
     });
   }, []);
 
+  // ── カレンダー表示用の通常予定フィルタ（出勤計算専用の isShiftOnly は除外） ──
+  const visibleEvents = events.filter((e) => !e.isShiftOnly);
+
   // ── 選択日のフィルタリング ──
-  const dayEvents = events.filter((e) => e.date === selectedDate);
+  const dayEvents = visibleEvents.filter((e) => e.date === selectedDate);
   const dayTasks = tasks.filter((t) => t.dueDate === selectedDate);
   const isSelectedToday = selectedDate === today;
 
   // ── カレンダー用のドットセット ──
-  const eventDates = new Set(events.map((e) => e.date));
+  const eventDates = new Set(visibleEvents.map((e) => e.date));
   const taskDueDates = new Set(tasks.filter((t) => t.dueDate).map((t) => t.dueDate as string));
 
   // ── PM 日付マップ（表示中の月の前後1ヶ月を含む範囲） ──
@@ -1595,7 +1598,7 @@ export default function Calendar() {
             month={viewMonth}
             selectedDate={selectedDate}
             today={today}
-            events={events}
+            events={visibleEvents}
             eventDates={eventDates}
             taskDueDates={taskDueDates}
             pmDates={pmDates}

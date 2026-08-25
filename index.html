@@ -20,6 +20,25 @@
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+JP:wght@300;400;500;600;700;750&display=swap" rel="stylesheet" />
 
+  <!-- Early Theme Initializer to prevent FOUC -->
+  <script>
+    (function () {
+      try {
+        var savedTheme = localStorage.getItem("arca_theme") || "system";
+        var resolved = savedTheme;
+        if (savedTheme === "system") {
+          resolved = window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "ivory";
+        }
+        document.documentElement.setAttribute("data-theme", resolved);
+        if (resolved === "dark" || resolved === "sage") {
+          document.documentElement.classList.add("dark");
+        } else {
+          document.documentElement.classList.remove("dark");
+        }
+      } catch (e) {}
+    })();
+  </script>
+
   <title>Arca</title>
   <script src="https://accounts.google.com/gsi/client" async defer
     onload="window.dispatchEvent(new Event('gsi-loaded'))"></script>

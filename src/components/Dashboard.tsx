@@ -157,6 +157,7 @@ export default function Dashboard({ onNavigate, onSelectNote }: DashboardProps =
   const [lists, setLists] = useState<ListItem[]>([]);
   const [notes, setNotes] = useState<NoteItem[]>([]);
   const [recipes, setRecipes] = useState<Recipe[]>([]);
+  const [taskTab, setTaskTab] = useState<"tasks" | "lists">("tasks");
 
   // 手動同期ハンドラ
   const handleManualSync = useCallback(async () => {
@@ -253,8 +254,10 @@ export default function Dashboard({ onNavigate, onSelectNote }: DashboardProps =
     };
   }, [today]);
 
-  // フィルタリング（無題ノートや削除済みを除外）
-  const todayEvents = events.filter((e) => e.date === today).sort((a, b) => (a.startTime || "").localeCompare(b.startTime || ""));
+  // フィルタリング（無題ノートや削除済み、出勤計算専用の isShiftOnly 予定を除外）
+  const todayEvents = events
+    .filter((e) => e.date === today && !e.isShiftOnly)
+    .sort((a, b) => (a.startTime || "").localeCompare(b.startTime || ""));
   const todayTasks = tasks.filter((t) => !t.completed && (t.dueDate === today || !t.dueDate));
   const activeLists = lists.filter((l) => !l.completed);
   const activeNotes = notes.filter((n) => !n.isDeleted && (n.title.trim() !== "" || n.content.trim() !== ""));
@@ -339,44 +342,52 @@ export default function Dashboard({ onNavigate, onSelectNote }: DashboardProps =
     <div
       className="w-full max-w-6xl mx-auto"
       style={{
-        padding: "1.8rem 1.5rem 4rem",
+        padding: "1.8rem 1.25rem 4rem",
         boxSizing: "border-box",
-        minHeight: "calc(100vh - 4rem)",
+        minHeight: "100%",
         display: "flex",
         flexDirection: "column",
       }}
     >
-      {/* ─── ヘッダー ─── */}
-      <div style={{ marginBottom: "1.2rem", padding: "0 0.25rem", display: "flex", alignItems: "baseline", justifyContent: "space-between" }}>
+      {/* ─── ヘッダー: 日付 & 出勤ステータスバッジ（Apple HIG 準拠） ─── */}
+      <div
+        style={{
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "space-between",
+          marginBottom: "1.25rem",
+          padding: "0 0.25rem",
+          flexWrap: "wrap",
+          gap: "0.75rem",
+        }}
+      >
         <div>
           <p style={{ fontSize: "0.68rem", fontWeight: 650, color: C.charcoalLight, letterSpacing: "0.1em", textTransform: "uppercase", margin: 0 }}>
-            DASHBOARD
+            TODAY & DASHBOARD
           </p>
-          <h1 style={{ fontSize: "1.65rem", fontWeight: 750, color: C.charcoal, margin: "0.15rem 0 0", letterSpacing: "-0.03em" }}>
+          <h1 style={{ fontSize: "1.75rem", fontWeight: 750, color: C.charcoal, margin: "0.15rem 0 0", letterSpacing: "-0.03em" }}>
             ダッシュボード
           </h1>
         </div>
+
+        {/* 出勤ステータスバッジ（クリックで手動調整モーダルを開く） */}
         <div style={{ display: "flex", alignItems: "center", gap: "0.6rem" }}>
-          {/* シフト状態バッジ（クリックで手動補正） */}
           <button
             type="button"
-            onClick={() => setShowShiftOverrideModal(true)}
             data-testid="dashboard-shift-badge"
+            onClick={() => setShowShiftOverrideModal(true)}
             style={{
-              background: currentShift.type === "holiday" ? "rgba(82, 121, 111, 0.12)" : C.goldFaint,
-              color: currentShift.type === "holiday" ? C.sage : C.goldDark,
-              border: currentShift.isOverridden
-                ? `1px dashed ${currentShift.type === "holiday" ? C.sage : C.gold}`
-                : "1px solid transparent",
-              borderRadius: "9999px",
-              padding: "0.22rem 0.65rem",
-              fontSize: "0.72rem",
-              fontWeight: 700,
-              letterSpacing: "0.02em",
-              cursor: "pointer",
               display: "inline-flex",
               alignItems: "center",
               gap: "0.35rem",
+              background: currentShift.type === "holiday" ? "rgba(82, 121, 111, 0.12)" : "rgba(197, 160, 89, 0.12)",
+              color: currentShift.type === "holiday" ? C.sage : C.goldDark,
+              border: `1px solid ${currentShift.type === "holiday" ? "rgba(82, 121, 111, 0.2)" : "rgba(197, 160, 89, 0.2)"}`,
+              padding: "0.32rem 0.75rem",
+              borderRadius: "9999px",
+              fontSize: "0.76rem",
+              fontWeight: 650,
+              cursor: "pointer",
               transition: "all 0.15s ease",
             }}
             title="クリックして勤務・休日ステータスを手動補正"
@@ -386,12 +397,6 @@ export default function Dashboard({ onNavigate, onSelectNote }: DashboardProps =
                 ? `🌙 休日 ${currentShift.streakNumber}日目`
                 : `✦ 出勤 ${currentShift.streakNumber}日目${currentShift.shiftName ? ` (${currentShift.shiftName})` : ""}`}
             </span>
-            {currentShift.isOverridden && (
-              <span style={{ fontSize: "0.62rem", opacity: 0.85 }}>(手動)</span>
-            )}
-            <svg viewBox="0 0 24 24" fill="none" strokeWidth={2} stroke="currentColor" style={{ width: "0.68rem", height: "0.68rem", opacity: 0.7 }}>
-              <path strokeLinecap="round" strokeLinejoin="round" d="m16.862 4.487 1.687-1.688a1.875 1.875 0 1 1 2.652 2.652L10.582 16.07a4.5 4.5 0 0 1-1.897 1.13L6 18l.8-2.685a4.5 4.5 0 0 1 1.13-1.897l8.932-8.931Zm0 0L19.5 7.125" />
-            </svg>
           </button>
           <p style={{ fontSize: "0.78rem", color: C.charcoalLight, margin: 0, letterSpacing: "0.01em" }}>
             {displayDate}
@@ -413,506 +418,538 @@ export default function Dashboard({ onNavigate, onSelectNote }: DashboardProps =
         onSave={handleSaveShiftOverride}
       />
 
-      {/* ─── Bento Grid メインレイアウト (PC: 2x2 等幅大型グリッド / Mobile: 1カラム) ─── */}
+      {/* ─── Bento Grid 2カラムレイアウト（左: 予定 / タスク＆買い物 / レシピ, 右: 最近のノート） ─── */}
       <div
         style={{
           flex: 1,
           display: "grid",
-          gridTemplateColumns: "repeat(auto-fit, minmax(min(100%, 460px), 1fr))",
+          gridTemplateColumns: "repeat(auto-fit, minmax(min(100%, 440px), 1fr))",
           gap: "1.25rem",
-          alignItems: "stretch",
+          alignItems: "start",
         }}
       >
-        {/* ─── タイルA: Calendar（今日の予定） ─── */}
-        <div
-          className="arca-card"
-          style={{
-            padding: "1.4rem 1.6rem 1.2rem",
-            display: "flex",
-            flexDirection: "column",
-            minHeight: "310px",
-            boxSizing: "border-box",
-            borderRadius: "20px",
-          }}
-        >
-          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: "0.9rem" }}>
-            <div style={{ display: "flex", alignItems: "center", gap: "0.45rem" }}>
-              <span style={{ fontSize: "0.85rem", fontWeight: 700, color: C.charcoal, letterSpacing: "0.02em" }}>
-                今日の予定
-              </span>
-              <span style={{ fontSize: "0.74rem", color: C.charcoalLight }}>
-                ({todayEvents.length})
-              </span>
-            </div>
-            <TileNavButton
-              label="カレンダー"
-              onClick={() => onNavigate?.("calendar")}
-            />
-          </div>
-
-          {/* 内部スクロール */}
-          <div style={{ flex: 1, overflowY: "auto", paddingRight: "0.25rem" }}>
-            {todayEvents.length === 0 ? (
-              <div style={{ height: "100%", display: "flex", alignItems: "center", justifyContent: "center" }}>
-                <p style={{ margin: 0, fontSize: "0.85rem", color: C.charcoalLight }}>
-                  今日の予定はありません
-                </p>
+        {/* ─── 左カラム（予定、タスク＆買い物リスト、料理レシピ） ─── */}
+        <div style={{ display: "flex", flexDirection: "column", gap: "1.25rem" }}>
+          
+          {/* ─── タイルA: Calendar（今日の予定） ─── */}
+          <div
+            className="arca-card"
+            style={{
+              padding: "1.3rem 1.5rem 1.1rem",
+              display: "flex",
+              flexDirection: "column",
+              minHeight: "240px",
+              boxSizing: "border-box",
+              borderRadius: "20px",
+            }}
+          >
+            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: "0.8rem" }}>
+              <div style={{ display: "flex", alignItems: "center", gap: "0.45rem" }}>
+                <span style={{ fontSize: "0.85rem", fontWeight: 700, color: C.charcoal, letterSpacing: "0.02em" }}>
+                  今日の予定
+                </span>
+                <span style={{ fontSize: "0.74rem", color: C.charcoalLight }}>
+                  ({todayEvents.length})
+                </span>
               </div>
-            ) : (
-              <ul style={{ listStyle: "none", margin: 0, padding: 0, display: "flex", flexDirection: "column", gap: "0.6rem" }}>
-                {todayEvents.map((e) => (
-                  <li
-                    key={e.id}
-                    style={{
-                      display: "flex",
-                      alignItems: "flex-start",
-                      gap: "0.85rem",
-                      padding: "0.45rem 0",
-                      borderBottom: "1px solid rgba(0, 0, 0, 0.03)",
-                    }}
-                  >
-                    <span
+              <TileNavButton
+                label="カレンダー"
+                onClick={() => onNavigate?.("calendar")}
+              />
+            </div>
+
+            {/* 内部スクロール */}
+            <div style={{ flex: 1, overflowY: "auto", maxHeight: "200px", paddingRight: "0.25rem" }}>
+              {todayEvents.length === 0 ? (
+                <div style={{ height: "100%", display: "flex", alignItems: "center", justifyContent: "center", padding: "1.5rem 0" }}>
+                  <p style={{ margin: 0, fontSize: "0.85rem", color: C.charcoalLight }}>
+                    今日の予定はありません
+                  </p>
+                </div>
+              ) : (
+                <ul style={{ listStyle: "none", margin: 0, padding: 0, display: "flex", flexDirection: "column", gap: "0.55rem" }}>
+                  {todayEvents.map((e) => (
+                    <li
+                      key={e.id}
                       style={{
-                        fontSize: "0.78rem",
-                        color: C.gold,
-                        fontWeight: 650,
-                        fontFamily: "-apple-system, monospace",
-                        flexShrink: 0,
-                        width: "3.4rem",
+                        display: "flex",
+                        alignItems: "flex-start",
+                        gap: "0.85rem",
+                        padding: "0.35rem 0",
+                        borderBottom: "1px solid rgba(0, 0, 0, 0.03)",
                       }}
                     >
-                      {e.startTime || "--:--"}
-                    </span>
-                    <div style={{ flex: 1, minWidth: 0 }}>
-                      <p style={{ margin: 0, fontSize: "0.88rem", color: C.charcoal, fontWeight: 450 }}>
-                        {e.title}
-                      </p>
-                      {e.note && (
-                        <p style={{ margin: "0.15rem 0 0", fontSize: "0.74rem", color: C.charcoalLight }}>
-                          {e.note}
-                        </p>
-                      )}
-                    </div>
-                  </li>
-                ))}
-              </ul>
-            )}
-          </div>
-        </div>
-
-        {/* ─── タイルB: Tasks（今日のタスク ＆ 優先タスク） ─── */}
-        <div
-          className="arca-card"
-          style={{
-            padding: "1.4rem 1.6rem 1.2rem",
-            display: "flex",
-            flexDirection: "column",
-            minHeight: "310px",
-            boxSizing: "border-box",
-            borderRadius: "20px",
-          }}
-        >
-          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: "0.9rem" }}>
-            <div style={{ display: "flex", alignItems: "center", gap: "0.45rem" }}>
-              <span style={{ fontSize: "0.85rem", fontWeight: 700, color: C.charcoal, letterSpacing: "0.02em" }}>
-                今日のタスク
-              </span>
-              <span style={{ fontSize: "0.74rem", color: C.charcoalLight }}>
-                ({todayTasks.length + pmTodayItems.length})
-              </span>
-            </div>
-            <TileNavButton
-              label="タスク"
-              onClick={() => onNavigate?.("tasks")}
-            />
-          </div>
-
-          {/* 内部スクロール */}
-          <div style={{ flex: 1, overflowY: "auto", paddingRight: "0.25rem" }}>
-            {todayTasks.length === 0 && pmTodayItems.length === 0 ? (
-              <div style={{ height: "100%", display: "flex", alignItems: "center", justifyContent: "center" }}>
-                <p style={{ margin: 0, fontSize: "0.85rem", color: C.charcoalLight }}>
-                  残っているタスクはありません
-                </p>
-              </div>
-            ) : (
-              <ul style={{ listStyle: "none", margin: 0, padding: 0, display: "flex", flexDirection: "column", gap: "0.4rem" }}>
-                {todayTasks.map((t) => (
-                  <li
-                    key={t.id}
-                    style={{
-                      display: "flex",
-                      alignItems: "center",
-                      gap: "0.75rem",
-                      padding: "0.45rem 0",
-                      borderBottom: "1px solid rgba(0, 0, 0, 0.03)",
-                    }}
-                  >
-                    <button
-                      onClick={() => toggleTask(t.id, t.completed)}
-                      style={{ background: "none", border: "none", cursor: "pointer", padding: 0, lineHeight: 0 }}
-                      title={t.completed ? "未完了に戻す" : "完了にする"}
-                    >
-                      <CheckCircle completed={t.completed} />
-                    </button>
-                    <span
-                      style={{
-                        flex: 1,
-                        fontSize: "0.88rem",
-                        color: t.completed ? C.charcoalLight : C.charcoal,
-                        textDecoration: t.completed ? "line-through" : "none",
-                        lineHeight: 1.35,
-                      }}
-                    >
-                      {t.title}
-                    </span>
-                    {t.priority === "high" && (
                       <span
                         style={{
-                          fontSize: "0.68rem",
-                          fontWeight: 600,
-                          color: C.danger,
-                          background: "rgba(224, 86, 74, 0.08)",
-                          padding: "0.15rem 0.45rem",
-                          borderRadius: "4px",
+                          fontSize: "0.78rem",
+                          color: C.gold,
+                          fontWeight: 650,
+                          fontFamily: "-apple-system, monospace",
                           flexShrink: 0,
+                          width: "3.4rem",
                         }}
                       >
-                        高
+                        {e.startTime || "--:--"}
                       </span>
-                    )}
-                  </li>
-                ))}
+                      <div style={{ flex: 1, minWidth: 0 }}>
+                        <p style={{ margin: 0, fontSize: "0.88rem", color: C.charcoal, fontWeight: 450 }}>
+                          {e.title}
+                        </p>
+                        {e.note && (
+                          <p style={{ margin: "0.15rem 0 0", fontSize: "0.74rem", color: C.charcoalLight }}>
+                            {e.note}
+                          </p>
+                        )}
+                      </div>
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </div>
+          </div>
 
-                {/* PM プレビュー（最大2件） */}
-                {pmTodayItems.map((item) => (
-                  <li
-                    key={`pm-${item.id}`}
-                    style={{
-                      display: "flex",
-                      alignItems: "center",
-                      gap: "0.75rem",
-                      padding: "0.45rem 0.55rem",
-                      borderBottom: "1px solid rgba(0, 0, 0, 0.03)",
-                      background: C.goldFaint,
-                      borderRadius: "10px",
-                      transition: "background 0.15s ease",
-                    }}
-                  >
-                    <button
-                      type="button"
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        togglePMTask(item);
-                      }}
-                      style={{ background: "none", border: "none", cursor: "pointer", padding: 0, lineHeight: 0 }}
-                      title="クリックで完了を記録"
-                    >
-                      <CheckCircle completed={false} />
-                    </button>
-                    <div
-                      onClick={() => onNavigate?.("tasks")}
+          {/* ─── タイルB: 今日のタスク ＆ 買い物リスト（一体化タイル） ─── */}
+          <div
+            className="arca-card"
+            style={{
+              padding: "1.3rem 1.5rem 1.1rem",
+              display: "flex",
+              flexDirection: "column",
+              minHeight: "280px",
+              boxSizing: "border-box",
+              borderRadius: "20px",
+            }}
+          >
+            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: "0.8rem", gap: "0.5rem", flexWrap: "wrap" }}>
+              {/* 小タブ切り替え: [ ✦ タスク | 🛒 買い物 ] */}
+              <div
+                style={{
+                  display: "inline-flex",
+                  alignItems: "center",
+                  background: "rgba(0, 0, 0, 0.04)",
+                  padding: "2px",
+                  borderRadius: "9999px",
+                  gap: "2px",
+                }}
+              >
+                <button
+                  type="button"
+                  onClick={() => setTaskTab("tasks")}
+                  style={{
+                    border: "none",
+                    borderRadius: "9999px",
+                    padding: "0.26rem 0.7rem",
+                    fontSize: "0.76rem",
+                    fontWeight: taskTab === "tasks" ? 700 : 500,
+                    color: taskTab === "tasks" ? C.charcoal : C.charcoalLight,
+                    background: taskTab === "tasks" ? C.white : "transparent",
+                    boxShadow: taskTab === "tasks" ? "0 1px 3px rgba(0,0,0,0.08)" : "none",
+                    cursor: "pointer",
+                    transition: "all 0.15s ease",
+                  }}
+                >
+                  ✦ タスク ({todayTasks.length + pmTodayItems.length})
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setTaskTab("lists")}
+                  style={{
+                    border: "none",
+                    borderRadius: "9999px",
+                    padding: "0.26rem 0.7rem",
+                    fontSize: "0.76rem",
+                    fontWeight: taskTab === "lists" ? 700 : 500,
+                    color: taskTab === "lists" ? C.charcoal : C.charcoalLight,
+                    background: taskTab === "lists" ? C.white : "transparent",
+                    boxShadow: taskTab === "lists" ? "0 1px 3px rgba(0,0,0,0.08)" : "none",
+                    cursor: "pointer",
+                    transition: "all 0.15s ease",
+                  }}
+                >
+                  🛒 買い物 ({activeLists.length})
+                </button>
+              </div>
+
+              {/* 遷移ボタン */}
+              {taskTab === "tasks" ? (
+                <TileNavButton
+                  label="タスク"
+                  onClick={() => onNavigate?.("tasks")}
+                />
+              ) : (
+                <TileNavButton
+                  label="買い物リスト"
+                  onClick={() => onNavigate?.("lists")}
+                />
+              )}
+            </div>
+
+            {/* 内部スクロールコンテンツ */}
+            <div style={{ flex: 1, overflowY: "auto", maxHeight: "240px", paddingRight: "0.25rem" }}>
+              {taskTab === "tasks" ? (
+                /* ─── タスク一覧表示 ─── */
+                todayTasks.length === 0 && pmTodayItems.length === 0 ? (
+                  <div style={{ height: "100%", display: "flex", alignItems: "center", justifyContent: "center", padding: "1.5rem 0" }}>
+                    <p style={{ margin: 0, fontSize: "0.85rem", color: C.charcoalLight }}>
+                      残っているタスクはありません
+                    </p>
+                  </div>
+                ) : (
+                  <ul style={{ listStyle: "none", margin: 0, padding: 0, display: "flex", flexDirection: "column", gap: "0.4rem" }}>
+                    {todayTasks.map((t) => (
+                      <li
+                        key={t.id}
+                        style={{
+                          display: "flex",
+                          alignItems: "center",
+                          gap: "0.75rem",
+                          padding: "0.4rem 0",
+                          borderBottom: "1px solid rgba(0, 0, 0, 0.03)",
+                        }}
+                      >
+                        <button
+                          onClick={() => toggleTask(t.id, t.completed)}
+                          style={{ background: "none", border: "none", cursor: "pointer", padding: 0, lineHeight: 0 }}
+                          title={t.completed ? "未完了に戻す" : "完了にする"}
+                        >
+                          <CheckCircle completed={t.completed} />
+                        </button>
+                        <span
+                          style={{
+                            flex: 1,
+                            fontSize: "0.88rem",
+                            color: t.completed ? C.charcoalLight : C.charcoal,
+                            textDecoration: t.completed ? "line-through" : "none",
+                            lineHeight: 1.35,
+                          }}
+                        >
+                          {t.title}
+                        </span>
+                        {t.priority === "high" && (
+                          <span
+                            style={{
+                              fontSize: "0.68rem",
+                              fontWeight: 600,
+                              color: C.danger,
+                              background: "rgba(224, 86, 74, 0.08)",
+                              padding: "0.15rem 0.45rem",
+                              borderRadius: "4px",
+                              flexShrink: 0,
+                            }}
+                          >
+                            高
+                          </span>
+                        )}
+                      </li>
+                    ))}
+
+                    {/* PM プレビュー（最大2件） */}
+                    {pmTodayItems.map((item) => (
+                      <li
+                        key={`pm-${item.id}`}
+                        style={{
+                          display: "flex",
+                          alignItems: "center",
+                          gap: "0.75rem",
+                          padding: "0.45rem 0.55rem",
+                          borderBottom: "1px solid rgba(0, 0, 0, 0.03)",
+                          background: C.goldFaint,
+                          borderRadius: "10px",
+                          transition: "background 0.15s ease",
+                        }}
+                      >
+                        <button
+                          type="button"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            togglePMTask(item);
+                          }}
+                          style={{ background: "none", border: "none", cursor: "pointer", padding: 0, lineHeight: 0 }}
+                          title="クリックで完了を記録"
+                        >
+                          <CheckCircle completed={false} />
+                        </button>
+                        <div
+                          onClick={() => onNavigate?.("tasks")}
+                          style={{
+                            flex: 1,
+                            display: "flex",
+                            alignItems: "center",
+                            gap: "0.45rem",
+                            cursor: "pointer",
+                            minWidth: 0,
+                          }}
+                          title="クリックでタスク画面のPMセクションへ移動"
+                        >
+                          <span
+                            style={{
+                              fontSize: "0.65rem",
+                              fontWeight: 700,
+                              color: currentShift.type === "holiday" ? C.sage : C.goldDark,
+                              background: currentShift.type === "holiday" ? "rgba(82, 121, 111, 0.15)" : "rgba(197, 160, 89, 0.15)",
+                              padding: "0.1rem 0.45rem",
+                              borderRadius: "4px",
+                              flexShrink: 0,
+                            }}
+                          >
+                            {currentShift.type === "holiday" ? "PM 休日" : "PM 出勤"}
+                          </span>
+                          <span
+                            style={{
+                              fontSize: "0.86rem",
+                              color: C.charcoal,
+                              lineHeight: 1.35,
+                              overflow: "hidden",
+                              textOverflow: "ellipsis",
+                              whiteSpace: "nowrap",
+                            }}
+                          >
+                            {item.title}
+                          </span>
+                        </div>
+                      </li>
+                    ))}
+                  </ul>
+                )
+              ) : (
+                /* ─── 買い物リスト一覧表示 ─── */
+                activeLists.length === 0 ? (
+                  <div style={{ height: "100%", display: "flex", alignItems: "center", justifyContent: "center", padding: "1.5rem 0" }}>
+                    <p style={{ margin: 0, fontSize: "0.85rem", color: C.charcoalLight }}>
+                      未購入アイテムはありません
+                    </p>
+                  </div>
+                ) : (
+                  <ul style={{ listStyle: "none", margin: 0, padding: 0, display: "flex", flexDirection: "column", gap: "0.4rem" }}>
+                    {activeLists.map((item) => (
+                      <li
+                        key={item.id}
+                        style={{
+                          display: "flex",
+                          alignItems: "center",
+                          gap: "0.75rem",
+                          padding: "0.4rem 0",
+                          borderBottom: "1px solid rgba(0, 0, 0, 0.03)",
+                        }}
+                      >
+                        <button
+                          onClick={() => toggleList(item.id, item.completed)}
+                          style={{ background: "none", border: "none", cursor: "pointer", padding: 0, lineHeight: 0 }}
+                          title={item.completed ? "未購入に戻す" : "購入済みにする"}
+                        >
+                          <CheckCircle completed={item.completed} />
+                        </button>
+                        <span style={{ flex: 1, fontSize: "0.88rem", color: C.charcoal }}>
+                          {item.text}
+                        </span>
+                        {item.category && (
+                          <span
+                            style={{
+                              fontSize: "0.68rem",
+                              color: C.charcoalLight,
+                              background: "rgba(0, 0, 0, 0.04)",
+                              padding: "0.15rem 0.5rem",
+                              borderRadius: "6px",
+                              flexShrink: 0,
+                            }}
+                          >
+                            {item.category}
+                          </span>
+                        )}
+                      </li>
+                    ))}
+                  </ul>
+                )
+              )}
+            </div>
+          </div>
+
+          {/* ─── タイルC: Recipes（料理レシピ） ─── */}
+          <div
+            className="arca-card"
+            style={{
+              padding: "1.3rem 1.5rem 1.1rem",
+              display: "flex",
+              flexDirection: "column",
+              minHeight: "240px",
+              boxSizing: "border-box",
+              borderRadius: "20px",
+            }}
+          >
+            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: "0.8rem" }}>
+              <div style={{ display: "flex", alignItems: "center", gap: "0.45rem" }}>
+                <span style={{ fontSize: "0.85rem", fontWeight: 700, color: C.charcoal, letterSpacing: "0.02em" }}>
+                  料理レシピ
+                </span>
+                <span style={{ fontSize: "0.74rem", color: C.charcoalLight }}>
+                  ({activeRecipes.length})
+                </span>
+              </div>
+              <TileNavButton
+                label="レシピ"
+                onClick={() => onNavigate?.("recipes")}
+              />
+            </div>
+
+            {/* 内部スクロール */}
+            <div style={{ flex: 1, overflowY: "auto", maxHeight: "200px", paddingRight: "0.25rem" }}>
+              {recentRecipes.length === 0 ? (
+                <div style={{ height: "100%", display: "flex", alignItems: "center", justifyContent: "center", padding: "1.5rem 0" }}>
+                  <p style={{ margin: 0, fontSize: "0.85rem", color: C.charcoalLight }}>
+                    登録されたレシピはありません
+                  </p>
+                </div>
+              ) : (
+                <ul style={{ listStyle: "none", margin: 0, padding: 0, display: "flex", flexDirection: "column", gap: "0.45rem" }}>
+                  {recentRecipes.map((recipe) => (
+                    <li
+                      key={recipe.id}
+                      onClick={() => onNavigate?.("recipes")}
                       style={{
-                        flex: 1,
+                        padding: "0.5rem 0.6rem",
+                        borderRadius: "10px",
+                        background: "rgba(0, 0, 0, 0.015)",
+                        cursor: "pointer",
+                        transition: "background 0.15s ease",
                         display: "flex",
                         alignItems: "center",
-                        gap: "0.45rem",
-                        cursor: "pointer",
-                        minWidth: 0,
+                        justifyContent: "space-between",
+                        gap: "0.5rem",
                       }}
-                      title="クリックでタスク画面のPMセクションへ移動"
+                      onMouseEnter={(e) => {
+                        (e.currentTarget as HTMLLIElement).style.background = "rgba(0, 0, 0, 0.04)";
+                      }}
+                      onMouseLeave={(e) => {
+                        (e.currentTarget as HTMLLIElement).style.background = "rgba(0, 0, 0, 0.015)";
+                      }}
                     >
-                      <span
-                        style={{
-                          fontSize: "0.65rem",
-                          fontWeight: 700,
-                          color: currentShift.type === "holiday" ? C.sage : C.goldDark,
-                          background: currentShift.type === "holiday" ? "rgba(82, 121, 111, 0.15)" : "rgba(197, 160, 89, 0.15)",
-                          padding: "0.1rem 0.45rem",
-                          borderRadius: "4px",
-                          flexShrink: 0,
-                        }}
-                      >
-                        {currentShift.type === "holiday" ? "PM 休日" : "PM 出勤"}
-                      </span>
-                      <span
-                        style={{
-                          fontSize: "0.86rem",
-                          color: C.charcoal,
-                          lineHeight: 1.35,
-                          overflow: "hidden",
-                          textOverflow: "ellipsis",
-                          whiteSpace: "nowrap",
-                        }}
-                      >
-                        {item.title}
-                      </span>
-                    </div>
-                  </li>
-                ))}
-              </ul>
-            )}
-          </div>
-        </div>
-
-        {/* ─── タイルC: Lists（買い物リスト） ─── */}
-
-        <div
-          className="arca-card"
-          style={{
-            padding: "1.4rem 1.6rem 1.2rem",
-            display: "flex",
-            flexDirection: "column",
-            minHeight: "310px",
-            boxSizing: "border-box",
-            borderRadius: "20px",
-          }}
-        >
-          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: "0.9rem" }}>
-            <div style={{ display: "flex", alignItems: "center", gap: "0.45rem" }}>
-              <span style={{ fontSize: "0.85rem", fontWeight: 700, color: C.charcoal, letterSpacing: "0.02em" }}>
-                買い物リスト
-              </span>
-              <span style={{ fontSize: "0.74rem", color: C.charcoalLight }}>
-                ({activeLists.length})
-              </span>
-            </div>
-            <TileNavButton
-              label="買い物リスト"
-              onClick={() => onNavigate?.("lists")}
-            />
-          </div>
-
-          {/* 内部スクロール */}
-          <div style={{ flex: 1, overflowY: "auto", paddingRight: "0.25rem" }}>
-            {activeLists.length === 0 ? (
-              <div style={{ height: "100%", display: "flex", alignItems: "center", justifyContent: "center" }}>
-                <p style={{ margin: 0, fontSize: "0.85rem", color: C.charcoalLight }}>
-                  未購入アイテムはありません
-                </p>
-              </div>
-            ) : (
-              <ul style={{ listStyle: "none", margin: 0, padding: 0, display: "flex", flexDirection: "column", gap: "0.4rem" }}>
-                {activeLists.map((item) => (
-                  <li
-                    key={item.id}
-                    style={{
-                      display: "flex",
-                      alignItems: "center",
-                      gap: "0.75rem",
-                      padding: "0.45rem 0",
-                      borderBottom: "1px solid rgba(0, 0, 0, 0.03)",
-                    }}
-                  >
-                    <button
-                      onClick={() => toggleList(item.id, item.completed)}
-                      style={{ background: "none", border: "none", cursor: "pointer", padding: 0, lineHeight: 0 }}
-                      title={item.completed ? "未購入に戻す" : "購入済みにする"}
-                    >
-                      <CheckCircle completed={item.completed} />
-                    </button>
-                    <span style={{ flex: 1, fontSize: "0.88rem", color: C.charcoal }}>
-                      {item.text}
-                    </span>
-                    {item.category && (
-                      <span
-                        style={{
-                          fontSize: "0.68rem",
-                          color: C.charcoalLight,
-                          background: "rgba(0, 0, 0, 0.04)",
-                          padding: "0.15rem 0.5rem",
-                          borderRadius: "6px",
-                          flexShrink: 0,
-                        }}
-                      >
-                        {item.category}
-                      </span>
-                    )}
-                  </li>
-                ))}
-              </ul>
-            )}
-          </div>
-        </div>
-
-        {/* ─── タイルD: Recipes（料理レシピ） ─── */}
-        <div
-          className="arca-card"
-          style={{
-            padding: "1.4rem 1.6rem 1.2rem",
-            display: "flex",
-            flexDirection: "column",
-            minHeight: "310px",
-            boxSizing: "border-box",
-            borderRadius: "20px",
-          }}
-        >
-          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: "0.9rem" }}>
-            <div style={{ display: "flex", alignItems: "center", gap: "0.45rem" }}>
-              <span style={{ fontSize: "0.85rem", fontWeight: 700, color: C.charcoal, letterSpacing: "0.02em" }}>
-                料理レシピ
-              </span>
-              <span style={{ fontSize: "0.74rem", color: C.charcoalLight }}>
-                ({activeRecipes.length})
-              </span>
-            </div>
-            <TileNavButton
-              label="レシピ"
-              onClick={() => onNavigate?.("recipes")}
-            />
-          </div>
-
-          {/* 内部スクロール */}
-          <div style={{ flex: 1, overflowY: "auto", paddingRight: "0.25rem" }}>
-            {recentRecipes.length === 0 ? (
-              <div style={{ height: "100%", display: "flex", alignItems: "center", justifyContent: "center" }}>
-                <p style={{ margin: 0, fontSize: "0.85rem", color: C.charcoalLight }}>
-                  登録されたレシピはありません
-                </p>
-              </div>
-            ) : (
-              <ul style={{ listStyle: "none", margin: 0, padding: 0, display: "flex", flexDirection: "column", gap: "0.45rem" }}>
-                {recentRecipes.map((recipe) => (
-                  <li
-                    key={recipe.id}
-                    onClick={() => onNavigate?.("recipes")}
-                    style={{
-                      padding: "0.55rem 0.65rem",
-                      borderRadius: "10px",
-                      background: "rgba(0, 0, 0, 0.015)",
-                      cursor: "pointer",
-                      transition: "background 0.15s ease",
-                      display: "flex",
-                      alignItems: "center",
-                      justifyContent: "space-between",
-                      gap: "0.5rem",
-                    }}
-                    onMouseEnter={(e) => {
-                      (e.currentTarget as HTMLLIElement).style.background = "rgba(0, 0, 0, 0.04)";
-                    }}
-                    onMouseLeave={(e) => {
-                      (e.currentTarget as HTMLLIElement).style.background = "rgba(0, 0, 0, 0.015)";
-                    }}
-                  >
-                    <div style={{ flex: 1, minWidth: 0 }}>
-                      <div style={{ display: "flex", alignItems: "center", gap: "0.35rem" }}>
-                        {recipe.favorite && (
-                          <span style={{ color: C.gold, fontSize: "0.75rem" }}>★</span>
+                      <div style={{ flex: 1, minWidth: 0 }}>
+                        <div style={{ display: "flex", alignItems: "center", gap: "0.35rem" }}>
+                          {recipe.favorite && (
+                            <span style={{ color: C.gold, fontSize: "0.75rem" }}>★</span>
+                          )}
+                          <p style={{ margin: 0, fontSize: "0.86rem", fontWeight: 600, color: C.charcoal, letterSpacing: "0.01em", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                            {recipe.title}
+                          </p>
+                        </div>
+                        {recipe.ingredients && recipe.ingredients.length > 0 && (
+                          <p style={{ margin: "0.15rem 0 0", fontSize: "0.72rem", color: C.charcoalLight, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                            {recipe.ingredients.slice(0, 3).map((i) => i.name).join(" / ")}
+                          </p>
                         )}
-                        <p style={{ margin: 0, fontSize: "0.86rem", fontWeight: 600, color: C.charcoal, letterSpacing: "0.01em", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-                          {recipe.title}
-                        </p>
                       </div>
-                      {recipe.ingredients && recipe.ingredients.length > 0 && (
-                        <p style={{ margin: "0.15rem 0 0", fontSize: "0.72rem", color: C.charcoalLight, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-                          {recipe.ingredients.slice(0, 3).map((i) => i.name).join(" / ")}
+                      {(recipe.servings || (recipe.tags && recipe.tags.length > 0)) && (
+                        <span
+                          style={{
+                            fontSize: "0.68rem",
+                            color: C.charcoalLight,
+                            background: "rgba(0, 0, 0, 0.04)",
+                            padding: "0.15rem 0.45rem",
+                            borderRadius: "6px",
+                            flexShrink: 0,
+                          }}
+                        >
+                          {recipe.servings || recipe.tags[0]}
+                        </span>
+                      )}
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </div>
+          </div>
+
+        </div>
+
+        {/* ─── 右カラム（最近のノート: 右側に広々と配置） ─── */}
+        <div style={{ display: "flex", flexDirection: "column", gap: "1.25rem" }}>
+          
+          {/* ─── タイルD: Notes（最近のノート） ─── */}
+          <div
+            className="arca-card"
+            style={{
+              padding: "1.4rem 1.6rem 1.2rem",
+              display: "flex",
+              flexDirection: "column",
+              minHeight: "520px",
+              boxSizing: "border-box",
+              borderRadius: "20px",
+            }}
+          >
+            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: "1rem" }}>
+              <div style={{ display: "flex", alignItems: "center", gap: "0.45rem" }}>
+                <span style={{ fontSize: "0.95rem", fontWeight: 700, color: C.charcoal, letterSpacing: "0.02em" }}>
+                  最近のノート
+                </span>
+                <span style={{ fontSize: "0.74rem", color: C.charcoalLight }}>
+                  ({activeNotes.length})
+                </span>
+              </div>
+              <TileNavButton
+                label="ノート"
+                onClick={() => onNavigate?.("notes")}
+              />
+            </div>
+
+            {/* 内部スクロール */}
+            <div style={{ flex: 1, overflowY: "auto", paddingRight: "0.25rem" }}>
+              {recentNotes.length === 0 ? (
+                <div style={{ height: "100%", display: "flex", alignItems: "center", justifyContent: "center", padding: "3rem 0" }}>
+                  <p style={{ margin: 0, fontSize: "0.85rem", color: C.charcoalLight }}>
+                    ノートはまだありません
+                  </p>
+                </div>
+              ) : (
+                <ul style={{ listStyle: "none", margin: 0, padding: 0, display: "flex", flexDirection: "column", gap: "0.6rem" }}>
+                  {recentNotes.map((note) => (
+                    <li
+                      key={note.id}
+                      onClick={() => {
+                        if (onSelectNote) {
+                          onSelectNote(note.id);
+                        } else if (onNavigate) {
+                          onNavigate("notes");
+                        }
+                      }}
+                      style={{
+                        padding: "0.75rem 0.85rem",
+                        borderRadius: "12px",
+                        background: "rgba(0, 0, 0, 0.015)",
+                        cursor: "pointer",
+                        transition: "background 0.15s ease",
+                      }}
+                      onMouseEnter={(e) => {
+                        (e.currentTarget as HTMLLIElement).style.background = "rgba(0, 0, 0, 0.04)";
+                      }}
+                      onMouseLeave={(e) => {
+                        (e.currentTarget as HTMLLIElement).style.background = "rgba(0, 0, 0, 0.015)";
+                      }}
+                    >
+                      <p style={{ margin: 0, fontSize: "0.92rem", fontWeight: 650, color: C.charcoal, letterSpacing: "0.01em" }}>
+                        {note.title}
+                      </p>
+                      {note.content && (
+                        <p
+                          style={{
+                            margin: "0.25rem 0 0",
+                            fontSize: "0.76rem",
+                            color: C.charcoalLight,
+                            whiteSpace: "nowrap",
+                            overflow: "hidden",
+                            textOverflow: "ellipsis",
+                            lineHeight: 1.4,
+                          }}
+                        >
+                          {note.content.slice(0, 80)}
                         </p>
                       )}
-                    </div>
-                    {(recipe.servings || (recipe.tags && recipe.tags.length > 0)) && (
-                      <span
-                        style={{
-                          fontSize: "0.68rem",
-                          color: C.charcoalLight,
-                          background: "rgba(0, 0, 0, 0.04)",
-                          padding: "0.15rem 0.45rem",
-                          borderRadius: "6px",
-                          flexShrink: 0,
-                        }}
-                      >
-                        {recipe.servings || recipe.tags[0]}
-                      </span>
-                    )}
-                  </li>
-                ))}
-              </ul>
-            )}
-          </div>
-        </div>
-
-        {/* ─── タイルE: Notes（直近のノート） ─── */}
-        <div
-          className="arca-card"
-          style={{
-            padding: "1.4rem 1.6rem 1.2rem",
-            display: "flex",
-            flexDirection: "column",
-            minHeight: "310px",
-            boxSizing: "border-box",
-            borderRadius: "20px",
-          }}
-        >
-          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: "0.9rem" }}>
-            <div style={{ display: "flex", alignItems: "center", gap: "0.45rem" }}>
-              <span style={{ fontSize: "0.85rem", fontWeight: 700, color: C.charcoal, letterSpacing: "0.02em" }}>
-                最近のノート
-              </span>
-              <span style={{ fontSize: "0.74rem", color: C.charcoalLight }}>
-                ({activeNotes.length})
-              </span>
+                    </li>
+                  ))}
+                </ul>
+              )}
             </div>
-            <TileNavButton
-              label="ノート"
-              onClick={() => onNavigate?.("notes")}
-            />
           </div>
 
-          {/* 内部スクロール */}
-          <div style={{ flex: 1, overflowY: "auto", paddingRight: "0.25rem" }}>
-            {recentNotes.length === 0 ? (
-              <div style={{ height: "100%", display: "flex", alignItems: "center", justifyContent: "center" }}>
-                <p style={{ margin: 0, fontSize: "0.85rem", color: C.charcoalLight }}>
-                  ノートはまだありません
-                </p>
-              </div>
-            ) : (
-              <ul style={{ listStyle: "none", margin: 0, padding: 0, display: "flex", flexDirection: "column", gap: "0.45rem" }}>
-                {recentNotes.map((note) => (
-                  <li
-                    key={note.id}
-                    onClick={() => {
-                      if (onSelectNote) {
-                        onSelectNote(note.id);
-                      } else if (onNavigate) {
-                        onNavigate("notes");
-                      }
-                    }}
-                    style={{
-                      padding: "0.55rem 0.65rem",
-                      borderRadius: "10px",
-                      background: "rgba(0, 0, 0, 0.015)",
-                      cursor: "pointer",
-                      transition: "background 0.15s ease",
-                    }}
-                    onMouseEnter={(e) => {
-                      (e.currentTarget as HTMLLIElement).style.background = "rgba(0, 0, 0, 0.04)";
-                    }}
-                    onMouseLeave={(e) => {
-                      (e.currentTarget as HTMLLIElement).style.background = "rgba(0, 0, 0, 0.015)";
-                    }}
-                  >
-                    <p style={{ margin: 0, fontSize: "0.86rem", fontWeight: 600, color: C.charcoal, letterSpacing: "0.01em" }}>
-                      {note.title}
-                    </p>
-                    {note.content && (
-                      <p
-                        style={{
-                          margin: "0.2rem 0 0",
-                          fontSize: "0.74rem",
-                          color: C.charcoalLight,
-                          whiteSpace: "nowrap",
-                          overflow: "hidden",
-                          textOverflow: "ellipsis",
-                        }}
-                      >
-                        {note.content.slice(0, 60)}
-                      </p>
-                    )}
-                  </li>
-                ))}
-              </ul>
-            )}
-          </div>
         </div>
 
       </div>

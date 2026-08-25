@@ -31,6 +31,8 @@ export interface BackupCounts {
   /** PM モジュール（Sprint 9） */
   pmTemplates?: number;
   pmLogs?: number;
+  /** Finance モジュール（Sprint 10） */
+  financeTransactions?: number;
 }
 
 export interface BackupData {
@@ -48,6 +50,8 @@ export interface BackupData {
     pmSettings?: Record<string, unknown>[];
     pmTemplates?: Record<string, unknown>[];
     pmLogs?: Record<string, unknown>[];
+    /** Finance モジュール（Sprint 10） */
+    financeTransactions?: Record<string, unknown>[];
   };
 }
 
@@ -150,6 +154,7 @@ export async function generateBackupData(): Promise<BackupData> {
   const [
     listsSnap, tasksSnap, eventsSnap, notesSnap, recipesSnap,
     pmSettingsSnap, pmTemplatesSnap, pmLogsSnap,
+    financeTransactionsSnap,
   ] = await Promise.all([
     getDocs(collection(db, "lists")),
     getDocs(collection(db, "tasks")),
@@ -160,6 +165,8 @@ export async function generateBackupData(): Promise<BackupData> {
     getDocs(collection(db, "pm_settings")),
     getDocs(collection(db, "pm_templates")),
     getDocs(collection(db, "pm_logs")),
+    // Finance モジュール（Sprint 10）
+    getDocs(collection(db, "finance_transactions")),
   ]);
 
   const lists = listsSnap.docs.map((d) => ({
@@ -201,6 +208,12 @@ export async function generateBackupData(): Promise<BackupData> {
     ...sanitizeDocData(d.data()),
   }));
 
+  // Finance コレクション
+  const financeTransactions = financeTransactionsSnap.docs.map((d) => ({
+    id: d.id,
+    ...sanitizeDocData(d.data()),
+  }));
+
   const counts: BackupCounts = {
     lists: lists.length,
     tasks: tasks.length,
@@ -209,6 +222,7 @@ export async function generateBackupData(): Promise<BackupData> {
     recipes: recipes.length,
     pmTemplates: pmTemplates.length,
     pmLogs: pmLogs.length,
+    financeTransactions: financeTransactions.length,
   };
 
   return {
@@ -225,6 +239,7 @@ export async function generateBackupData(): Promise<BackupData> {
       pmSettings,
       pmTemplates,
       pmLogs,
+      financeTransactions,
     },
   };
 }
@@ -435,6 +450,8 @@ export async function restoreFromJson(
   const pmSettingsData = Array.isArray(backup.data.pmSettings) ? backup.data.pmSettings : [];
   const pmTemplatesData = Array.isArray(backup.data.pmTemplates) ? backup.data.pmTemplates : [];
   const pmLogsData = Array.isArray(backup.data.pmLogs) ? backup.data.pmLogs : [];
+  // Finance コレクション（Sprint 10 以降のバックアップに含まれる）
+  const financeData = Array.isArray(backup.data.financeTransactions) ? backup.data.financeTransactions : [];
 
   // 完全上書きモードの場合は既存データを削除
   if (mode === "overwrite") {
@@ -442,6 +459,8 @@ export async function restoreFromJson(
       "lists", "tasks", "events", "notes", "recipes",
       // PM コレクション
       "pm_settings", "pm_templates", "pm_logs",
+      // Finance コレクション
+      "finance_transactions",
     ];
     for (const colName of collectionsToClear) {
       const snap = await getDocs(collection(db, colName));
@@ -490,6 +509,8 @@ export async function restoreFromJson(
     writeCollection("pm_settings", pmSettingsData),
     writeCollection("pm_templates", pmTemplatesData),
     writeCollection("pm_logs", pmLogsData),
+    // Finance コレクション
+    writeCollection("finance_transactions", financeData),
   ]);
 
   return {
@@ -502,6 +523,7 @@ export async function restoreFromJson(
       recipes: recipesData.length,
       pmTemplates: pmTemplatesData.length,
       pmLogs: pmLogsData.length,
+      financeTransactions: financeData.length,
     },
     mode,
   };

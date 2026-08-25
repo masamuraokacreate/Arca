@@ -799,10 +799,7 @@ export default function Lists({ isEmbedded = false }: ListsProps = {}) {
           />
         </div>
       ) : (
-        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: "1rem", padding: "0 0.25rem" }}>
-          <p style={{ fontSize: "0.82rem", color: C.charcoalLight, margin: 0, fontWeight: 500 }}>
-            {rawPending.length}件のアイテム
-          </p>
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "flex-end", marginBottom: "1rem", padding: "0 0.25rem" }}>
           <SyncBadge
             isReady={isReady}
             isSignedIn={isSignedIn}

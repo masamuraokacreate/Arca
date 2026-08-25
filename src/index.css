@@ -1,13 +1,17 @@
 @import "tailwindcss";
 
 @theme {
-  --color-base: #FAF8F5;
-  --color-base-ivory: #F5F0E8;
-  --color-text: #2C2C2E;
-  --color-text-mid: #5A5A57;
-  --color-text-light: #8E8E93;
-  --color-accent: #C5A059;
-  --color-accent-dark: #A8863D;
+  --color-base: var(--bg-base);
+  --color-base-ivory: var(--bg-base-tint);
+  --color-surface: var(--bg-surface);
+  --color-surface-glass: var(--bg-surface-glass);
+  --color-card: var(--bg-card);
+  --color-text: var(--text-main);
+  --color-text-mid: var(--text-mid);
+  --color-text-light: var(--text-muted);
+  --color-text-xlight: var(--text-xmuted);
+  --color-accent: var(--accent-gold);
+  --color-accent-dark: var(--accent-gold-dark);
   --color-sage: #52796F;
 }
 
@@ -16,6 +20,152 @@
   --sar: env(safe-area-inset-right, 0px);
   --sab: env(safe-area-inset-bottom, 0px);
   --sal: env(safe-area-inset-left, 0px);
+}
+
+/* ── 1. Ivory (Light / デフォルト) ── */
+:root,
+[data-theme="ivory"] {
+  --bg-base: #FAF8F5;
+  --bg-base-tint: #F5F0E8;
+  --bg-grad: linear-gradient(155deg, #FAF8F5 0%, #F5F0E8 50%, #F0EAE0 100%);
+  --bg-surface: #FFFFFF;
+  --bg-surface-glass: rgba(253, 252, 250, 0.88);
+  --bg-card: rgba(255, 255, 255, 0.72);
+  --bg-card-hover: rgba(255, 255, 255, 0.88);
+  --bg-card-solid: #FDFCFA;
+  --bg-nav-track: rgba(0, 0, 0, 0.04);
+  --bg-nav-pill: #FFFFFF;
+  
+  --color-ivory-tint: #F5F5F0;
+  --color-ivory-tint2: #EDE8DF;
+
+  --text-main: #2C2C2E;
+  --text-mid: #5A5A57;
+  --text-muted: #8E8E93;
+  --text-xmuted: #C7C7CC;
+
+  --accent-gold: #C5A059;
+  --accent-gold-dark: #A8863D;
+  --accent-gold-faint: rgba(197, 160, 89, 0.08);
+  --accent-gold-faint2: rgba(197, 160, 89, 0.14);
+  --accent-gold-faint3: rgba(197, 160, 89, 0.24);
+  --accent-gold-glow: rgba(197, 160, 89, 0.25);
+
+  --border-subtle: rgba(0, 0, 0, 0.05);
+  --shadow-card: 0 2px 16px rgba(0, 0, 0, 0.04), 0 1px 2px rgba(0, 0, 0, 0.02);
+  --shadow-card-hover: 0 6px 28px rgba(0, 0, 0, 0.07), 0 2px 6px rgba(0, 0, 0, 0.03);
+  --shadow-modal: 0 12px 48px rgba(0, 0, 0, 0.16), 0 4px 16px rgba(0, 0, 0, 0.08);
+  --shadow-briefing: 0 4px 32px rgba(197, 160, 89, 0.10), 0 1px 4px rgba(0, 0, 0, 0.02);
+  --scrollbar-thumb: rgba(0, 0, 0, 0.12);
+}
+
+/* ── 2. Deep Space (Dark) ── */
+.dark,
+[data-theme="dark"] {
+  --bg-base: #0D0E12;
+  --bg-base-tint: #14161F;
+  --bg-grad: linear-gradient(155deg, #0D0E12 0%, #13151D 50%, #171924 100%);
+  --bg-surface: #16181F;
+  --bg-surface-glass: rgba(22, 24, 31, 0.88);
+  --bg-card: rgba(26, 29, 38, 0.72);
+  --bg-card-hover: rgba(32, 35, 46, 0.88);
+  --bg-card-solid: #191B24;
+  --bg-nav-track: rgba(255, 255, 255, 0.06);
+  --bg-nav-pill: #252834;
+
+  --color-ivory-tint: #1C1E29;
+  --color-ivory-tint2: #242735;
+
+  --text-main: #F2F2F7;
+  --text-mid: #AEAEB2;
+  --text-muted: #8E8E93;
+  --text-xmuted: #636366;
+
+  --accent-gold: #D4AF37;
+  --accent-gold-dark: #E2C05E;
+  --accent-gold-faint: rgba(212, 175, 55, 0.12);
+  --accent-gold-faint2: rgba(212, 175, 55, 0.20);
+  --accent-gold-faint3: rgba(212, 175, 55, 0.32);
+  --accent-gold-glow: rgba(212, 175, 55, 0.30);
+
+  --border-subtle: rgba(255, 255, 255, 0.07);
+  --shadow-card: 0 4px 24px rgba(0, 0, 0, 0.40), 0 1px 3px rgba(0, 0, 0, 0.25);
+  --shadow-card-hover: 0 8px 36px rgba(0, 0, 0, 0.55), 0 2px 8px rgba(0, 0, 0, 0.35);
+  --shadow-modal: 0 16px 56px rgba(0, 0, 0, 0.65), 0 4px 20px rgba(0, 0, 0, 0.4);
+  --shadow-briefing: 0 4px 32px rgba(212, 175, 55, 0.15), 0 1px 4px rgba(0, 0, 0, 0.2);
+  --scrollbar-thumb: rgba(255, 255, 255, 0.16);
+}
+
+/* ── 3. Warm Sand (Warm Neutral) ── */
+[data-theme="sand"] {
+  --bg-base: #F5EFE6;
+  --bg-base-tint: #ECE3D4;
+  --bg-grad: linear-gradient(155deg, #F7F2EB 0%, #EFE7DA 50%, #E8DEC9 100%);
+  --bg-surface: #FAF6F0;
+  --bg-surface-glass: rgba(250, 246, 240, 0.88);
+  --bg-card: rgba(255, 252, 247, 0.72);
+  --bg-card-hover: rgba(255, 252, 247, 0.90);
+  --bg-card-solid: #FAF5EE;
+  --bg-nav-track: rgba(90, 60, 30, 0.05);
+  --bg-nav-pill: #FFFFFF;
+
+  --color-ivory-tint: #EFE8DC;
+  --color-ivory-tint2: #E5DCCE;
+
+  --text-main: #332B24;
+  --text-mid: #665A4F;
+  --text-muted: #998A7D;
+  --text-xmuted: #CCBEB0;
+
+  --accent-gold: #C49746;
+  --accent-gold-dark: #A37930;
+  --accent-gold-faint: rgba(196, 151, 70, 0.09);
+  --accent-gold-faint2: rgba(196, 151, 70, 0.16);
+  --accent-gold-faint3: rgba(196, 151, 70, 0.26);
+  --accent-gold-glow: rgba(196, 151, 70, 0.25);
+
+  --border-subtle: rgba(80, 50, 20, 0.05);
+  --shadow-card: 0 2px 16px rgba(80, 50, 20, 0.04), 0 1px 2px rgba(80, 50, 20, 0.02);
+  --shadow-card-hover: 0 6px 28px rgba(80, 50, 20, 0.07), 0 2px 6px rgba(80, 50, 20, 0.03);
+  --shadow-modal: 0 12px 48px rgba(80, 50, 20, 0.16), 0 4px 16px rgba(80, 50, 20, 0.08);
+  --shadow-briefing: 0 4px 32px rgba(196, 151, 70, 0.10), 0 1px 4px rgba(80, 50, 20, 0.02);
+  --scrollbar-thumb: rgba(90, 60, 30, 0.14);
+}
+
+/* ── 4. Midnight Sage (Forest Dark) ── */
+[data-theme="sage"] {
+  --bg-base: #101715;
+  --bg-base-tint: #17211E;
+  --bg-grad: linear-gradient(155deg, #101715 0%, #15201C 50%, #1A2823 100%);
+  --bg-surface: #182420;
+  --bg-surface-glass: rgba(24, 36, 32, 0.88);
+  --bg-card: rgba(28, 42, 37, 0.72);
+  --bg-card-hover: rgba(34, 52, 46, 0.88);
+  --bg-card-solid: #1C2B26;
+  --bg-nav-track: rgba(255, 255, 255, 0.06);
+  --bg-nav-pill: #253832;
+
+  --color-ivory-tint: #1C2925;
+  --color-ivory-tint2: #243530;
+
+  --text-main: #EDF4F1;
+  --text-mid: #A8BCB5;
+  --text-muted: #7D948D;
+  --text-xmuted: #51635D;
+
+  --accent-gold: #D8B763;
+  --accent-gold-dark: #ECCB7B;
+  --accent-gold-faint: rgba(216, 183, 99, 0.12);
+  --accent-gold-faint2: rgba(216, 183, 99, 0.20);
+  --accent-gold-faint3: rgba(216, 183, 99, 0.32);
+  --accent-gold-glow: rgba(216, 183, 99, 0.30);
+
+  --border-subtle: rgba(255, 255, 255, 0.07);
+  --shadow-card: 0 4px 24px rgba(0, 0, 0, 0.40), 0 1px 3px rgba(0, 0, 0, 0.25);
+  --shadow-card-hover: 0 8px 36px rgba(0, 0, 0, 0.55), 0 2px 8px rgba(0, 0, 0, 0.35);
+  --shadow-modal: 0 16px 56px rgba(0, 0, 0, 0.65), 0 4px 20px rgba(0, 0, 0, 0.4);
+  --shadow-briefing: 0 4px 32px rgba(216, 183, 99, 0.15), 0 1px 4px rgba(0, 0, 0, 0.2);
+  --scrollbar-thumb: rgba(255, 255, 255, 0.16);
 }
 
 @layer base {
@@ -27,19 +177,20 @@
     margin: 0;
     padding: 0;
     min-height: 100vh;
-    background-color: var(--color-base);
-    background-image: linear-gradient(155deg, #FAF8F5 0%, #F5F0E8 50%, #F0EAE0 100%);
+    background-color: var(--bg-base);
+    background-image: var(--bg-grad);
     background-attachment: fixed;
-    color: var(--color-text);
+    color: var(--text-main);
     font-family: "Noto Sans JP", "Noto Sans", -apple-system, BlinkMacSystemFont, "SF Pro Text", "Hiragino Sans", "Hiragino Kaku Gothic ProN", "Segoe UI", sans-serif;
     -webkit-font-smoothing: antialiased;
     -moz-osx-font-smoothing: grayscale;
     text-rendering: optimizeLegibility;
+    transition: background 0.25s ease, color 0.25s ease;
   }
 
   /* ── Apple HIG: キーボードフォーカスリング ── */
   :focus-visible {
-    outline: 2px solid var(--color-accent);
+    outline: 2px solid var(--accent-gold);
     outline-offset: 2px;
   }
 
@@ -52,11 +203,11 @@
     background: transparent;
   }
   ::-webkit-scrollbar-thumb {
-    background: rgba(0, 0, 0, 0.12);
+    background: var(--scrollbar-thumb);
     border-radius: 9999px;
   }
   ::-webkit-scrollbar-thumb:hover {
-    background: rgba(197, 160, 89, 0.4);
+    background: var(--accent-gold);
   }
 }
 
@@ -74,19 +225,19 @@
 
 /* ── 共通カードスタイル（枠線完全排除・浮遊感） ── */
 .arca-card {
-  background: rgba(255, 255, 255, 0.72);
+  background: var(--bg-card);
   backdrop-filter: blur(16px) saturate(180%);
   -webkit-backdrop-filter: blur(16px) saturate(180%);
   border-radius: 20px;
-  box-shadow: 0 2px 16px rgba(0, 0, 0, 0.04), 0 1px 2px rgba(0, 0, 0, 0.02);
+  box-shadow: var(--shadow-card);
   border: none !important;
   transition: transform 0.22s ease, box-shadow 0.22s ease, background 0.22s ease;
 }
 
 .arca-card-interactive:hover {
   transform: translateY(-2px);
-  box-shadow: 0 6px 28px rgba(0, 0, 0, 0.07), 0 2px 6px rgba(0, 0, 0, 0.03);
-  background: rgba(255, 255, 255, 0.88);
+  box-shadow: var(--shadow-card-hover);
+  background: var(--bg-card-hover);
 }
 
 .arca-card-interactive:active {
@@ -95,11 +246,11 @@
 
 /* ── Aether Briefing カード ── */
 .arca-briefing-card {
-  background: rgba(197, 160, 89, 0.045);
+  background: var(--accent-gold-faint);
   backdrop-filter: blur(20px) saturate(160%);
   -webkit-backdrop-filter: blur(20px) saturate(160%);
   border-radius: 20px;
-  box-shadow: 0 4px 32px rgba(197, 160, 89, 0.10), 0 1px 4px rgba(0, 0, 0, 0.02);
+  box-shadow: var(--shadow-briefing);
   border: none !important;
 }
 
@@ -198,10 +349,10 @@
   z-index: 50;
   width: 100%;
   height: 48px;
-  background: rgba(253, 252, 250, 0.88);
+  background: var(--bg-surface-glass);
   backdrop-filter: blur(16px) saturate(180%);
   -webkit-backdrop-filter: blur(16px) saturate(180%);
-  box-shadow: 0 1px 0 rgba(0, 0, 0, 0.05);
+  box-shadow: 0 1px 0 var(--border-subtle);
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -237,15 +388,15 @@
   user-select: none;
   height: 32px;
   padding: 0 0.75rem;
-  color: #5A5A57;
+  color: var(--text-mid);
   background: transparent;
   text-decoration: none;
   line-height: 1;
   box-sizing: border-box;
 }
 .arca-tb-btn:hover {
-  color: #2C2C2E;
-  background: rgba(0, 0, 0, 0.04);
+  color: var(--text-main);
+  background: var(--bg-nav-track);
 }
 .arca-tb-btn:active {
   transform: scale(0.97);
@@ -262,8 +413,8 @@
 
 /* アクティブボタン */
 .arca-tb-btn.active {
-  color: #C5A059;
-  background: rgba(197, 160, 89, 0.12);
+  color: var(--accent-gold-dark);
+  background: var(--accent-gold-faint2);
   font-weight: 600;
 }
 
@@ -271,7 +422,7 @@
 .arca-segment-control {
   display: inline-flex;
   align-items: center;
-  background: rgba(0, 0, 0, 0.05);
+  background: var(--bg-nav-track);
   padding: 2px;
   border-radius: 9px;
   flex-shrink: 0;
@@ -289,7 +440,7 @@
   font-family: inherit;
   font-size: 0.78rem;
   font-weight: 500;
-  color: #8E8E93;
+  color: var(--text-muted);
   background: transparent;
   transition: all 0.15s ease;
   user-select: none;
@@ -297,8 +448,8 @@
   flex-shrink: 0;
 }
 .arca-segment-btn.active {
-  background: #FFFFFF;
-  color: #2C2C2E;
+  background: var(--bg-surface);
+  color: var(--text-main);
   font-weight: 600;
   box-shadow: 0 1px 3px rgba(0, 0, 0, 0.08), 0 0 1px rgba(0, 0, 0, 0.04);
 }
@@ -307,7 +458,7 @@
 .arca-tb-divider {
   width: 1px;
   height: 18px;
-  background: rgba(0, 0, 0, 0.08);
+  background: var(--border-subtle);
   flex-shrink: 0;
   margin: 0 0.15rem;
 }

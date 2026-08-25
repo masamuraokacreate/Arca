@@ -27,11 +27,10 @@ describe("Dashboard コンポーネント", () => {
     expect(screen.queryByText("タスク一覧")).not.toBeInTheDocument();
 
     // 各ボタンが存在すること
-    expect(screen.getByRole("button", { name: /カレンダー/i })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: /タスク/i })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: /買い物リスト/i })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: /レシピ/i })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: /ノート/i })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "カレンダー" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "タスク" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "レシピ" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "ノート" })).toBeInTheDocument();
   });
 
   it("各タイルのヘッダーボタンクリック時に onNavigate が正しく呼び出されること", async () => {
@@ -41,23 +40,25 @@ describe("Dashboard コンポーネント", () => {
     render(<Dashboard onNavigate={handleNavigate} />);
 
     // カレンダーボタン
-    await user.click(screen.getByRole("button", { name: /カレンダー/i }));
+    await user.click(screen.getByRole("button", { name: "カレンダー" }));
     expect(handleNavigate).toHaveBeenCalledWith("calendar");
 
     // タスクボタン
-    await user.click(screen.getByRole("button", { name: /タスク/i }));
+    await user.click(screen.getByRole("button", { name: "タスク" }));
     expect(handleNavigate).toHaveBeenCalledWith("tasks");
 
-    // 買い物リストボタン
-    await user.click(screen.getByRole("button", { name: /買い物リスト/i }));
+    // 買い物タブに切り替えてから買い物リストボタンをクリック
+    const shoppingTab = screen.getByRole("button", { name: /買い物 \(/ });
+    await user.click(shoppingTab);
+    await user.click(screen.getByRole("button", { name: "買い物リスト" }));
     expect(handleNavigate).toHaveBeenCalledWith("lists");
 
     // レシピボタン
-    await user.click(screen.getByRole("button", { name: /レシピ/i }));
+    await user.click(screen.getByRole("button", { name: "レシピ" }));
     expect(handleNavigate).toHaveBeenCalledWith("recipes");
 
     // ノートボタン
-    await user.click(screen.getByRole("button", { name: /ノート/i }));
+    await user.click(screen.getByRole("button", { name: "ノート" }));
     expect(handleNavigate).toHaveBeenCalledWith("notes");
   });
 
@@ -183,5 +184,43 @@ describe("Dashboard コンポーネント", () => {
     render(<Dashboard />);
     expect(screen.getByText("濃厚カルボナーラ")).toBeInTheDocument();
     expect(screen.getByText("料理レシピ")).toBeInTheDocument();
+  });
+
+  it("isShiftOnly な予定（出勤予定カレンダー由来）は今日の予定タイルに表示されないこと", () => {
+    (onSnapshot as Mock).mockImplementation((q: any, callback: (snap: unknown) => void) => {
+      const isEventsQuery = q?._query?.path?.segments?.includes("events") || JSON.stringify(q || {}).includes("events");
+
+      if (isEventsQuery) {
+        callback({
+          docs: [
+            {
+              id: "event-regular",
+              data: () => ({
+                title: "ミーティング",
+                date: new Date().toISOString().slice(0, 10),
+                startTime: "10:00",
+                isShiftOnly: false,
+              }),
+            },
+            {
+              id: "event-shift-only",
+              data: () => ({
+                title: "遅番(15時)",
+                date: new Date().toISOString().slice(0, 10),
+                startTime: "15:00",
+                isShiftOnly: true,
+              }),
+            },
+          ],
+        });
+      } else {
+        callback({ docs: [] });
+      }
+      return vi.fn();
+    });
+
+    render(<Dashboard />);
+    expect(screen.getByText("ミーティング")).toBeInTheDocument();
+    expect(screen.queryByText("遅番(15時)")).not.toBeInTheDocument();
   });
 });

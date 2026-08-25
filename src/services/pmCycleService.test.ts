@@ -320,11 +320,11 @@ describe("detectAnchorFromEvents — シフト自動検出", () => {
     // 1回目の連勤: 8/10〜8/11, 2回目の連勤: 8/20〜8/22
     // referenceDate=8/25 → 8/20 が起点
     const events = [
-      makeEvent("勤務", "2026-08-10"),
-      makeEvent("勤務", "2026-08-11"),
-      makeEvent("勤務", "2026-08-20"),
-      makeEvent("勤務", "2026-08-21"),
-      makeEvent("勤務", "2026-08-22"),
+      makeEvent("早番(8時)", "2026-08-10"),
+      makeEvent("遅番(12時)", "2026-08-11"),
+      makeEvent("早番(8時)", "2026-08-20"),
+      makeEvent("日勤(8時半)", "2026-08-21"),
+      makeEvent("遅番(12時)", "2026-08-22"),
     ];
     const result = detectAnchorFromEvents(events, "2026-08-25");
     expect(result?.anchorDate).toBe("2026-08-20");
@@ -332,21 +332,21 @@ describe("detectAnchorFromEvents — シフト自動検出", () => {
 
   it("referenceDate より未来の勤務予定は無視される", () => {
     const events = [
-      makeEvent("日勤", "2026-08-20"),
-      makeEvent("日勤", "2026-09-01"), // 未来
+      makeEvent("日勤(8時半)", "2026-08-20"),
+      makeEvent("日勤(8時半)", "2026-09-01"), // 未来
     ];
     const result = detectAnchorFromEvents(events, "2026-08-25");
     expect(result?.anchorDate).toBe("2026-08-20");
   });
 
   it("referenceDate と同日の勤務予定は含まれる", () => {
-    const events = [makeEvent("勤務", "2026-08-25")];
+    const events = [makeEvent("早番(8時)", "2026-08-25")];
     const result = detectAnchorFromEvents(events, "2026-08-25");
     expect(result?.anchorDate).toBe("2026-08-25");
   });
 
-  it("様々な勤務キーワードを認識する", () => {
-    const keywords = ["仕事", "早番", "遅番", "勤務", "日勤", "当直", "夜勤", "出勤", "シフト"];
+  it("「早番」「遅番」「日勤」を含むフォーマットを認識する", () => {
+    const keywords = ["早番(8時)", "早番（9:00）", "遅番(12時)", "遅番（13:30）", "日勤(8時半)", "日勤（8:30）", "早番", "遅番", "日勤"];
     for (const kw of keywords) {
       const events = [makeEvent(kw, "2026-01-15")];
       const result = detectAnchorFromEvents(events, "2026-01-20");
@@ -355,25 +355,18 @@ describe("detectAnchorFromEvents — シフト自動検出", () => {
     }
   });
 
-  it("キーワードが大文字・混在でも認識する（大文字小文字無視）", () => {
-    // 英字混じりタイトル
-    const events = [makeEvent("Day勤務shift", "2026-01-15")];
-    const result = detectAnchorFromEvents(events, "2026-01-20");
-    expect(result?.anchorDate).toBe("2026-01-15");
-  });
-
   it("matchedEventTitle に一致したイベントのタイトルが入る", () => {
-    const events = [makeEvent("夜勤 A病院", "2026-08-20")];
+    const events = [makeEvent("早番(8時)", "2026-08-20")];
     const result = detectAnchorFromEvents(events, "2026-08-25");
-    expect(result?.matchedEventTitle).toBe("夜勤 A病院");
+    expect(result?.matchedEventTitle).toBe("早番(8時)");
   });
 
   it("WORK_SHIFT_KEYWORDS 正規表現が期待通りマッチする", () => {
-    const validTitles = ["仕事終わり", "早番入り", "遅番シフト", "日勤", "当直明け", "夜勤終了", "出勤準備", "シフト確認"];
+    const validTitles = ["早番(8時)", "早番（9:00）", "遅番(12時)", "日勤(8時半)", "日勤", "早番", "遅番"];
     for (const title of validTitles) {
       expect(WORK_SHIFT_KEYWORDS.test(title)).toBe(true);
     }
-    const invalidTitles = ["誕生日", "歯科検診", "映画", "休日外出"];
+    const invalidTitles = ["誕生日", "歯科検診", "映画", "休日外出", "仕事の打ち合わせ", "シフト確認", "ミーティング", "出張"];
     for (const title of invalidTitles) {
       expect(WORK_SHIFT_KEYWORDS.test(title)).toBe(false);
     }
@@ -617,13 +610,13 @@ describe("resolveDateShiftInfo & getActivePMTasksForDate (Sprint 9 改修)", () 
 
   it("Googleカレンダーの「出勤予定」というタイトルから出勤日と連続日数を高精度に自動判定する", () => {
     const events: CalendarEvent[] = [
-      { id: "e1", title: "出勤予定", date: "2026-08-25", startTime: "09:00", endTime: "18:00", note: "", createdAt: null },
-      { id: "e2", title: "出勤予定", date: "2026-08-26", startTime: "09:00", endTime: "18:00", note: "", createdAt: null },
+      { id: "e1", title: "早番(8時)", date: "2026-08-25", startTime: "08:00", endTime: "17:00", note: "", createdAt: null },
+      { id: "e2", title: "遅番(12時)", date: "2026-08-26", startTime: "12:00", endTime: "21:00", note: "", createdAt: null },
     ];
     const shiftDay1 = resolveShiftInfo("2026-08-25", events);
     expect(shiftDay1.type).toBe("work");
     expect(shiftDay1.streakNumber).toBe(1);
-    expect(shiftDay1.shiftName).toBe("出勤予定");
+    expect(shiftDay1.shiftName).toBe("早番(8時)");
 
     const shiftDay2 = resolveShiftInfo("2026-08-26", events);
     expect(shiftDay2.type).toBe("work");
@@ -632,7 +625,7 @@ describe("resolveDateShiftInfo & getActivePMTasksForDate (Sprint 9 改修)", () 
 
   it("一昨日が出勤で昨日・今日が休みの場合、今日が自動的に「休日 2日目」と判定される", () => {
     const events: CalendarEvent[] = [
-      { id: "e1", title: "日勤", date: "2026-08-23", startTime: "09:00", endTime: "18:00", note: "", createdAt: null },
+      { id: "e1", title: "日勤(8時半)", date: "2026-08-23", startTime: "08:30", endTime: "17:30", note: "", createdAt: null },
     ];
     // 8月24日: 休日1日目
     const shiftAug24 = resolveShiftInfo("2026-08-24", events);
@@ -665,16 +658,16 @@ describe("resolveDateShiftInfo & getActivePMTasksForDate (Sprint 9 改修)", () 
 
   it("3日連続出勤 ➔ 3日連続休日のシフト遷移が全日で完全に算出される", () => {
     const events: CalendarEvent[] = [
-      { id: "e1", title: "日勤", date: "2026-08-20", startTime: "09:00", endTime: "18:00", note: "", createdAt: null },
-      { id: "e2", title: "日勤", date: "2026-08-21", startTime: "09:00", endTime: "18:00", note: "", createdAt: null },
-      { id: "e3", title: "夜勤", date: "2026-08-22", startTime: "17:00", endTime: "09:00", note: "", createdAt: null },
+      { id: "e1", title: "早番(8時)", date: "2026-08-20", startTime: "08:00", endTime: "17:00", note: "", createdAt: null },
+      { id: "e2", title: "日勤(8時半)", date: "2026-08-21", startTime: "08:30", endTime: "17:30", note: "", createdAt: null },
+      { id: "e3", title: "遅番(12時)", date: "2026-08-22", startTime: "12:00", endTime: "21:00", note: "", createdAt: null },
     ];
 
     // 出勤期間
     const d1 = resolveShiftInfo("2026-08-20", events);
     expect(d1.type).toBe("work");
     expect(d1.streakNumber).toBe(1);
-    expect(d1.shiftName).toBe("日勤");
+    expect(d1.shiftName).toBe("早番(8時)");
 
     const d2 = resolveShiftInfo("2026-08-21", events);
     expect(d2.type).toBe("work");
@@ -683,7 +676,7 @@ describe("resolveDateShiftInfo & getActivePMTasksForDate (Sprint 9 改修)", () 
     const d3 = resolveShiftInfo("2026-08-22", events);
     expect(d3.type).toBe("work");
     expect(d3.streakNumber).toBe(3);
-    expect(d3.shiftName).toBe("夜勤");
+    expect(d3.shiftName).toBe("遅番(12時)");
 
     // 休日期間（予定なし）
     const h1 = resolveShiftInfo("2026-08-23", events);

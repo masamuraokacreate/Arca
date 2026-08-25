@@ -34,8 +34,8 @@ import type { CalendarEvent } from "../types";
 /** デフォルトサイクル長（日数） */
 export const DEFAULT_CYCLE_LENGTH = 6;
 
-/** 勤務系キーワード正規表現（シフト自動検出に使用: 出勤予定、仕事、日勤、シフト等） */
-export const WORK_SHIFT_KEYWORDS = /仕事|出勤|勤務|日勤|早番|遅番|当直|夜勤|シフト|work|shift/i;
+/** 勤務系キーワード正規表現（「早番(○時)」「遅番(○時)」「日勤(○時半)」などのフォーマットのみを出勤日として検出） */
+export const WORK_SHIFT_KEYWORDS = /早番|遅番|日勤/;
 
 /** 休日系キーワード正規表現（公休、休み、有休、休暇等） */
 export const HOLIDAY_KEYWORDS = /公休|休み|休養|有休|有給|休暇|特休|振休|代休|off|holiday/i;

@@ -19,7 +19,19 @@ import {
 import { db } from "../lib/firebase";
 import type { CalendarEvent } from "../types";
 
+const CALENDAR_API_ROOT = "https://www.googleapis.com/calendar/v3";
 const CALENDAR_BASE_URL = "https://www.googleapis.com/calendar/v3/calendars/primary";
+
+export interface GoogleCalendarListItem {
+  id: string;
+  summary: string;
+  primary?: boolean;
+  description?: string;
+}
+
+export interface GoogleCalendarListResponse {
+  items?: GoogleCalendarListItem[];
+}
 
 export interface GoogleCalendarApiEvent {
   id: string;
@@ -46,10 +58,10 @@ export interface GoogleCalendarEventsResponse {
 /** 共通の認証付き Google Calendar API フェッチ関数 */
 async function calendarFetch<T>(
   token: string,
-  path: string,
+  urlOrPath: string,
   options?: RequestInit
 ): Promise<T> {
-  const url = `${CALENDAR_BASE_URL}${path}`;
+  const url = urlOrPath.startsWith("http") ? urlOrPath : `${CALENDAR_BASE_URL}${urlOrPath}`;
   const res = await fetch(url, {
     ...options,
     headers: {
@@ -149,10 +161,29 @@ export function formatToGoogleEventBody(event: {
 }
 
 /**
- * マイカレンダー ('primary') から指定期間（デフォルト: 過去1ヶ月〜未来3ヶ月）のイベントを取得する
+ * ユーザーのカレンダー一覧を取得する
  */
-export async function fetchPrimaryCalendarEvents(
+export async function fetchUserCalendarList(
+  token: string
+): Promise<GoogleCalendarListItem[]> {
+  try {
+    const data = await calendarFetch<GoogleCalendarListResponse>(
+      token,
+      `${CALENDAR_API_ROOT}/users/me/calendarList`
+    );
+    return data.items || [];
+  } catch (err) {
+    console.warn("fetchUserCalendarList failed, fallback to primary:", err);
+    return [{ id: "primary", summary: "Primary", primary: true }];
+  }
+}
+
+/**
+ * 指定したカレンダー ID からイベントを取得する
+ */
+export async function fetchEventsFromCalendar(
   token: string,
+  calendarId: string,
   timeMin?: string,
   timeMax?: string
 ): Promise<GoogleCalendarApiEvent[]> {
@@ -173,12 +204,23 @@ export async function fetchPrimaryCalendarEvents(
 
   const data = await calendarFetch<GoogleCalendarEventsResponse>(
     token,
-    `/events?${params.toString()}`
+    `${CALENDAR_API_ROOT}/calendars/${encodeURIComponent(calendarId)}/events?${params.toString()}`
   );
 
   return (data.items || []).filter(
     (item) => item.status !== "cancelled" && item.id
   );
+}
+
+/**
+ * マイカレンダー ('primary') から指定期間のイベントを取得する（後方互換対応）
+ */
+export async function fetchPrimaryCalendarEvents(
+  token: string,
+  timeMin?: string,
+  timeMax?: string
+): Promise<GoogleCalendarApiEvent[]> {
+  return fetchEventsFromCalendar(token, "primary", timeMin, timeMax);
 }
 
 /**
@@ -249,11 +291,11 @@ let isCalendarSyncInProgress = false;
 /**
  * Google カレンダーから Arca (Firestore) への双方向 Upsert 同期
  * 
- * 1) Google側から直近の予定を取得
- * 2) 既存の Arca 予定（Firestoreから直接最新取得、または引数の配列）と照合
- * 3) googleEventId 一致 ➔ 差分があれば更新 (Update)
- * 4) 同一タイトル・同一日時の未紐付け予定 ➔ googleEventId を紐付け
- * 5) 未存在 ➔ 新規追加 (Insert)
+ * 1) ユーザーのカレンダー一覧を取得（プライマリ ＆ 「出勤予定」別カレンダー）
+ * 2) 各カレンダーから直近の予定を取得
+ *    - プライマリ: isShiftOnly = false（通常の予定としてカレンダーに表示）
+ *    - 「出勤予定」別カレンダー: isShiftOnly = true（シフト計算専用、カレンダー非表示）
+ * 3) 既存の Arca 予定と照合して Upsert (Insert / Update)
  */
 export async function syncGoogleCalendarToArca(
   token: string,
@@ -265,11 +307,45 @@ export async function syncGoogleCalendarToArca(
   isCalendarSyncInProgress = true;
 
   try {
-    const gEvents = await fetchPrimaryCalendarEvents(token);
+    // 1. カレンダー一覧の取得
+    const calendarList = await fetchUserCalendarList(token);
+
+    // プライマリカレンダーの特定
+    const primaryCal = calendarList.find((c) => c.primary) || { id: "primary", summary: "Primary" };
+
+    // 「出勤予定」別カレンダーの特定（タイトルが「出勤予定」「出勤」「シフト」などに一致するサブカレンダー）
+    const shiftCal = calendarList.find(
+      (c) =>
+        !c.primary &&
+        (c.summary === "出勤予定" || /出勤|シフト/i.test(c.summary))
+    );
+
+    // 2. 対象カレンダーからイベント取得
+    const fetchTargets: Array<{ id: string; isShiftOnly: boolean }> = [
+      { id: primaryCal.id || "primary", isShiftOnly: false },
+    ];
+
+    if (shiftCal && shiftCal.id !== primaryCal.id) {
+      fetchTargets.push({ id: shiftCal.id, isShiftOnly: true });
+    }
+
+    const fetchedEventsWithFlag: Array<{ event: GoogleCalendarApiEvent; isShiftOnly: boolean }> = [];
+
+    for (const target of fetchTargets) {
+      try {
+        const events = await fetchEventsFromCalendar(token, target.id);
+        for (const e of events) {
+          fetchedEventsWithFlag.push({ event: e, isShiftOnly: target.isShiftOnly });
+        }
+      } catch (err) {
+        console.warn(`Failed to fetch events from calendar ${target.id}:`, err);
+      }
+    }
+
     let added = 0;
     let updated = 0;
 
-    // 冪等性担保: 引数が空配列または未指定の場合は Firestore を直接参照
+    // 3. 既存の Arca 予定の取得
     let existingEvents: CalendarEvent[] = [];
     if (providedExistingEvents && providedExistingEvents.length > 0) {
       existingEvents = [...providedExistingEvents];
@@ -290,7 +366,11 @@ export async function syncGoogleCalendarToArca(
       }
     }
 
-    for (const gEvent of gEvents) {
+    // 4. Upsert 処理
+    for (const item of fetchedEventsWithFlag) {
+      const gEvent = item.event;
+      const isShiftOnly = item.isShiftOnly;
+
       const { date, startTime, endTime } = parseGoogleEventDateTime(
         gEvent.start,
         gEvent.end
@@ -309,7 +389,8 @@ export async function syncGoogleCalendarToArca(
           matchById.date !== date ||
           (matchById.startTime || "") !== startTime ||
           (matchById.endTime || "") !== endTime ||
-          (matchById.note || "").trim() !== note;
+          (matchById.note || "").trim() !== note ||
+          matchById.isShiftOnly !== isShiftOnly;
 
         if (hasDiff) {
           await updateDoc(doc(db, "events", matchById.id), {
@@ -318,12 +399,14 @@ export async function syncGoogleCalendarToArca(
             startTime,
             endTime,
             note,
+            isShiftOnly,
           });
           matchById.title = title;
           matchById.date = date;
           matchById.startTime = startTime;
           matchById.endTime = endTime;
           matchById.note = note;
+          matchById.isShiftOnly = isShiftOnly;
           updated++;
         }
         continue;
@@ -343,8 +426,10 @@ export async function syncGoogleCalendarToArca(
           startTime: startTime || matchByTitleAndDate.startTime || "",
           endTime: endTime || matchByTitleAndDate.endTime || "",
           note: note || matchByTitleAndDate.note || "",
+          isShiftOnly,
         });
         matchByTitleAndDate.googleEventId = gEvent.id;
+        matchByTitleAndDate.isShiftOnly = isShiftOnly;
         updated++;
         continue;
       }
@@ -357,6 +442,7 @@ export async function syncGoogleCalendarToArca(
         endTime,
         note,
         googleEventId: gEvent.id,
+        isShiftOnly,
         createdAt: serverTimestamp(),
       });
       existingEvents.push({
@@ -367,6 +453,7 @@ export async function syncGoogleCalendarToArca(
         endTime,
         note,
         googleEventId: gEvent.id,
+        isShiftOnly,
         createdAt: null,
       });
       added++;

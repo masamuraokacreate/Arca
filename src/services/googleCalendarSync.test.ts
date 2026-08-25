@@ -276,5 +276,76 @@ describe("googleCalendarSync", () => {
       expect((addDoc as Mock).mock.calls[0][1].title).toBe("完全新規の予定");
       expect((addDoc as Mock).mock.calls[0][1].googleEventId).toBe("g3");
     });
+
+    it("「出勤予定」別カレンダーの予定は isShiftOnly: true として同期される", async () => {
+      // 1) calendarList リクエスト ➔ primary と 出勤予定 カレンダーを返す
+      // 2) 各カレンダーの events リクエスト ➔ それぞれの予定を返す
+      globalThis.fetch = vi.fn().mockImplementation(async (url: string) => {
+        if (url.includes("/calendarList")) {
+          return {
+            ok: true,
+            status: 200,
+            text: async () =>
+              JSON.stringify({
+                items: [
+                  { id: "primary", summary: "マイカレンダー", primary: true },
+                  { id: "shift-cal-id", summary: "出勤予定", primary: false },
+                ],
+              }),
+          };
+        }
+        if (url.includes("/calendars/shift-cal-id/events")) {
+          return {
+            ok: true,
+            status: 200,
+            text: async () =>
+              JSON.stringify({
+                items: [
+                  {
+                    id: "shift-event-1",
+                    summary: "遅番(15時)",
+                    start: { date: "2026-08-23" },
+                    end: { date: "2026-08-23" },
+                    status: "confirmed",
+                  },
+                ],
+              }),
+          };
+        }
+        // primary events
+        return {
+          ok: true,
+          status: 200,
+          text: async () =>
+            JSON.stringify({
+              items: [
+                {
+                  id: "main-event-1",
+                  summary: "友達とランチ",
+                  start: { date: "2026-08-24" },
+                  end: { date: "2026-08-24" },
+                  status: "confirmed",
+                },
+              ],
+            }),
+        };
+      });
+
+      const existingEvents: CalendarEvent[] = [];
+      const result = await syncGoogleCalendarToArca("test-token", existingEvents);
+
+      expect(result.added).toBe(2);
+      expect(addDoc).toHaveBeenCalledTimes(2);
+
+      // プライマリ予定は isShiftOnly: false
+      const addedCalls = (addDoc as Mock).mock.calls;
+      const mainCall = addedCalls.find((c) => c[1].googleEventId === "main-event-1");
+      expect(mainCall?.[1].isShiftOnly).toBe(false);
+
+      // 出勤予定カレンダーの予定は isShiftOnly: true
+      const shiftCall = addedCalls.find((c) => c[1].googleEventId === "shift-event-1");
+      expect(shiftCall?.[1].isShiftOnly).toBe(true);
+      expect(shiftCall?.[1].title).toBe("遅番(15時)");
+    });
   });
 });

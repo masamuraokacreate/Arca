@@ -939,11 +939,6 @@ export default function Tasks({ initialTab = "tasks" }: TasksProps = {}) {
           <h1 style={{ fontSize: "1.75rem", fontWeight: 750, color: C.charcoal, margin: "0.15rem 0 0", letterSpacing: "-0.03em" }}>
             {activeTab === "tasks" ? "タスク" : "買い物リスト"}
           </h1>
-          {activeTab === "tasks" && (
-            <p style={{ fontSize: "0.78rem", color: C.charcoalLight, margin: "0.3rem 0 0", letterSpacing: "0.01em" }}>
-              {pending.length}件の未完了タスク
-            </p>
-          )}
         </div>
 
         {activeTab === "tasks" && (
@@ -957,8 +952,9 @@ export default function Tasks({ initialTab = "tasks" }: TasksProps = {}) {
         )}
       </div>
 
-      {/* ─── サブタブ（小タブ切り替え: [ タスク | 買い物リスト ]） ─── */}
-      <div style={{ marginBottom: "1.8rem", padding: "0 0.25rem" }}>
+      {/* ─── サブタブ & 新規作成ボタン（一体化バー） ─── */}
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: "1.8rem", padding: "0 0.25rem", gap: "0.5rem" }}>
+        {/* 小タブ切り替え: [ ✦ タスク | 🛒 買い物リスト ] */}
         <div
           style={{
             display: "inline-flex",
@@ -1006,6 +1002,42 @@ export default function Tasks({ initialTab = "tasks" }: TasksProps = {}) {
             🛒 買い物リスト
           </button>
         </div>
+
+        {/* 右端に一体化した新規作成ボタン */}
+        {activeTab === "tasks" && (
+          <button
+            type="button"
+            onClick={() => {
+              inputRef.current?.focus();
+            }}
+            style={{
+              display: "inline-flex",
+              alignItems: "center",
+              gap: "0.28rem",
+              background: C.gold,
+              color: "#FDFCFA",
+              border: "none",
+              borderRadius: "9999px",
+              padding: "0.35rem 0.85rem",
+              fontSize: "0.76rem",
+              fontWeight: 650,
+              cursor: "pointer",
+              boxShadow: "0 1px 4px rgba(197, 160, 89, 0.3)",
+              transition: "all 0.15s ease",
+              whiteSpace: "nowrap",
+              userSelect: "none",
+            }}
+            onMouseEnter={(e) => {
+              (e.currentTarget as HTMLButtonElement).style.opacity = "0.9";
+            }}
+            onMouseLeave={(e) => {
+              (e.currentTarget as HTMLButtonElement).style.opacity = "1";
+            }}
+          >
+            <span style={{ fontSize: "0.95rem", lineHeight: 1 }}>＋</span>
+            <span>新規タスク</span>
+          </button>
+        )}
       </div>
 
       {/* ─── 買い物リスト 小タブ表示 ─── */}

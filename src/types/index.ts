@@ -73,6 +73,8 @@ export interface CalendarEvent {
   endTime: string;
   note: string;
   googleEventId?: string;
+  /** 出勤計算専用予定（カレンダー画面やダッシュボード予定一覧には非表示） */
+  isShiftOnly?: boolean;
   createdAt: Timestamp | null;
 }
 
@@ -141,3 +143,9 @@ export * from "./recipe";
 // PM（予防保全・勤務周期管理）モジュール
 // ─────────────────────────────────────────
 export * from "./pm";
+
+// ─────────────────────────────────────────
+// Finance（家計・支出管理）モジュール（Sprint 10）
+// ─────────────────────────────────────────
+export * from "./finance";
+

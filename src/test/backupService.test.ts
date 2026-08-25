@@ -76,6 +76,16 @@ describe("backupService", () => {
           ],
         });
       }
+      if (colId === "finance_transactions") {
+        return Promise.resolve({
+          docs: [
+            {
+              id: "ft-1",
+              data: () => ({ title: "スーパーA", totalAmount: 3000, category: "食費" }),
+            },
+          ],
+        });
+      }
       return Promise.resolve({ docs: [] });
     });
 
@@ -102,6 +112,7 @@ describe("backupService", () => {
         recipes: 1,
         pmTemplates: 0,
         pmLogs: 0,
+        financeTransactions: 1,
       });
       expect(backup.data.lists[0]).toMatchObject({ id: "list-1", text: "牛乳" });
       expect(backup.data.tasks[0]).toMatchObject({ id: "task-1", title: "報告書作成" });
@@ -271,6 +282,7 @@ describe("backupService", () => {
         recipes: 0,
         pmTemplates: 0,
         pmLogs: 0,
+        financeTransactions: 0,
       });
       expect(res.mode).toBe("merge");
     });
