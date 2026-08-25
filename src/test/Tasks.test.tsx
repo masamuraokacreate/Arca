@@ -31,7 +31,7 @@ function mockSnapshot(docs: { id: string; data: object }[]) {
 
 describe("Tasks コンポーネント", () => {
   beforeEach(() => {
-    vi.resetAllMocks();
+    vi.clearAllMocks();
     (useGoogleAuth as Mock).mockReturnValue({
       accessToken: null,
       isSignedIn: false,

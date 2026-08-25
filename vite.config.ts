@@ -68,16 +68,4 @@ export default defineConfig({
   preview: {
     host: true,
   },
-  // Vitest 設定
-  test: {
-    globals: true,
-    environment: "jsdom",
-    setupFiles: ["./src/test/setup.ts"],
-    // Firebase / browser API をモックするため CSS は除外
-    css: false,
-    coverage: {
-      provider: "v8",
-      reporter: ["text", "json"],
-    },
-  },
 });

@@ -17,7 +17,7 @@ import {
 
 describe("Aether Core — suggestCategory", () => {
   beforeEach(() => {
-    vi.resetAllMocks();
+    vi.clearAllMocks();
     import.meta.env.VITE_GEMINI_API_KEY = "test-key";
   });
 
@@ -54,7 +54,7 @@ describe("Aether Core — suggestCategory", () => {
 
 describe("Aether Core — categorizeItems", () => {
   beforeEach(() => {
-    vi.resetAllMocks();
+    vi.clearAllMocks();
     import.meta.env.VITE_GEMINI_API_KEY = "test-key";
   });
 
@@ -116,7 +116,7 @@ describe("Aether Core — categorizeItems", () => {
 
 describe("Aether Core — suggestRelatedItems", () => {
   beforeEach(() => {
-    vi.resetAllMocks();
+    vi.clearAllMocks();
     import.meta.env.VITE_GEMINI_API_KEY = "test-key";
   });
 
@@ -157,7 +157,7 @@ describe("Aether Core — suggestRelatedItems", () => {
 
 describe("Aether Core — breakdownTask", () => {
   beforeEach(() => {
-    vi.resetAllMocks();
+    vi.clearAllMocks();
     import.meta.env.VITE_GEMINI_API_KEY = "test-key";
   });
 
@@ -204,7 +204,7 @@ describe("Aether Core — breakdownTask", () => {
 
 describe("Aether Core — generateDailyBriefing", () => {
   beforeEach(() => {
-    vi.resetAllMocks();
+    vi.clearAllMocks();
     import.meta.env.VITE_GEMINI_API_KEY = "test-key";
   });
 
@@ -234,8 +234,36 @@ describe("Aether Core — generateDailyBriefing", () => {
         events: [{ title: "会議", startTime: "10:00" }],
         tasks: [{ title: "資料作成", priority: "high" }],
         listsCount: 3,
+        pmTasks: [{ title: "風呂場の掃除", dayIndex: 1, content: "床・排水口の洗浄" }],
       });
       expect(result).toContain("午前中に重要な会議があります");
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
+  });
+
+  it("PMタスクが含まれている場合も正常にプロンプトが構築される", async () => {
+    let capturedBody = "";
+    const originalFetch = globalThis.fetch;
+    globalThis.fetch = vi.fn().mockImplementation((_url, options) => {
+      capturedBody = options?.body as string;
+      return Promise.resolve({
+        ok: true,
+        json: async () => ({
+          candidates: [{ content: { parts: [{ text: "本日はDay 1の風呂掃除を進めましょう。" }] } }],
+        }),
+      });
+    });
+
+    try {
+      const result = await generateDailyBriefing({
+        events: [],
+        tasks: [],
+        listsCount: 0,
+        pmTasks: [{ title: "風呂場の掃除", dayIndex: 1, content: "床・排水口の洗浄" }],
+      });
+      expect(result).toBe("本日はDay 1の風呂掃除を進めましょう。");
+      expect(capturedBody).toContain("Day 1: 風呂場の掃除（床・排水口の洗浄）");
     } finally {
       globalThis.fetch = originalFetch;
     }
@@ -263,7 +291,7 @@ describe("Aether Core — generateDailyBriefing", () => {
 
 describe("Aether Core — parseTaskInput", () => {
   beforeEach(() => {
-    vi.resetAllMocks();
+    vi.clearAllMocks();
     import.meta.env.VITE_GEMINI_API_KEY = "test-key";
   });
 

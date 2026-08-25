@@ -32,7 +32,7 @@ function mockSnapshot(docs: { id: string; data: object }[]) {
 
 describe("Lists コンポーネント", () => {
   beforeEach(() => {
-    vi.resetAllMocks();
+    vi.clearAllMocks();
     (useGoogleAuth as Mock).mockReturnValue({
       accessToken: null,
       isSignedIn: false,
@@ -339,7 +339,7 @@ describe("Lists コンポーネント", () => {
     });
   });
 
-  // ─── Google同期 重複防止テスト ───
+  // ─── Google同期 重複防止 & 手動同期テスト ───
 
   it("Google同期時、既に同じgoogleTaskIdが存在する場合は新規追加されない", async () => {
     const { getTaskLists, getTasks } = await import("../lib/googleTasks");
@@ -371,6 +371,17 @@ describe("Lists コンポーネント", () => {
       ],
     });
 
+    mockSnapshot([
+      {
+        id: "doc-1",
+        data: {
+          text: "既存タスク",
+          completed: false,
+          googleTaskId: "gtask-1",
+        },
+      },
+    ]);
+
     render(<Lists />);
 
     await waitFor(() => {
@@ -378,6 +389,34 @@ describe("Lists コンポーネント", () => {
     });
 
     expect(addDoc).not.toHaveBeenCalled();
+  });
+
+  it("ログイン時に手動同期ボタンをクリックすると再同期が実行される", async () => {
+    const { getTaskLists, getTasks } = await import("../lib/googleTasks");
+    (useGoogleAuth as Mock).mockReturnValue({
+      accessToken: "mock-token",
+      isSignedIn: true,
+      isReady: true,
+      signIn: vi.fn(),
+      signOut: vi.fn(),
+    });
+
+    (getTaskLists as Mock).mockResolvedValue([
+      { id: "list-1", title: "買い物リスト" },
+    ]);
+    (getTasks as Mock).mockResolvedValue([]);
+
+    mockSnapshot([]);
+    const user = userEvent.setup();
+    render(<Lists />);
+
+    const manualSyncBtn = screen.getByTitle("今すぐ買い物リストを手動同期");
+    expect(manualSyncBtn).toBeInTheDocument();
+
+    await user.click(manualSyncBtn);
+    await waitFor(() => {
+      expect(getTaskLists).toHaveBeenCalled();
+    });
   });
 
   // ─── Aether Core 提案テスト ───

@@ -14,7 +14,7 @@ describe("BackupModal コンポーネント", () => {
   const mockRequestAccessToken = vi.fn();
 
   beforeEach(() => {
-    vi.resetAllMocks();
+    vi.clearAllMocks();
     mockRequestAccessToken.mockResolvedValue("mock-token");
     (useGoogleAuth as Mock).mockReturnValue({
       accessToken: "mock-token",

@@ -13,14 +13,24 @@ import { useState, useEffect, useCallback } from "react";
 import {
   collection,
   query,
+  where,
   onSnapshot,
   orderBy,
   doc,
+  getDoc,
   updateDoc,
 } from "firebase/firestore";
 import { db } from "../lib/firebase";
 import type { CalendarEvent, TaskItem, ListItem, NoteItem } from "../types";
+import type { PMSettings, PMTemplateItem, PMLogItem } from "../types/pm";
 import { C } from "../lib/designSystem";
+import {
+  getTodayPMItems,
+  computeDayResolution,
+  recordPMLog,
+  buildLogMapForDate,
+  resolveItemStatus,
+} from "../services/pmCycleService";
 
 // ---------- ユーティリティ ----------
 function toDateStr(y: number, m: number, d: number): string {
@@ -136,6 +146,11 @@ export default function Dashboard({ onNavigate, onSelectNote }: DashboardProps =
   const [lists, setLists] = useState<ListItem[]>([]);
   const [notes, setNotes] = useState<NoteItem[]>([]);
 
+  // PM ステート
+  const [pmSettings, setPmSettings] = useState<PMSettings | null>(null);
+  const [pmTemplates, setPmTemplates] = useState<PMTemplateItem[]>([]);
+  const [pmLogs, setPmLogs] = useState<PMLogItem[]>([]);
+
   // Firestore リアルタイム同期
   useEffect(() => {
     const unsub = onSnapshot(query(collection(db, "events"), orderBy("createdAt", "asc")), (snap) => {
@@ -174,16 +189,67 @@ export default function Dashboard({ onNavigate, onSelectNote }: DashboardProps =
     return unsub;
   }, []);
 
+  // PM 設定・テンプレート・ログ
+  useEffect(() => {
+    const fetchPMSettings = async () => {
+      try {
+        const snap = await getDoc(doc(db, "pm_settings", "main"));
+        if (snap?.exists?.()) setPmSettings(snap.data() as PMSettings);
+      } catch {
+        // ignore
+      }
+    };
+    fetchPMSettings();
+
+    const unsubTemplates = onSnapshot(
+      query(collection(db, "pm_templates"), orderBy("dayIndex", "asc")),
+      (snap) => setPmTemplates(snap.docs.map((d) => ({ id: d.id, ...d.data() } as PMTemplateItem)))
+    );
+
+    const unsubLogs = onSnapshot(
+      query(collection(db, "pm_logs"), where("date", "==", today)),
+      (snap) => setPmLogs(snap.docs.map((d) => ({ id: d.id, ...d.data() } as PMLogItem)))
+    );
+
+    return () => {
+      unsubTemplates();
+      unsubLogs();
+    };
+  }, [today]);
+
   // フィルタリング
   const todayEvents = events.filter((e) => e.date === today).sort((a, b) => (a.startTime || "").localeCompare(b.startTime || ""));
   const todayTasks = tasks.filter((t) => !t.completed && (t.dueDate === today || !t.dueDate));
   const activeLists = lists.filter((l) => !l.completed);
   const recentNotes = notes.slice(0, 6);
 
+  // PM 今日のプレビュー（未完了・完了含む、最大2件）
+  const pmTodayAll = pmSettings ? getTodayPMItems(pmSettings, pmTemplates) : [];
+  const pmLogMap = buildLogMapForDate(pmLogs, today);
+  const pmTodayPending = pmTodayAll.filter((item) => resolveItemStatus(item, pmLogMap) === "pending");
+  const pmTodayItems = pmTodayPending.slice(0, 2);
+  const pmDayResolution = pmSettings ? computeDayResolution(pmSettings, today) : null;
+
   // タスク完了トグル
   const toggleTask = useCallback(async (id: string, current: boolean) => {
     await updateDoc(doc(db, "tasks", id), { completed: !current });
   }, []);
+
+  // PM 完了トグル
+  const togglePMTask = useCallback(async (item: PMTemplateItem) => {
+    if (!pmDayResolution) return;
+    try {
+      await recordPMLog({
+        date: today,
+        templateId: item.id,
+        dayIndex: pmDayResolution.dayIndex,
+        title: item.title,
+        status: "completed",
+      });
+    } catch (err) {
+      console.error("Failed to record PM log from dashboard:", err);
+    }
+  }, [today, pmDayResolution]);
 
   // 買い物完了トグル
   const toggleList = useCallback(async (id: string, current: boolean) => {
@@ -328,7 +394,7 @@ export default function Dashboard({ onNavigate, onSelectNote }: DashboardProps =
                 今日のタスク
               </span>
               <span style={{ fontSize: "0.74rem", color: C.charcoalLight }}>
-                ({todayTasks.length})
+                ({todayTasks.length + pmTodayItems.length})
               </span>
             </div>
             <TileNavButton
@@ -339,7 +405,7 @@ export default function Dashboard({ onNavigate, onSelectNote }: DashboardProps =
 
           {/* 内部スクロール */}
           <div style={{ flex: 1, overflowY: "auto", paddingRight: "0.25rem" }}>
-            {todayTasks.length === 0 ? (
+            {todayTasks.length === 0 && pmTodayItems.length === 0 ? (
               <div style={{ height: "100%", display: "flex", alignItems: "center", justifyContent: "center" }}>
                 <p style={{ margin: 0, fontSize: "0.85rem", color: C.charcoalLight }}>
                   残っているタスクはありません
@@ -393,12 +459,82 @@ export default function Dashboard({ onNavigate, onSelectNote }: DashboardProps =
                     )}
                   </li>
                 ))}
+
+                {/* PM プレビュー（最大2件） */}
+                {pmTodayItems.map((item) => (
+                  <li
+                    key={`pm-${item.id}`}
+                    style={{
+                      display: "flex",
+                      alignItems: "center",
+                      gap: "0.75rem",
+                      padding: "0.45rem 0.55rem",
+                      borderBottom: "1px solid rgba(0, 0, 0, 0.03)",
+                      background: C.goldFaint,
+                      borderRadius: "10px",
+                      transition: "background 0.15s ease",
+                    }}
+                  >
+                    <button
+                      type="button"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        togglePMTask(item);
+                      }}
+                      style={{ background: "none", border: "none", cursor: "pointer", padding: 0, lineHeight: 0 }}
+                      title="クリックで完了を記録"
+                    >
+                      <CheckCircle completed={false} />
+                    </button>
+                    <div
+                      onClick={() => onNavigate?.("tasks")}
+                      style={{
+                        flex: 1,
+                        display: "flex",
+                        alignItems: "center",
+                        gap: "0.45rem",
+                        cursor: "pointer",
+                        minWidth: 0,
+                      }}
+                      title="クリックでタスク画面のPMセクションへ移動"
+                    >
+                      {pmDayResolution && !pmDayResolution.isRestDay && (
+                        <span
+                          style={{
+                            fontSize: "0.65rem",
+                            fontWeight: 700,
+                            color: C.goldDark,
+                            background: "rgba(197, 160, 89, 0.15)",
+                            padding: "0.1rem 0.45rem",
+                            borderRadius: "4px",
+                            flexShrink: 0,
+                          }}
+                        >
+                          PM Day {pmDayResolution.dayIndex}
+                        </span>
+                      )}
+                      <span
+                        style={{
+                          fontSize: "0.86rem",
+                          color: C.charcoal,
+                          lineHeight: 1.35,
+                          overflow: "hidden",
+                          textOverflow: "ellipsis",
+                          whiteSpace: "nowrap",
+                        }}
+                      >
+                        {item.title}
+                      </span>
+                    </div>
+                  </li>
+                ))}
               </ul>
             )}
           </div>
         </div>
 
         {/* ─── タイルC: Lists（買い物リスト） ─── */}
+
         <div
           className="arca-card"
           style={{

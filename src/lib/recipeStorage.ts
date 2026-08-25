@@ -24,6 +24,72 @@ import type { Recipe, IngredientItem, RecipeStep } from "../types/recipe";
 
 const COLLECTION_NAME = "recipes";
 
+/**
+ * Firestore に保存する前に、undefined 値を安全なデフォルト値へ正規化する。
+ * Firestore は undefined プロパティを受け付けず `Unsupported field value: undefined`
+ * エラーを投げるため、すべての書き込みパスでこの関数を通す。
+ *
+ * 【完全書き込み用】createRecipe で使用。
+ * すべてのフィールドを確実に Firestore 安全な値へ正規化する。
+ * undefined / null は空文字列 / 空配列 / false へ変換する。
+ */
+function sanitizeForFirestore(
+  recipe: Partial<Omit<Recipe, "id">>
+): Record<string, unknown> {
+  const out: Record<string, unknown> = {};
+
+  // 必須項目: キーが存在する場合のみ出力（patch 更新時に使い回しても安全）
+  if ("title" in recipe) out.title = recipe.title?.trim() || "無題のレシピ";
+  if ("servings" in recipe) out.servings = recipe.servings?.trim() || "1人前";
+  if ("favorite" in recipe) out.favorite = Boolean(recipe.favorite);
+  if ("createdAt" in recipe) out.createdAt = recipe.createdAt;
+  if ("updatedAt" in recipe) out.updatedAt = recipe.updatedAt;
+  if ("isDeleted" in recipe) out.isDeleted = Boolean(recipe.isDeleted);
+
+  // オプショナル文字列項目: undefined → 空文字列（完全書き込みでは常に出力）
+  out.sourceUrl = typeof recipe.sourceUrl === "string" ? recipe.sourceUrl : "";
+  out.imageUrl = typeof recipe.imageUrl === "string" ? recipe.imageUrl : "";
+  out.notes = typeof recipe.notes === "string" ? recipe.notes : "";
+
+  // 配列項目: undefined / 非配列 → 空配列（完全書き込みでは常に出力）
+  out.ingredients = Array.isArray(recipe.ingredients) ? recipe.ingredients : [];
+  out.steps = Array.isArray(recipe.steps) ? recipe.steps : [];
+  out.tags = Array.isArray(recipe.tags) ? recipe.tags : [];
+
+  return out;
+}
+
+/**
+ * 【部分更新用】updateRecipe で使用。
+ * patch に含まれるキーのみを対象に undefined → デフォルト値へ正規化する。
+ * 渡されていないキーは出力しないため、他フィールドを誤って上書きしない。
+ */
+function sanitizePatchForFirestore(
+  patch: Partial<Omit<Recipe, "id" | "createdAt">> & { updatedAt: number }
+): Record<string, unknown> {
+  const out: Record<string, unknown> = {};
+
+  // 必須項目（patch に含まれる場合のみ）
+  if ("title" in patch) out.title = patch.title?.trim() || "無題のレシピ";
+  if ("servings" in patch) out.servings = patch.servings?.trim() || "1人前";
+  if ("favorite" in patch) out.favorite = Boolean(patch.favorite);
+  if ("updatedAt" in patch) out.updatedAt = patch.updatedAt;
+  if ("isDeleted" in patch) out.isDeleted = Boolean(patch.isDeleted);
+
+  // オプショナル文字列項目（patch に含まれる場合のみ、undefined → 空文字列）
+  if ("sourceUrl" in patch) out.sourceUrl = typeof patch.sourceUrl === "string" ? patch.sourceUrl : "";
+  if ("imageUrl" in patch) out.imageUrl = typeof patch.imageUrl === "string" ? patch.imageUrl : "";
+  if ("notes" in patch) out.notes = typeof patch.notes === "string" ? patch.notes : "";
+
+  // 配列項目（patch に含まれる場合のみ、undefined → 空配列）
+  if ("ingredients" in patch) out.ingredients = Array.isArray(patch.ingredients) ? patch.ingredients : [];
+  if ("steps" in patch) out.steps = Array.isArray(patch.steps) ? patch.steps : [];
+  if ("tags" in patch) out.tags = Array.isArray(patch.tags) ? patch.tags : [];
+
+  return out;
+}
+
+
 /** 新規材料アイテムの空オブジェクトを生成 */
 export function createEmptyIngredient(): IngredientItem {
   return {
@@ -108,15 +174,15 @@ export function subscribeRecipes(
  */
 export async function createRecipe(recipe: Omit<Recipe, "id">): Promise<string> {
   const now = Date.now();
-  const cleanRecipe = {
+  const sanitized = sanitizeForFirestore({
     ...recipe,
-    title: recipe.title.trim() || "無題のレシピ",
+    title: recipe.title?.trim() || "無題のレシピ",
     createdAt: recipe.createdAt || now,
     updatedAt: now,
     isDeleted: false,
-  };
+  });
 
-  const docRef = await addDoc(collection(db, COLLECTION_NAME), cleanRecipe);
+  const docRef = await addDoc(collection(db, COLLECTION_NAME), sanitized);
   return docRef.id;
 }
 
@@ -129,10 +195,11 @@ export async function updateRecipe(
 ): Promise<void> {
   const docRef = doc(db, COLLECTION_NAME, id);
   const now = Date.now();
-  await updateDoc(docRef, {
+  const sanitized = sanitizePatchForFirestore({
     ...patch,
     updatedAt: now,
   });
+  await updateDoc(docRef, sanitized);
 }
 
 /**

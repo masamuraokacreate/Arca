@@ -160,9 +160,17 @@ export default function BackupModal({ isOpen, onClose }: BackupModalProps) {
       }
 
       setLastBackup(getLastBackupInfo());
+      const totalCount =
+        res.counts.lists +
+        res.counts.tasks +
+        res.counts.events +
+        res.counts.notes +
+        (res.counts.recipes || 0) +
+        (res.counts.pmTemplates || 0) +
+        (res.counts.pmLogs || 0);
       setStatusMessage({
         type: "success",
-        text: `Google Driveにバックアップを保存しました: ${res.fileName} (合計 ${res.counts.lists + res.counts.tasks + res.counts.events + res.counts.notes}件)`,
+        text: `Google Driveにバックアップを保存しました: ${res.fileName} (合計 ${totalCount}件)`,
       });
     } catch (e: unknown) {
       console.error("Drive backup failed", e);
@@ -634,6 +642,12 @@ export default function BackupModal({ isOpen, onClose }: BackupModalProps) {
                   <span>タスク: {parsedBackup.data?.tasks?.length || 0}件</span>
                   <span>カレンダー: {parsedBackup.data?.events?.length || 0}件</span>
                   <span>ノート: {parsedBackup.data?.notes?.length || 0}件</span>
+                  {parsedBackup.data?.recipes && (
+                    <span>レシピ: {parsedBackup.data.recipes.length}件</span>
+                  )}
+                  {parsedBackup.data?.pmTemplates && (
+                    <span>PM計画: {parsedBackup.data.pmTemplates.length}件</span>
+                  )}
                 </div>
 
                 {/* 復元モード選択 */}

@@ -20,7 +20,7 @@ import {
 
 describe("backupService", () => {
   beforeEach(() => {
-    vi.resetAllMocks();
+    vi.clearAllMocks();
     localStorage.clear();
 
     // Firestore getDocs モック
@@ -100,6 +100,8 @@ describe("backupService", () => {
         events: 1,
         notes: 1,
         recipes: 1,
+        pmTemplates: 0,
+        pmLogs: 0,
       });
       expect(backup.data.lists[0]).toMatchObject({ id: "list-1", text: "牛乳" });
       expect(backup.data.tasks[0]).toMatchObject({ id: "task-1", title: "報告書作成" });
@@ -267,6 +269,8 @@ describe("backupService", () => {
         events: 1,
         notes: 1,
         recipes: 0,
+        pmTemplates: 0,
+        pmLogs: 0,
       });
       expect(res.mode).toBe("merge");
     });

@@ -1,9 +1,16 @@
 import { useState, useEffect, useRef, useCallback } from "react";
+import {
+  GOOGLE_OAUTH_SCOPES,
+  loadSavedToken,
+  saveToken,
+  clearSavedToken,
+} from "../services/googleAuth";
+
+// 再エクスポートして互換性を維持
+export { loadSavedToken, saveToken, clearSavedToken };
 
 const CLIENT_ID = import.meta.env.VITE_GOOGLE_CLIENT_ID as string;
-const SCOPE = "https://www.googleapis.com/auth/tasks https://www.googleapis.com/auth/drive.file";
-const LS_TOKEN  = "arca_g_token";
-const LS_EXPIRY = "arca_g_expiry";
+const SCOPE = GOOGLE_OAUTH_SCOPES;
 
 export interface GoogleAuthState {
   accessToken: string | null;
@@ -12,32 +19,6 @@ export interface GoogleAuthState {
   signIn: () => void;
   signOut: () => void;
   requestAccessToken: (forcePrompt?: boolean) => Promise<string>;
-}
-
-// ---------- localStorage ユーティリティ ----------
-
-export function loadSavedToken(): string | null {
-  try {
-    const token  = localStorage.getItem(LS_TOKEN);
-    const expiry = localStorage.getItem(LS_EXPIRY);
-    if (token && expiry && Date.now() < parseInt(expiry, 10)) return token;
-  } catch { /* no-op */ }
-  clearSavedToken();
-  return null;
-}
-
-export function saveToken(token: string, expiresIn: number): void {
-  try {
-    localStorage.setItem(LS_TOKEN,  token);
-    localStorage.setItem(LS_EXPIRY, String(Date.now() + (expiresIn - 60) * 1000));
-  } catch { /* no-op */ }
-}
-
-export function clearSavedToken(): void {
-  try {
-    localStorage.removeItem(LS_TOKEN);
-    localStorage.removeItem(LS_EXPIRY);
-  } catch { /* no-op */ }
 }
 
 // ---------- フック ----------

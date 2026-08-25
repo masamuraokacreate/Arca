@@ -40,6 +40,8 @@ import type { TaskItem, SubTaskItem, SyncStatus } from "../types";
 import { C } from "../lib/designSystem";
 import { useUndoToast } from "../hooks/useUndoToast";
 import { UndoToast } from "./common/UndoToast";
+import { PMSection } from "./tasks/PMSection";
+
 
 type Task = TaskItem;
 
@@ -1130,6 +1132,9 @@ export default function Tasks() {
           </div>
         )}
 
+        {/* ─── PM（予防保全）セクション ─── */}
+        <PMSection />
+
       </div>
 
       {/* ─── 共通 Undo トースト ─── */}
@@ -1137,3 +1142,4 @@ export default function Tasks() {
     </div>
   );
 }
+

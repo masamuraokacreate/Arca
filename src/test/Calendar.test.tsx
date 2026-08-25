@@ -2,7 +2,7 @@
  * src/test/Calendar.test.tsx
  * Calendar コンポーネントのインテグレーションテスト
  */
-import { describe, it, expect, vi, beforeEach, type Mock } from "vitest";
+import { describe, it, expect, vi, beforeEach, afterEach, type Mock } from "vitest";
 import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import {
@@ -46,7 +46,7 @@ const makeEvent = (title: string) => ({
 
 describe("Calendar コンポーネント", () => {
   beforeEach(() => {
-    vi.resetAllMocks();
+    vi.clearAllMocks();
     (useGoogleAuth as Mock).mockReturnValue({
       accessToken: null,
       isSignedIn: false,
@@ -57,6 +57,10 @@ describe("Calendar コンポーネント", () => {
     (addDoc as Mock).mockResolvedValue({ id: "new-event-id" });
     (updateDoc as Mock).mockResolvedValue(undefined);
     (deleteDoc as Mock).mockResolvedValue(undefined);
+  });
+
+  afterEach(() => {
+    vi.clearAllTimers();
   });
 
   // ─── 表示テスト ───
@@ -84,7 +88,7 @@ describe("Calendar コンポーネント", () => {
   it("「予定」セクションラベルが表示される", () => {
     mockSnapshot([], []);
     render(<Calendar />);
-    expect(screen.getByText("予定")).toBeInTheDocument();
+    expect(screen.getAllByText("予定").length).toBeGreaterThanOrEqual(1);
   });
 
   it("予定がない場合「予定はありません」を表示", () => {
@@ -112,7 +116,7 @@ describe("Calendar コンポーネント", () => {
 
   it("「予定を追加」ボタンでフォームが開き予定を追加できる", async () => {
     mockSnapshot([], []);
-    const user = userEvent.setup();
+    const user = userEvent.setup({ delay: null });
     render(<Calendar />);
     await user.click(screen.getByText("予定を追加"));
     expect(screen.getByPlaceholderText("予定タイトル")).toBeInTheDocument();
@@ -129,7 +133,7 @@ describe("Calendar コンポーネント", () => {
 
   it("「今日のタスクを追加」ボタンでフォームが開き、タスクを追加すると dueDate が TODAY で tasks に保存される", async () => {
     mockSnapshot([], []);
-    const user = userEvent.setup();
+    const user = userEvent.setup({ delay: null });
     render(<Calendar />);
 
     await user.click(screen.getByText("今日のタスクを追加"));
@@ -149,7 +153,7 @@ describe("Calendar コンポーネント", () => {
 
   it("削除ボタンを押すと deleteDoc が呼ばれる", async () => {
     mockSnapshot([makeEvent("削除予定")], []);
-    const user = userEvent.setup();
+    const user = userEvent.setup({ delay: null });
     render(<Calendar />);
     const delBtn = screen.getByTitle("削除");
     await user.click(delBtn);
@@ -157,4 +161,57 @@ describe("Calendar コンポーネント", () => {
       expect(deleteDoc).toHaveBeenCalledTimes(1);
     });
   });
+
+  // ─── Google 同期バッジ・連携テスト ───
+
+  it("未ログイン時に「Google同期」ボタンが表示され、クリックで signIn が呼ばれる", async () => {
+    const signInMock = vi.fn();
+    (useGoogleAuth as Mock).mockReturnValue({
+      accessToken: null,
+      isSignedIn: false,
+      isReady: true,
+      signIn: signInMock,
+      signOut: vi.fn(),
+    });
+
+    mockSnapshot([], []);
+    const user = userEvent.setup({ delay: null });
+    render(<Calendar />);
+
+    const syncBtn = screen.getByText("Google同期");
+    expect(syncBtn).toBeInTheDocument();
+    await user.click(syncBtn);
+    expect(signInMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("ログイン時に手動同期ボタンが表示され、手動同期を実行できる", async () => {
+    (useGoogleAuth as Mock).mockReturnValue({
+      accessToken: "mock-token",
+      isSignedIn: true,
+      isReady: true,
+      signIn: vi.fn(),
+      signOut: vi.fn(),
+    });
+
+    globalThis.fetch = vi.fn().mockResolvedValue({
+      ok: true,
+      status: 200,
+      text: async () => JSON.stringify({ items: [] }),
+    });
+
+    mockSnapshot([], []);
+    const user = userEvent.setup({ delay: null });
+    render(<Calendar />);
+
+    await waitFor(() => {
+      expect(screen.getByTitle("今すぐカレンダーを手動同期")).toBeInTheDocument();
+    });
+
+    const manualSyncBtn = screen.getByTitle("今すぐカレンダーを手動同期");
+    await user.click(manualSyncBtn);
+    await waitFor(() => {
+      expect(globalThis.fetch).toHaveBeenCalled();
+    });
+  });
 });
+

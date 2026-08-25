@@ -4,19 +4,34 @@
  */
 import "@testing-library/jest-dom";
 import { cleanup } from "@testing-library/react";
-import { afterEach, vi } from "vitest";
+import { afterEach, beforeEach, vi } from "vitest";
+import * as firestore from "firebase/firestore";
+import { useGoogleAuth } from "../hooks/useGoogleAuth";
 
 // ─── 各テスト後に DOM をクリーンアップ ───
 afterEach(() => {
   cleanup();
 });
 
-
 // ─── Firebase モック ───
+vi.mock("firebase/app", () => ({
+  initializeApp: vi.fn(() => ({})),
+  getApps: vi.fn(() => [{}]),
+  getApp: vi.fn(() => ({})),
+}));
+
 vi.mock("../lib/firebase", () => ({
   db: {},
   auth: {},
 }));
+
+// JSDOM 不足メソッドのポリフィル
+if (typeof Element !== "undefined") {
+  Element.prototype.scrollIntoView = vi.fn();
+}
+if (typeof window !== "undefined") {
+  window.scrollTo = vi.fn();
+}
 
 vi.mock("firebase/auth", () => {
   return {
@@ -25,8 +40,8 @@ vi.mock("firebase/auth", () => {
       callback(null);
       return vi.fn();
     }),
-    signInWithPopup: vi.fn(),
-    signOut: vi.fn(),
+    signInWithPopup: vi.fn().mockResolvedValue({}),
+    signOut: vi.fn().mockResolvedValue(undefined),
     GoogleAuthProvider: class {
       setCustomParameters = vi.fn();
     },
@@ -39,18 +54,24 @@ vi.mock("firebase/firestore", () => ({
   persistentMultipleTabManager: vi.fn(() => ({})),
   collection: vi.fn((_db: unknown, path: string) => ({ id: path, path })),
   addDoc: vi.fn().mockResolvedValue({ id: "mock-doc-id" }),
-  updateDoc: vi.fn(),
-  deleteDoc: vi.fn(),
-  setDoc: vi.fn(),
+  updateDoc: vi.fn().mockResolvedValue(undefined),
+  deleteDoc: vi.fn().mockResolvedValue(undefined),
+  setDoc: vi.fn().mockResolvedValue(undefined),
   writeBatch: vi.fn(() => ({
     set: vi.fn(),
     delete: vi.fn(),
     commit: vi.fn().mockResolvedValue(undefined),
   })),
+  getDoc: vi.fn().mockResolvedValue({ exists: () => false, data: () => undefined }),
   getDocs: vi.fn().mockResolvedValue({ docs: [] }),
   doc: vi.fn((_db?: unknown, col?: string, id?: string) => ({ id: id || "mock-doc-id", path: `${col || "mock-col"}/${id || "mock-doc-id"}` })),
-  onSnapshot: vi.fn(() => vi.fn()),
-  query: vi.fn(),
+  query: vi.fn((col: unknown) => (typeof col === "object" && col !== null ? col : {})),
+  onSnapshot: vi.fn((_q: unknown, cb: unknown) => {
+    if (typeof cb === "function") {
+      cb({ docs: [] });
+    }
+    return vi.fn();
+  }),
   where: vi.fn(),
   orderBy: vi.fn(),
   serverTimestamp: vi.fn(() => ({ seconds: 0, nanoseconds: 0 })),
@@ -90,20 +111,64 @@ vi.mock("../hooks/useGoogleAuth", () => ({
 }));
 
 // window.matchMedia モック（jsdom にない）
-Object.defineProperty(window, "matchMedia", {
-  writable: true,
-  value: vi.fn().mockImplementation((query: string) => ({
-    matches: false,
-    media: query,
-    onchange: null,
-    addListener: vi.fn(),
-    removeListener: vi.fn(),
-    addEventListener: vi.fn(),
-    removeEventListener: vi.fn(),
-    dispatchEvent: vi.fn(),
-  })),
-});
+if (typeof window !== "undefined") {
+  Object.defineProperty(window, "matchMedia", {
+    writable: true,
+    value: vi.fn().mockImplementation((query: string) => ({
+      matches: false,
+      media: query,
+      onchange: null,
+      addListener: vi.fn(),
+      removeListener: vi.fn(),
+      addEventListener: vi.fn(),
+      removeEventListener: vi.fn(),
+      dispatchEvent: vi.fn(),
+    })),
+  });
+}
 
-// ─── vi.resetAllMocks() 対応: リセット後も useGoogleAuth が正しく動くよう
-//     afterEach ではなく beforeEach フックでも再設定できるよう
-//     各テストファイル側で必要なら追加設定する ───
+// ─── beforeEach でデフォルト実装を常に再設定 ───
+beforeEach(() => {
+  if (vi.isMockFunction(firestore.getDoc)) {
+    vi.mocked(firestore.getDoc).mockResolvedValue({ exists: () => false, data: () => undefined } as unknown as firestore.DocumentSnapshot);
+  }
+  if (vi.isMockFunction(firestore.getDocs)) {
+    vi.mocked(firestore.getDocs).mockResolvedValue({ docs: [] } as unknown as firestore.QuerySnapshot);
+  }
+  if (vi.isMockFunction(firestore.addDoc)) {
+    vi.mocked(firestore.addDoc).mockResolvedValue({ id: "mock-doc-id" } as unknown as firestore.DocumentReference);
+  }
+  if (vi.isMockFunction(firestore.setDoc)) {
+    vi.mocked(firestore.setDoc).mockResolvedValue(undefined);
+  }
+  if (vi.isMockFunction(firestore.updateDoc)) {
+    vi.mocked(firestore.updateDoc).mockResolvedValue(undefined);
+  }
+  if (vi.isMockFunction(firestore.deleteDoc)) {
+    vi.mocked(firestore.deleteDoc).mockResolvedValue(undefined);
+  }
+  if (vi.isMockFunction(firestore.doc)) {
+    vi.mocked(firestore.doc).mockImplementation((_db?: unknown, col?: string, id?: string) => ({ id: id || "mock-doc-id", path: `${col || "mock-col"}/${id || "mock-doc-id"}` } as unknown as firestore.DocumentReference));
+  }
+  if (vi.isMockFunction(firestore.collection)) {
+    vi.mocked(firestore.collection).mockImplementation((_db: unknown, path: string) => ({ id: path, path } as unknown as firestore.CollectionReference));
+  }
+  if (vi.isMockFunction(firestore.onSnapshot)) {
+    vi.mocked(firestore.onSnapshot).mockImplementation((_q: unknown, cb: unknown) => {
+      if (typeof cb === "function") {
+        cb({ docs: [] });
+      }
+      return vi.fn();
+    });
+  }
+  if (vi.isMockFunction(useGoogleAuth)) {
+    vi.mocked(useGoogleAuth).mockReturnValue({
+      accessToken: null,
+      isSignedIn: false,
+      isReady: true,
+      signIn: vi.fn(),
+      signOut: vi.fn(),
+      requestAccessToken: vi.fn().mockResolvedValue("mock-token"),
+    });
+  }
+});

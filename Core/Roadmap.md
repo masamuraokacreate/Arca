@@ -16,3 +16,7 @@
   - Firestore IndexedDBオフライン永続化、PWA化（iOS Safe Area対応）、ホワイトリスト厳格認証、Google Drive完全バックアップ（`/800_Arca/810_バックアップ`）。
 - **Sprint 7: リリース v1.0.0** 【完了・運用開始】
   - 本番ホスティング稼働（`https://arca-f3fc6.web.app`）、実運用定着と細かな微調整。
+- **Sprint 8: 「料理レシピ」モジュールの実装とAether Link統合** 【完了】
+  - 構造化レシピエディタ、Gemini URL/テキスト自動抽出、Listsへの材料ワンタップ転送。
+- **Sprint 9: PM（Preventive Maintenance / 予防保全・勤務周期管理）モジュール** 【完了】
+  - 勤務シフト・生活リズムに連動する定期タスク自動循環エンジン、GoogleカレンダーからのDay 1自動推論、Tasks/Calendar/Dashboard横断連携、Google Drive完全バックアップ統合。

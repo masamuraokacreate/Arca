@@ -151,3 +151,18 @@ export async function updateTask(
     }
   );
 }
+
+/** タスクを削除する */
+export async function deleteTask(
+  token: string,
+  tasklistId: string,
+  taskId: string
+): Promise<void> {
+  await gFetch<void>(
+    token,
+    `/lists/${encodeURIComponent(tasklistId)}/tasks/${encodeURIComponent(taskId)}`,
+    {
+      method: "DELETE",
+    }
+  );
+}

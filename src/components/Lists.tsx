@@ -20,7 +20,6 @@ import {
   updateDoc,
   deleteDoc,
   doc,
-  getDocs,
   onSnapshot,
   query,
   orderBy,
@@ -29,20 +28,17 @@ import {
 import { db } from "../lib/firebase";
 import { useGoogleAuth } from "../hooks/useGoogleAuth";
 import {
-  getTaskLists,
-  getTasks,
-  addTask as gAddTask,
-  updateTaskStatus,
-  type GTaskList,
-} from "../lib/googleTasks";
+  findShoppingTaskList,
+  syncGoogleTasksToArca,
+  pushItemToGoogleTasks,
+  pushStatusToGoogleTasks,
+  removeItemFromGoogleTasks,
+} from "../services/googleTasksSync";
 import { suggestCategory, categorizeItems } from "../lib/aetherCore";
 import type { ListItem, SyncStatus, SuggestionState } from "../types";
 import { C } from "../lib/designSystem";
 import { useUndoToast } from "../hooks/useUndoToast";
 import { UndoToast } from "./common/UndoToast";
-
-// ---------- 定数 ----------
-const TASKLIST_NAME = "買い物リスト";
 
 // ---------- スーパー買い回り順路定義 ----------
 export interface StoreCategoryGroupInfo {
@@ -186,12 +182,14 @@ function SyncBadge({
   syncStatus,
   onSignIn,
   onSignOut,
+  onManualSync,
 }: {
   isReady: boolean;
   isSignedIn: boolean;
   syncStatus: SyncStatus;
   onSignIn: () => void;
   onSignOut: () => void;
+  onManualSync: () => void;
 }) {
   if (!isReady) return null;
 
@@ -239,9 +237,45 @@ function SyncBadge({
 
   return (
     <div style={{ display: "flex", flexDirection: "column", alignItems: "flex-end", gap: "0.2rem" }}>
-      <span style={{ fontSize: "0.72rem", color: statusColor, fontWeight: 500, letterSpacing: "0.02em" }}>
-        {statusLabel}
-      </span>
+      <div style={{ display: "flex", alignItems: "center", gap: "0.35rem" }}>
+        {syncStatus === "syncing" && (
+          <svg
+            style={{ width: "0.75rem", height: "0.75rem", animation: "spin 1s linear infinite" }}
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke={C.gold}
+            strokeWidth={2.5}
+          >
+            <circle cx="12" cy="12" r="10" strokeOpacity="0.25" />
+            <path d="M12 2a10 10 0 0 1 10 10" />
+          </svg>
+        )}
+        <span style={{ fontSize: "0.72rem", color: statusColor, fontWeight: 500, letterSpacing: "0.02em" }}>
+          {statusLabel}
+        </span>
+        <button
+          onClick={onManualSync}
+          disabled={syncStatus === "syncing"}
+          style={{
+            background: "none",
+            border: "none",
+            cursor: syncStatus === "syncing" ? "default" : "pointer",
+            padding: "0.15rem",
+            color: C.charcoalLight,
+            display: "inline-flex",
+            alignItems: "center",
+            opacity: syncStatus === "syncing" ? 0.4 : 1,
+            transition: "color 0.15s ease",
+          }}
+          title="今すぐ買い物リストを手動同期"
+          onMouseEnter={(e) => (e.currentTarget.style.color = C.gold)}
+          onMouseLeave={(e) => (e.currentTarget.style.color = C.charcoalLight)}
+        >
+          <svg viewBox="0 0 24 24" fill="none" strokeWidth={2} stroke="currentColor" style={{ width: "0.75rem", height: "0.75rem" }}>
+            <path strokeLinecap="round" strokeLinejoin="round" d="M16.023 9.348h4.992v-.001M2.985 19.644v-4.992m0 0h4.992m-4.993 0 3.181 3.183a8.25 8.25 0 0 0 13.803-3.7M4.031 9.865a8.25 8.25 0 0 1 13.803-3.7l3.181 3.182m0-4.991v4.99" />
+          </svg>
+        </button>
+      </div>
       <button
         onClick={onSignOut}
         style={{
@@ -389,93 +423,35 @@ export default function Lists() {
     });
   }, []);
 
-  // Google Tasks 初期同期（厳密な重複排除・冪等性確保）
-  useEffect(() => {
+  // Google Tasks 双方向同期（マイリスト特定 & 厳密な重複排除・冪等性確保）
+  const syncTasks = useCallback(async () => {
     if (!isSignedIn || !accessToken) return;
-    let isCancelled = false;
-
-    async function initGoogleTasks() {
-      try {
-        setSyncStatus("syncing");
-        const lists = await getTaskLists(accessToken!);
-        let target = lists.find((l: GTaskList) => l.title === TASKLIST_NAME);
-        if (!target) {
-          target = lists[0];
-        }
-        if (!target) {
-          setSyncStatus("error");
-          return;
-        }
-
-        gTaskListIdRef.current = target.id;
-        const gTasks = await getTasks(accessToken!, target.id);
-        if (isCancelled) return;
-
-        // 冪等性確保: 最新のFirestoreデータを直接取得して照合
-        const currentSnap = await getDocs(collection(db, "lists"));
-        const existingDocs = currentSnap.docs.map((d) => ({
-          id: d.id,
-          data: d.data() as Omit<ListItem, "id">,
-        }));
-
-        for (const gTask of gTasks) {
-          if (isCancelled) return;
-
-          // 1) googleTaskId が完全一致するアイテムが存在するか確認
-          const matchById = existingDocs.find(
-            (item) => item.data.googleTaskId === gTask.id
-          );
-
-          if (matchById) {
-            // ステータスに差分があれば更新のみ行う
-            const isCompleted = gTask.status === "completed";
-            if (matchById.data.completed !== isCompleted) {
-              await updateDoc(doc(db, "lists", matchById.id), {
-                completed: isCompleted,
-              });
-            }
-            continue;
-          }
-
-          // 2) 同一テキスト（かつ未紐付け）のアイテムが既に存在するか確認
-          const matchByText = existingDocs.find(
-            (item) =>
-              !item.data.googleTaskId &&
-              item.data.text.trim() === gTask.title.trim()
-          );
-
-          if (matchByText) {
-            // googleTaskId を紐付けて完了状態を同期
-            await updateDoc(doc(db, "lists", matchByText.id), {
-              googleTaskId: gTask.id,
-              completed: gTask.status === "completed",
-            });
-            continue;
-          }
-
-          // 3) どちらにも該当しない場合のみ新規追加
-          await addDoc(collection(db, "lists"), {
-            text: gTask.title,
-            completed: gTask.status === "completed",
-            googleTaskId: gTask.id,
-            createdAt: serverTimestamp(),
-          });
-        }
-
-        setSyncStatus("done");
-        setTimeout(() => {
-          if (!isCancelled) setSyncStatus("idle");
-        }, 3000);
-      } catch (err) {
-        console.error("Google Tasks sync error:", err);
-        if (!isCancelled) setSyncStatus("error");
+    try {
+      setSyncStatus("syncing");
+      const target = await findShoppingTaskList(accessToken);
+      if (!target) {
+        setSyncStatus("error");
+        return;
       }
-    }
 
-    initGoogleTasks();
-    return () => {
-      isCancelled = true;
-    };
+      gTaskListIdRef.current = target.id;
+      await syncGoogleTasksToArca(accessToken, target.id, items.length > 0 ? items : undefined);
+
+      setSyncStatus("done");
+      setTimeout(() => {
+        setSyncStatus("idle");
+      }, 3000);
+    } catch (err) {
+      console.error("Google Tasks sync error:", err);
+      setSyncStatus("error");
+    }
+  }, [isSignedIn, accessToken, items]);
+
+  // 初回マウント時・認証完了時に自動同期
+  useEffect(() => {
+    if (isSignedIn && accessToken) {
+      syncTasks();
+    }
   }, [isSignedIn, accessToken]);
 
   // 未完了 / 完了済み アイテムの仕分け
@@ -534,10 +510,15 @@ export default function Lists() {
 
     try {
       let googleTaskId: string | undefined;
-      if (isSignedIn && accessToken && gTaskListIdRef.current) {
+      if (isSignedIn && accessToken) {
         try {
-          const gTaskId = await gAddTask(accessToken, gTaskListIdRef.current, text);
-          googleTaskId = gTaskId;
+          if (!gTaskListIdRef.current) {
+            const target = await findShoppingTaskList(accessToken);
+            if (target) gTaskListIdRef.current = target.id;
+          }
+          if (gTaskListIdRef.current) {
+            googleTaskId = await pushItemToGoogleTasks(accessToken, gTaskListIdRef.current, text);
+          }
         } catch (gErr) {
           console.error("Failed to add to Google Tasks:", gErr);
         }
@@ -584,13 +565,11 @@ export default function Lists() {
       const itemNames = uncategorizedItems.map((i) => i.text);
       const catMap = await categorizeItems(itemNames);
 
-      let updatedCount = 0;
       const promises: Promise<unknown>[] = [];
 
       for (const item of uncategorizedItems) {
         const inferred = catMap[item.text];
         if (inferred) {
-          updatedCount++;
           promises.push(
             updateDoc(doc(db, "lists", item.id), { category: inferred })
           );
@@ -610,13 +589,19 @@ export default function Lists() {
     const next = !item.completed;
     try {
       await updateDoc(doc(db, "lists", item.id), { completed: next });
-      if (isSignedIn && accessToken && gTaskListIdRef.current && item.googleTaskId) {
-        await updateTaskStatus(
-          accessToken,
-          gTaskListIdRef.current,
-          item.googleTaskId,
-          next
-        );
+      if (isSignedIn && accessToken && item.googleTaskId) {
+        if (!gTaskListIdRef.current) {
+          const target = await findShoppingTaskList(accessToken);
+          if (target) gTaskListIdRef.current = target.id;
+        }
+        if (gTaskListIdRef.current) {
+          await pushStatusToGoogleTasks(
+            accessToken,
+            gTaskListIdRef.current,
+            item.googleTaskId,
+            next
+          );
+        }
       }
     } catch (err) {
       console.error("Failed to toggle item:", err);
@@ -634,9 +619,17 @@ export default function Lists() {
     }
   }, []);
 
-  // 個別削除（Undo対応）
+  // 個別削除（Undo対応 & Google Tasks 連動）
   const handleDelete = async (item: ListItem) => {
     try {
+      if (isSignedIn && accessToken && item.googleTaskId && gTaskListIdRef.current) {
+        try {
+          await removeItemFromGoogleTasks(accessToken, gTaskListIdRef.current, item.googleTaskId);
+        } catch (gErr) {
+          console.error("Failed to remove item from Google Tasks:", gErr);
+        }
+      }
+
       await deleteDoc(doc(db, "lists", item.id));
 
       showUndoToast({
@@ -645,11 +638,21 @@ export default function Lists() {
         onUndo: async (restored) => {
           const restoredItem = Array.isArray(restored) ? restored[0] : restored;
           if (!restoredItem) return;
+
+          let newGId: string | undefined;
+          if (isSignedIn && accessToken && gTaskListIdRef.current) {
+            try {
+              newGId = await pushItemToGoogleTasks(accessToken, gTaskListIdRef.current, restoredItem.text);
+            } catch (gErr) {
+              console.error("Failed to restore item to Google Tasks:", gErr);
+            }
+          }
+
           await addDoc(collection(db, "lists"), {
             text: restoredItem.text,
             completed: restoredItem.completed,
             category: restoredItem.category || null,
-            googleTaskId: restoredItem.googleTaskId || null,
+            googleTaskId: newGId || null,
             createdAt: serverTimestamp(),
           });
         },
@@ -659,13 +662,25 @@ export default function Lists() {
     }
   };
 
-  // 完了済みアイテムの一括削除実行（Undo対応）
+  // 完了済みアイテムの一括削除実行（Undo対応 & Google Tasks 連動）
   const handleConfirmClearCompleted = async () => {
     if (completed.length === 0) return;
     const toDelete = [...completed];
     setConfirmClearModal(false);
 
     try {
+      if (isSignedIn && accessToken && gTaskListIdRef.current) {
+        for (const item of toDelete) {
+          if (item.googleTaskId) {
+            try {
+              await removeItemFromGoogleTasks(accessToken, gTaskListIdRef.current, item.googleTaskId);
+            } catch (gErr) {
+              console.error("Failed to remove completed item from Google Tasks:", gErr);
+            }
+          }
+        }
+      }
+
       await Promise.all(toDelete.map((item) => deleteDoc(doc(db, "lists", item.id))));
 
       showUndoToast({
@@ -674,15 +689,27 @@ export default function Lists() {
         onUndo: async (restored) => {
           const itemsToRestore = Array.isArray(restored) ? restored : [restored];
           await Promise.all(
-            itemsToRestore.map((item) =>
-              addDoc(collection(db, "lists"), {
+            itemsToRestore.map(async (item) => {
+              let newGId: string | undefined;
+              if (isSignedIn && accessToken && gTaskListIdRef.current) {
+                try {
+                  newGId = await pushItemToGoogleTasks(accessToken, gTaskListIdRef.current, item.text);
+                  if (newGId) {
+                    await pushStatusToGoogleTasks(accessToken, gTaskListIdRef.current, newGId, true);
+                  }
+                } catch (gErr) {
+                  console.error("Failed to restore completed item to Google Tasks:", gErr);
+                }
+              }
+
+              return addDoc(collection(db, "lists"), {
                 text: item.text,
                 completed: true,
                 category: item.category || null,
-                googleTaskId: item.googleTaskId || null,
+                googleTaskId: newGId || null,
                 createdAt: serverTimestamp(),
-              })
-            )
+              });
+            })
           );
         },
       });
@@ -744,6 +771,7 @@ export default function Lists() {
           syncStatus={syncStatus}
           onSignIn={signIn}
           onSignOut={signOut}
+          onManualSync={syncTasks}
         />
       </div>
 

@@ -129,8 +129,10 @@ describe("MarkdownViewer", () => {
   it("コードブロックとコピーボタンが表示され、コピーできる", async () => {
     const codeMd = "```ts\nconst greeting = 'Hello Arca';\n```";
     const writeTextMock = vi.fn().mockResolvedValue(undefined);
-    Object.assign(navigator, {
-      clipboard: { writeText: writeTextMock },
+    Object.defineProperty(navigator, "clipboard", {
+      value: { writeText: writeTextMock },
+      configurable: true,
+      writable: true,
     });
 
     render(<MarkdownViewer content={codeMd} />);
@@ -299,7 +301,7 @@ describe("NoteEditor", () => {
 
     const textarea = screen.getByDisplayValue("テスト内容");
     expect(textarea).toBeInTheDocument();
-    expect(textarea.style.padding).toContain("40vh");
+    expect(textarea.style.paddingBottom || textarea.style.padding).toContain("40vh");
   });
 
   it("テキスト入力で onChange が呼ばれる", async () => {

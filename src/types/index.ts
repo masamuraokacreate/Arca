@@ -72,6 +72,7 @@ export interface CalendarEvent {
   /** "HH:MM" または "" */
   endTime: string;
   note: string;
+  googleEventId?: string;
   createdAt: Timestamp | null;
 }
 
@@ -136,4 +137,7 @@ export interface NoteItem {
 
 export * from "./recipe";
 
-
+// ─────────────────────────────────────────
+// PM（予防保全・勤務周期管理）モジュール
+// ─────────────────────────────────────────
+export * from "./pm";

@@ -4,14 +4,19 @@
  */
 
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { parseRecipeWithGemini } from "./recipeParser";
+import { parseRecipeWithGemini, fetchPageText, PROXY_FETCH_ERROR_MESSAGE } from "./recipeParser";
 
 describe("recipeParser (parseRecipeWithGemini)", () => {
   beforeEach(() => {
     vi.restoreAllMocks();
   });
 
-  it("正常なレシピJSONレスポンスを正しく ParsedRecipeResult に変換する", async () => {
+  /**
+   * URL入力時の fetch 呼び出し回数について:
+   *   1回目 → CORSプロキシ経由でHTMLを取得
+   *   2回目 → Gemini API でレシピを解析
+   */
+  it("正常なレシピJSONレスポンスを正しく ParsedRecipeResult に変換する（URL入力）", async () => {
     const mockResponse = {
       title: "絶品カルボナーラ",
       servings: "2人前",
@@ -31,18 +36,25 @@ describe("recipeParser (parseRecipeWithGemini)", () => {
       notes: "卵液が固まらないように火を止めてから混ぜるのがコツ",
     };
 
-    globalThis.fetch = vi.fn().mockResolvedValue({
-      ok: true,
-      json: async () => ({
-        candidates: [
-          {
-            content: {
-              parts: [{ text: JSON.stringify(mockResponse) }],
+    // 1回目: CORSプロキシ → HTML取得成功
+    // 2回目: Gemini API → レシピJSON取得成功
+    globalThis.fetch = vi.fn()
+      .mockResolvedValueOnce({
+        ok: true,
+        text: async () => `<html><body><main><p>カルボナーラのレシピ本文</p></main></body></html>`,
+      } as unknown as Response)
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({
+          candidates: [
+            {
+              content: {
+                parts: [{ text: JSON.stringify(mockResponse) }],
+              },
             },
-          },
-        ],
-      }),
-    } as unknown as Response);
+          ],
+        }),
+      } as unknown as Response);
 
     const result = await parseRecipeWithGemini("https://example.com/carbonara");
 
@@ -54,9 +66,11 @@ describe("recipeParser (parseRecipeWithGemini)", () => {
     expect(result?.steps).toHaveLength(4);
     expect(result?.tags).toEqual(["イタリアン", "パスタ", "定番"]);
     expect(result?.notes).toContain("卵液が固まらないように");
+    // fetchが2回呼ばれていることを確認
+    expect(globalThis.fetch).toHaveBeenCalledTimes(2);
   });
 
-  it("マークダウンコードブロック ```json で囲まれたレスポンスでもパースできる", async () => {
+  it("マークダウンコードブロック ```json で囲まれたレスポンスでもパースできる（テキスト入力）", async () => {
     const mockJson = JSON.stringify({
       title: "簡単オムライス",
       servings: "1人前",
@@ -65,7 +79,8 @@ describe("recipeParser (parseRecipeWithGemini)", () => {
       tags: ["洋食"],
     });
 
-    globalThis.fetch = vi.fn().mockResolvedValue({
+    // テキスト入力のため fetch は Gemini API の1回のみ
+    globalThis.fetch = vi.fn().mockResolvedValueOnce({
       ok: true,
       json: async () => ({
         candidates: [
@@ -83,10 +98,11 @@ describe("recipeParser (parseRecipeWithGemini)", () => {
     expect(result).not.toBeNull();
     expect(result?.title).toBe("簡単オムライス");
     expect(result?.ingredients[0].name).toBe("卵");
+    expect(globalThis.fetch).toHaveBeenCalledTimes(1);
   });
 
-  it("材料や手順が欠けている場合でもデフォルト値で安全に補完される", async () => {
-    globalThis.fetch = vi.fn().mockResolvedValue({
+  it("材料や手順が欠けている場合でもデフォルト値で安全に補完される（テキスト入力）", async () => {
+    globalThis.fetch = vi.fn().mockResolvedValueOnce({
       ok: true,
       json: async () => ({
         candidates: [
@@ -118,14 +134,86 @@ describe("recipeParser (parseRecipeWithGemini)", () => {
     expect(fetchSpy).not.toHaveBeenCalled();
   });
 
-  it("APIエラー（HTTP 500）発生時はクラッシュせず null を返す", async () => {
-    globalThis.fetch = vi.fn().mockResolvedValue({
-      ok: false,
-      status: 500,
-      text: async () => "Internal Server Error",
-    } as unknown as Response);
+  it("Gemini APIエラー（HTTP 500）発生時はクラッシュせず null を返す（URL入力）", async () => {
+    // 1回目: CORSプロキシ → HTML取得成功
+    // 2回目: Gemini API → 500エラー
+    globalThis.fetch = vi.fn()
+      .mockResolvedValueOnce({
+        ok: true,
+        text: async () => `<html><body><main><p>レシピ本文</p></main></body></html>`,
+      } as unknown as Response)
+      .mockResolvedValueOnce({
+        ok: false,
+        status: 500,
+        text: async () => "Internal Server Error",
+      } as unknown as Response);
 
     const result = await parseRecipeWithGemini("https://example.com/fail");
     expect(result).toBeNull();
   });
+
+  it("全プロキシが失敗した場合は PROXY_FETCH_ERROR_MESSAGE で Error を throw する", async () => {
+    // 全プロキシが HTTP 403 を返す（2回分）
+    globalThis.fetch = vi.fn()
+      .mockResolvedValueOnce({
+        ok: false,
+        status: 403,
+        text: async () => "Forbidden",
+      } as unknown as Response)
+      .mockResolvedValueOnce({
+        ok: false,
+        status: 403,
+        text: async () => "Forbidden",
+      } as unknown as Response);
+
+    await expect(
+      parseRecipeWithGemini("https://blocked-site.example.com/recipe")
+    ).rejects.toThrow(PROXY_FETCH_ERROR_MESSAGE);
+  });
 });
+
+describe("fetchPageText", () => {
+  beforeEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it("1つ目のプロキシ成功時にテキストを返す", async () => {
+    globalThis.fetch = vi.fn().mockResolvedValueOnce({
+      ok: true,
+      text: async () => `<html><body><main><p>レシピ本文テキスト</p></main></body></html>`,
+    } as unknown as Response);
+
+    const result = await fetchPageText("https://example.com/recipe");
+    expect(result).toContain("レシピ本文テキスト");
+    expect(globalThis.fetch).toHaveBeenCalledTimes(1);
+  });
+
+  it("1つ目のプロキシ失敗→2つ目のプロキシ成功時にテキストを返す", async () => {
+    globalThis.fetch = vi.fn()
+      .mockResolvedValueOnce({
+        ok: false,
+        status: 403,
+        text: async () => "Forbidden",
+      } as unknown as Response)
+      .mockResolvedValueOnce({
+        ok: true,
+        text: async () => `<html><body><article><p>フォールバックで取得したレシピ</p></article></body></html>`,
+      } as unknown as Response);
+
+    const result = await fetchPageText("https://example.com/recipe");
+    expect(result).toContain("フォールバックで取得したレシピ");
+    expect(globalThis.fetch).toHaveBeenCalledTimes(2);
+  });
+
+  it("全プロキシ失敗時に PROXY_FETCH_ERROR_MESSAGE で Error を throw する", async () => {
+    globalThis.fetch = vi.fn()
+      .mockResolvedValueOnce({ ok: false, status: 403, text: async () => "" } as unknown as Response)
+      .mockResolvedValueOnce({ ok: false, status: 403, text: async () => "" } as unknown as Response);
+
+    await expect(fetchPageText("https://blocked.example.com")).rejects.toThrow(
+      PROXY_FETCH_ERROR_MESSAGE
+    );
+  });
+});
+
+

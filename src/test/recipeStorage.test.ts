@@ -62,6 +62,30 @@ describe("recipeStorage ユーティリティ", () => {
     expect(addDoc).toHaveBeenCalledTimes(1);
   });
 
+  it("createRecipe は undefined 値を Firestore に渡さない（Firestore 保存エラー防止）", async () => {
+    (addDoc as any).mockResolvedValueOnce({ id: "safe-id" });
+
+    // sourceUrl / imageUrl / notes を意図的に undefined にした不完全なデータ
+    const incompleteData = {
+      ...createDefaultRecipe(),
+      sourceUrl: undefined as unknown as string,
+      imageUrl: undefined as unknown as string,
+      notes: undefined as unknown as string,
+    };
+
+    await createRecipe(incompleteData);
+
+    const calledWith = (addDoc as any).mock.calls[0][1];
+    // Firestoreへ渡されるオブジェクトに undefined 値が存在しないこと
+    const hasUndefined = Object.values(calledWith).some((v) => v === undefined);
+    expect(hasUndefined).toBe(false);
+    // オプショナル項目は空文字列に正規化されていること
+    expect(calledWith.sourceUrl).toBe("");
+    expect(calledWith.imageUrl).toBe("");
+    expect(calledWith.notes).toBe("");
+  });
+
+
   it("updateRecipe が updateDoc を呼び出す", async () => {
     await updateRecipe("rec-1", { title: "更新されたタイトル" });
     expect(updateDoc).toHaveBeenCalledTimes(1);

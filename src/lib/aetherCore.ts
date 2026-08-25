@@ -473,6 +473,7 @@ export async function generateDailyBriefing(params: {
   events: { title: string; startTime?: string; note?: string }[];
   tasks: { title: string; dueDate?: string | null; priority?: string }[];
   listsCount: number;
+  pmTasks?: { title: string; dayIndex?: number; content?: string }[];
 }): Promise<string | null> {
   if (!API_KEY) return null;
 
@@ -487,9 +488,15 @@ export async function generateDailyBriefing(params: {
     params.tasks.length > 0
       ? params.tasks.map((t) => `${t.title}${t.priority === "high" ? "（優先）" : ""}`).join("、")
       : "なし";
+  const pmSummary =
+    params.pmTasks && params.pmTasks.length > 0
+      ? params.pmTasks
+          .map((p) => `${p.dayIndex ? `Day ${p.dayIndex}: ` : ""}${p.title}${p.content ? `（${p.content}）` : ""}`)
+          .join("、")
+      : "なし";
 
   const systemInstruction = `あなたは洗練された知的なパーソナルアシスタント（静かな執事）です。
-ユーザーの一日の予定・未完了タスク・買い物リストの件数から、今日一日の行動を静かにサポートする簡潔で品のあるメッセージを日本語で作成してください。
+ユーザーの一日の予定・未完了タスク・買い物リストの件数、および本日の予防保全（PM）計画から、今日一日の行動を静かにサポートする簡潔で品のあるメッセージを日本語で作成してください。
 
 【制約】
 - 長さは60〜100文字程度（1〜2文）
@@ -499,7 +506,8 @@ export async function generateDailyBriefing(params: {
   const prompt = `【今日の情報】
 - 予定: ${eventsSummary}
 - タスク: ${tasksSummary}
-- 買い物リスト: ${params.listsCount}件の未完了アイテム`;
+- 買い物リスト: ${params.listsCount}件の未完了アイテム
+- 予防保全（PM）計画: ${pmSummary}`;
 
   try {
     const res = await fetch(`${ENDPOINT}?key=${API_KEY}`, {

@@ -378,7 +378,13 @@ export function RecipeEditor({
       }
     } catch (err) {
       console.error("AI recipe parsing failed:", err);
-      showToast("解析エラーが発生しました。テキストを貼り付けてお試しください");
+      // プロキシ取得失敗など、ユーザーへの指示を含む専用メッセージの場合はそのまま表示
+      if (err instanceof Error && err.message) {
+        showToast(err.message);
+      } else {
+        showToast("解析エラーが発生しました。テキストを貼り付けてお試しください");
+      }
+      // プロキシ失敗の場合はテキスト貼り付けを促すためモーダルを開く
       setShowAiInputModal(true);
     } finally {
       setIsParsingRecipe(false);
@@ -403,20 +409,22 @@ export function RecipeEditor({
     const cleanSteps = steps.filter((s) => s.text.trim());
 
     const now = Date.now();
+    // Firestore は undefined 値を拒否するため、オプショナル項目は空文字列に正規化する
     const recipeData: Omit<Recipe, "id"> = {
       title: title.trim() || "無題のレシピ",
       servings: servings.trim() || "1人前",
-      sourceUrl: sourceUrl.trim() || undefined,
-      imageUrl: imageUrl || undefined,
-      notes: notes.trim() || undefined,
+      sourceUrl: sourceUrl.trim() || "",
+      imageUrl: imageUrl || "",
+      notes: notes.trim() || "",
       tags: parsedTags,
-      favorite,
+      favorite: Boolean(favorite),
       ingredients: cleanIngredients,
       steps: cleanSteps,
       createdAt: initialRecipe?.createdAt || now,
       updatedAt: now,
       isDeleted: false,
     };
+
 
     try {
       await onSave(recipeData);

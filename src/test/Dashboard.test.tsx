@@ -10,7 +10,7 @@ import Dashboard from "../components/Dashboard";
 
 describe("Dashboard コンポーネント", () => {
   beforeEach(() => {
-    vi.resetAllMocks();
+    vi.clearAllMocks();
     (onSnapshot as Mock).mockImplementation((_query: unknown, callback: (snap: unknown) => void) => {
       callback({ docs: [] });
       return vi.fn();

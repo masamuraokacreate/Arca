@@ -28,6 +28,9 @@ export interface BackupCounts {
   events: number;
   notes: number;
   recipes?: number;
+  /** PM モジュール（Sprint 9） */
+  pmTemplates?: number;
+  pmLogs?: number;
 }
 
 export interface BackupData {
@@ -41,6 +44,10 @@ export interface BackupData {
     events: Record<string, unknown>[];
     notes: Record<string, unknown>[];
     recipes?: Record<string, unknown>[];
+    /** PM モジュール（Sprint 9） */
+    pmSettings?: Record<string, unknown>[];
+    pmTemplates?: Record<string, unknown>[];
+    pmLogs?: Record<string, unknown>[];
   };
 }
 
@@ -138,14 +145,21 @@ export function saveLastBackupInfo(info: LastBackupInfo): void {
 // 1. バックアップデータ集約生成
 // ─────────────────────────────────────────
 
-/** 全モジュール（Lists, Tasks, Events, Notes, Recipes）の全データをFirestoreから集約 */
+/** 全モジュール（Lists, Tasks, Events, Notes, Recipes, PM）の全データをFirestoreから集約 */
 export async function generateBackupData(): Promise<BackupData> {
-  const [listsSnap, tasksSnap, eventsSnap, notesSnap, recipesSnap] = await Promise.all([
+  const [
+    listsSnap, tasksSnap, eventsSnap, notesSnap, recipesSnap,
+    pmSettingsSnap, pmTemplatesSnap, pmLogsSnap,
+  ] = await Promise.all([
     getDocs(collection(db, "lists")),
     getDocs(collection(db, "tasks")),
     getDocs(collection(db, "events")),
     getDocs(collection(db, "notes")),
     getDocs(collection(db, "recipes")),
+    // PM モジュール（Sprint 9）
+    getDocs(collection(db, "pm_settings")),
+    getDocs(collection(db, "pm_templates")),
+    getDocs(collection(db, "pm_logs")),
   ]);
 
   const lists = listsSnap.docs.map((d) => ({
@@ -173,12 +187,28 @@ export async function generateBackupData(): Promise<BackupData> {
     ...sanitizeDocData(d.data()),
   }));
 
+  // PM コレクション
+  const pmSettings = pmSettingsSnap.docs.map((d) => ({
+    id: d.id,
+    ...sanitizeDocData(d.data()),
+  }));
+  const pmTemplates = pmTemplatesSnap.docs.map((d) => ({
+    id: d.id,
+    ...sanitizeDocData(d.data()),
+  }));
+  const pmLogs = pmLogsSnap.docs.map((d) => ({
+    id: d.id,
+    ...sanitizeDocData(d.data()),
+  }));
+
   const counts: BackupCounts = {
     lists: lists.length,
     tasks: tasks.length,
     events: events.length,
     notes: notes.length,
     recipes: recipes.length,
+    pmTemplates: pmTemplates.length,
+    pmLogs: pmLogs.length,
   };
 
   return {
@@ -192,6 +222,9 @@ export async function generateBackupData(): Promise<BackupData> {
       events,
       notes,
       recipes,
+      pmSettings,
+      pmTemplates,
+      pmLogs,
     },
   };
 }
@@ -398,10 +431,18 @@ export async function restoreFromJson(
   const eventsData = Array.isArray(backup.data.events) ? backup.data.events : [];
   const notesData = Array.isArray(backup.data.notes) ? backup.data.notes : [];
   const recipesData = Array.isArray(backup.data.recipes) ? backup.data.recipes : [];
+  // PM コレクション（Sprint 9 以降のバックアップに含まれる）
+  const pmSettingsData = Array.isArray(backup.data.pmSettings) ? backup.data.pmSettings : [];
+  const pmTemplatesData = Array.isArray(backup.data.pmTemplates) ? backup.data.pmTemplates : [];
+  const pmLogsData = Array.isArray(backup.data.pmLogs) ? backup.data.pmLogs : [];
 
   // 完全上書きモードの場合は既存データを削除
   if (mode === "overwrite") {
-    const collectionsToClear = ["lists", "tasks", "events", "notes", "recipes"];
+    const collectionsToClear = [
+      "lists", "tasks", "events", "notes", "recipes",
+      // PM コレクション
+      "pm_settings", "pm_templates", "pm_logs",
+    ];
     for (const colName of collectionsToClear) {
       const snap = await getDocs(collection(db, colName));
       const chunks: typeof snap.docs[] = [];
@@ -445,6 +486,10 @@ export async function restoreFromJson(
     writeCollection("events", eventsData),
     writeCollection("notes", notesData),
     writeCollection("recipes", recipesData),
+    // PM コレクション
+    writeCollection("pm_settings", pmSettingsData),
+    writeCollection("pm_templates", pmTemplatesData),
+    writeCollection("pm_logs", pmLogsData),
   ]);
 
   return {
@@ -455,6 +500,8 @@ export async function restoreFromJson(
       events: eventsData.length,
       notes: notesData.length,
       recipes: recipesData.length,
+      pmTemplates: pmTemplatesData.length,
+      pmLogs: pmLogsData.length,
     },
     mode,
   };

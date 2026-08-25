@@ -15,7 +15,7 @@ import type { ExtractedActionableItems } from "../types";
 
 describe("Aether Core extractActionableItems", () => {
   beforeEach(() => {
-    vi.resetAllMocks();
+    vi.clearAllMocks();
     import.meta.env.VITE_GEMINI_API_KEY = "test-key";
   });
 
@@ -100,7 +100,7 @@ describe("AetherExtractModal コンポーネント", () => {
   };
 
   beforeEach(() => {
-    vi.resetAllMocks();
+    vi.clearAllMocks();
     (addDoc as Mock).mockResolvedValue({ id: "mock-doc-id" });
   });
 
