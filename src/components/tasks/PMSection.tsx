@@ -35,7 +35,6 @@ import {
   savePMTemplate,
   deletePMTemplate,
   seedDefaultPMTemplatesIfEmpty,
-  resolveDateShiftInfo,
   resolveShiftInfo,
   saveShiftOverride,
   getActivePMTasksForDate,
@@ -43,7 +42,8 @@ import {
 } from "../../services/pmCycleService";
 import { PMSkipReasonModal } from "./PMSkipReasonModal";
 import { PMSettingsModal } from "./PMSettingsModal";
-import { PMShiftOverrideModal } from "./PMShiftOverrideModal";
+import { ShiftOverrideModal } from "../calendar/ShiftOverrideModal";
+import { ShiftBadge } from "../calendar/ShiftBadge";
 
 // ─────────────────────────────────────────
 // インライン SVG アイコン
@@ -117,15 +117,11 @@ export function PMSection({ date, events }: PMSectionProps) {
   useEffect(() => {
     let isCancelled = false;
 
-    // 設定リアルタイム購読（main または config）
-    const unsubSettings = onSnapshot(doc(db, "pm_settings", "main"), (snap) => {
+    // 設定リアルタイム購読
+    const unsubSettings = onSnapshot(doc(db, "shift_settings", "main"), (snap) => {
       if (isCancelled) return;
       if (snap?.exists?.()) {
         setSettings(snap.data() as PMSettings);
-      } else {
-        getDoc(doc(db, "pm_settings", "config")).then((cSnap) => {
-          if (!isCancelled && cSnap?.exists?.()) setSettings(cSnap.data() as PMSettings);
-        });
       }
       setLoading(false);
     });
@@ -177,7 +173,7 @@ export function PMSection({ date, events }: PMSectionProps) {
     if (wasModalOpenRef.current && !showSettings) {
       const reloadSettings = async () => {
         try {
-          const snap = await getDoc(doc(db, "pm_settings", "main"));
+          const snap = await getDoc(doc(db, "shift_settings", "main"));
           if (snap?.exists?.()) setSettings(snap.data() as PMSettings);
         } catch {
           // ignore
@@ -190,7 +186,6 @@ export function PMSection({ date, events }: PMSectionProps) {
 
   // シフト状態判定（手動オーバーライド最優先）
   const currentShift = resolveShiftInfo(targetDate, calendarEvents, settings);
-  const shiftInfo = resolveDateShiftInfo(targetDate, calendarEvents, settings);
   const detectedAnchor = calendarEvents.length > 0 ? detectAnchorFromEvents(calendarEvents)?.anchorDate : undefined;
 
   // Day 計算（フォールバック用）
@@ -324,41 +319,12 @@ export function PMSection({ date, events }: PMSectionProps) {
 
             {/* シフト・サイクルピル */}
             {settings && (
-              <button
-                type="button"
+              <ShiftBadge
+                shift={currentShift}
                 onClick={() => setShowShiftOverrideModal(true)}
-                data-testid="pm-shift-badge"
-                style={{
-                  fontSize: "0.68rem",
-                  fontWeight: 700,
-                  color: shiftInfo.isRestDay ? C.sage : C.goldDark,
-                  background: shiftInfo.isRestDay ? "rgba(82, 121, 111, 0.10)" : C.goldFaint,
-                  border: currentShift.isOverridden
-                    ? `1px dashed ${shiftInfo.isRestDay ? C.sage : C.gold}`
-                    : "1px solid transparent",
-                  padding: "0.15rem 0.55rem",
-                  borderRadius: "9999px",
-                  letterSpacing: "0.03em",
-                  cursor: "pointer",
-                  display: "inline-flex",
-                  alignItems: "center",
-                  gap: "0.25rem",
-                  transition: "all 0.15s ease",
-                }}
-                title="クリックして勤務・休日ステータスを手動補正"
-              >
-                <span>
-                  {shiftInfo.isRestDay
-                    ? `🌙 休日 ${shiftInfo.consecutiveIndex}日目`
-                    : `✦ 出勤 ${shiftInfo.consecutiveIndex}日目${shiftInfo.shiftTitle ? ` (${shiftInfo.shiftTitle})` : ""}`}
-                </span>
-                {currentShift.isOverridden && (
-                  <span style={{ fontSize: "0.6rem", opacity: 0.85 }}>(手動)</span>
-                )}
-                <svg viewBox="0 0 24 24" fill="none" strokeWidth={2} stroke="currentColor" style={{ width: "0.62rem", height: "0.62rem", opacity: 0.7 }}>
-                  <path strokeLinecap="round" strokeLinejoin="round" d="m16.862 4.487 1.687-1.688a1.875 1.875 0 1 1 2.652 2.652L10.582 16.07a4.5 4.5 0 0 1-1.897 1.13L6 18l.8-2.685a4.5 4.5 0 0 1 1.13-1.897l8.932-8.931Zm0 0L19.5 7.125" />
-                </svg>
-              </button>
+                testId="pm-shift-badge"
+                size="sm"
+              />
             )}
           </div>
 
@@ -672,7 +638,7 @@ export function PMSection({ date, events }: PMSectionProps) {
       )}
 
       {/* ─── 出勤ステータス確認 & 手動調整モーダル ─── */}
-      <PMShiftOverrideModal
+      <ShiftOverrideModal
         isOpen={showShiftOverrideModal}
         targetDate={targetDate}
         currentShift={currentShift}

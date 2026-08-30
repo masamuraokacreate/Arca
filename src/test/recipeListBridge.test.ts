@@ -37,8 +37,8 @@ describe("recipeListBridge ユーティリティ", () => {
   });
 
   describe("addIngredientToList", () => {
-    it("単一の材料を Lists コレクションに addDoc で保存する", async () => {
-      const mockDocId = "list-doc-123";
+    it("単一の材料を tasks コレクション (listId: 'shopping') に addDoc で保存する", async () => {
+      const mockDocId = "task-doc-123";
       (addDoc as any).mockResolvedValueOnce({ id: mockDocId });
 
       const id = await addIngredientToList("特製ハンバーグ", {
@@ -52,10 +52,9 @@ describe("recipeListBridge ユーティリティ", () => {
       expect(addDoc).toHaveBeenCalledWith(
         expect.anything(),
         expect.objectContaining({
-          text: "玉ねぎ 1個",
+          title: "玉ねぎ 1個 (📎 特製ハンバーグ)",
           completed: false,
-          category: "食材",
-          note: "📎 レシピ: 特製ハンバーグ",
+          listId: "shopping",
         })
       );
     });
@@ -95,10 +94,9 @@ describe("recipeListBridge ユーティリティ", () => {
       expect(mockSet).toHaveBeenCalledWith(
         expect.anything(),
         expect.objectContaining({
-          text: "豚肉 200g",
+          title: "豚肉 200g (📎 生姜焼き)",
           completed: false,
-          category: "食材",
-          note: "📎 レシピ: 生姜焼き",
+          listId: "shopping",
         })
       );
     });

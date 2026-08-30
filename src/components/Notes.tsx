@@ -272,7 +272,7 @@ const GLOBAL_STYLES = `
     top: calc(52px + env(safe-area-inset-top, 0px));
     z-index: 50;
     width: 100%;
-    background: rgba(253, 252, 250, 0.88);
+    background: rgba(253, 252, 250, 0.92);
     backdrop-filter: blur(16px) saturate(180%);
     -webkit-backdrop-filter: blur(16px) saturate(180%);
     box-shadow: 0 1px 0 rgba(0, 0, 0, 0.05);
@@ -289,6 +289,11 @@ const GLOBAL_STYLES = `
     -webkit-overflow-scrolling: touch;
     scrollbar-width: none;
     -ms-overflow-style: none;
+  }
+  @media (max-width: 639px) {
+    .arca-toolbar {
+      top: calc(88px + env(safe-area-inset-top, 0px));
+    }
   }
   .arca-toolbar::-webkit-scrollbar {
     display: none;
@@ -548,8 +553,8 @@ export function NoteViewer({
           justifyContent: "center",
           gap: "2rem",
           padding: isFullWidth
-            ? "2.5rem clamp(1.5rem, 5vw, 4rem) 8rem"
-            : "2.5rem clamp(1rem, 4vw, 3rem) 8rem",
+            ? "2rem clamp(1.5rem, 5vw, 4rem) 6rem"
+            : "2rem clamp(1rem, 4vw, 3rem) 6rem",
           boxSizing: "border-box",
         }}
       >
@@ -560,13 +565,13 @@ export function NoteViewer({
             maxWidth: isFullWidth ? "100%" : "880px",
             flex: 1,
             minWidth: 0,
-            background: "rgba(255, 255, 255, 0.88)",
+            background: "rgba(255, 255, 255, 0.92)",
             backdropFilter: "blur(20px) saturate(180%)",
             WebkitBackdropFilter: "blur(20px) saturate(180%)",
-            borderRadius: "24px",
+            borderRadius: "22px",
             boxShadow: "0 4px 28px rgba(0, 0, 0, 0.04), 0 1px 3px rgba(0, 0, 0, 0.02)",
             border: "1px solid rgba(255, 255, 255, 0.8)",
-            padding: "3.5rem clamp(1.75rem, 5vw, 4.5rem) 5rem",
+            padding: "2.5rem clamp(1.5rem, 4vw, 3.5rem) 2.5rem",
             boxSizing: "border-box",
             transition: "all 0.3s ease",
           }}
@@ -1847,13 +1852,13 @@ export default function Notes({
         data-testid="markdown-file-input"
       />
 
-      {/* 固定背景（スクロール時見切れ防止） */}
+      {/* 固定背景（上品なベージュ・アイボリー余白を常時確保） */}
       <div
         style={{
           position: "fixed",
           inset: 0,
           zIndex: -10,
-          background: view.type === "viewer" ? C.bgEditor : C.bgGrad,
+          background: C.bgGrad,
           transition: "background 0.3s ease",
         }}
       />

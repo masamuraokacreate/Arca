@@ -14,6 +14,7 @@
 import { useState, useCallback, type ReactNode, isValidElement } from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
+import remarkBreaks from "remark-breaks";
 import { C } from "../../lib/designSystem";
 
 export interface MarkdownViewerProps {
@@ -195,7 +196,7 @@ export function MarkdownViewer({ content, onContentChange }: MarkdownViewerProps
   return (
     <div className="arca-prose">
       <ReactMarkdown
-        remarkPlugins={[remarkGfm]}
+        remarkPlugins={[remarkGfm, remarkBreaks]}
         components={{
           h1: ({ children }) => renderHeading(1, children),
           h2: ({ children }) => renderHeading(2, children),

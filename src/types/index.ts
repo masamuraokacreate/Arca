@@ -44,17 +44,29 @@ export interface SubTaskItem {
   completed: boolean;
 }
 
+/** タスクリストカテゴリ（動的タブ用） */
+export interface TaskListCategory {
+  id: string; // 'default' | 'shopping' | string
+  title: string;
+  googleListId?: string;
+  isDefault?: boolean;
+}
+
 /** タスク1件 */
 export interface TaskItem {
   id: string;
   title: string;
   /** "YYYY-MM-DD" または null */
-  dueDate: string | null;
+  dueDate?: string | null;
   completed: boolean;
   priority?: "low" | "medium" | "high";
+  /** 所属リストID（デフォルト: 'default'） */
+  listId?: string;
   googleTaskId?: string | null;
+  googleListId?: string | null;
   subtasks?: SubTaskItem[];
   createdAt: Timestamp | null;
+  updatedAt?: string | null;
 }
 
 // ─────────────────────────────────────────
@@ -140,8 +152,9 @@ export interface NoteItem {
 export * from "./recipe";
 
 // ─────────────────────────────────────────
-// PM（予防保全・勤務周期管理）モジュール
+// 勤務シフト（Shift） & PM（予防保全）モジュール
 // ─────────────────────────────────────────
+export * from "./shift";
 export * from "./pm";
 
 // ─────────────────────────────────────────

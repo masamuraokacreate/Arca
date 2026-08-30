@@ -15,7 +15,6 @@ import {
   updateDoc,
   deleteDoc,
   doc,
-  getDoc,
   onSnapshot,
   query,
   where,
@@ -45,8 +44,10 @@ import {
   saveShiftOverride,
   getActivePMTasksForDate,
   DEFAULT_PM_SETTINGS,
+  isWorkEvent,
 } from "../services/pmCycleService";
-import { PMShiftOverrideModal } from "./tasks/PMShiftOverrideModal";
+import { ShiftOverrideModal } from "./calendar/ShiftOverrideModal";
+import { ShiftBadge } from "./calendar/ShiftBadge";
 
 type Task = CalendarTask;
 
@@ -452,6 +453,7 @@ function AddEventForm({
       style={{
         padding: "1rem 1.15rem",
         marginTop: "0.5rem",
+        borderRadius: "16px",
         animation: "arca-module-in 0.18s ease",
       }}
     >
@@ -635,6 +637,7 @@ function AddTaskForm({
       style={{
         padding: "1rem 1.15rem",
         marginTop: "0.5rem",
+        borderRadius: "16px",
         animation: "arca-module-in 0.18s ease",
       }}
     >
@@ -734,7 +737,7 @@ function MonthGrid({
   // 勤務・シフト予定のマップ化（手動オーバーライドも考慮）
   const shiftMap = new Map<string, { isWork: boolean; title?: string }>();
   for (const ev of events) {
-    const isWork = /仕事|早番|遅番|勤務|日勤|当直|夜勤|出勤|シフト/i.test(ev.title);
+    const isWork = isWorkEvent(ev.title);
     if (isWork && !shiftMap.has(ev.date)) {
       shiftMap.set(ev.date, { isWork: true, title: ev.title });
     }
@@ -797,7 +800,7 @@ function MonthGrid({
   }
 
   return (
-    <div className="arca-card" style={{ padding: "1.25rem 1.4rem" }}>
+    <div className="arca-card" style={{ padding: "1.25rem 1.4rem", borderRadius: "20px" }}>
       {/* 月ナビゲーションヘッダー */}
       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: "1.1rem" }}>
         <h2 style={{ fontSize: "1.05rem", fontWeight: 700, color: C.charcoal, margin: 0, letterSpacing: "-0.01em" }}>
@@ -1218,16 +1221,11 @@ export default function Calendar() {
     });
   }, []);
 
-  // ── Firestore: PM 設定・テンプレート・ログ 購読 ──
+  // ── Firestore: 勤務シフト設定・PMテンプレート・ログ 購読 ──
   useEffect(() => {
-    const unsubSettings = onSnapshot(doc(db, "pm_settings", "main"), (snap) => {
+    const unsubSettings = onSnapshot(doc(db, "shift_settings", "main"), (snap) => {
       if (snap?.exists?.()) {
         setPmSettings(snap.data() as PMSettings);
-      } else {
-        // フォールバック: config
-        getDoc(doc(db, "pm_settings", "config")).then((cSnap) => {
-          if (cSnap?.exists?.()) setPmSettings(cSnap.data() as PMSettings);
-        });
       }
     });
 
@@ -1258,9 +1256,15 @@ export default function Calendar() {
       setTimeout(() => {
         setSyncStatus("idle");
       }, 3000);
-    } catch (err) {
-      console.error("Google Calendar sync error:", err);
+    } catch (err: any) {
+      console.error("[Google Calendar Sync Error] 同期に失敗しました:", err);
       setSyncStatus("error");
+      const isScope = err?.status === 403 || err?.message?.includes("403") || err?.message?.includes("SCOPE");
+      showMessageToast(
+        isScope
+          ? "Googleカレンダーの権限が不足しています。再同意・再接続してください。"
+          : "Googleカレンダーの同期に失敗しました。再接続をお試しください。"
+      );
     }
   }, [isSignedIn, accessToken, events]);
 
@@ -1551,41 +1555,12 @@ export default function Calendar() {
         </h2>
 
         {/* シフト状態バッジ（クリックで出勤ステータス確認モーダル） */}
-        <button
-          type="button"
+        <ShiftBadge
+          shift={selectedShift}
           onClick={() => setShowShiftOverrideModal(true)}
-          data-testid="calendar-shift-badge"
-          style={{
-            fontSize: "0.72rem",
-            fontWeight: 650,
-            color: selectedShift.type === "holiday" ? C.sage : C.goldDark,
-            background: selectedShift.type === "holiday" ? "rgba(82, 121, 111, 0.10)" : C.goldFaint,
-            border: selectedShift.isOverridden
-              ? `1px dashed ${selectedShift.type === "holiday" ? C.sage : C.gold}`
-              : "1px solid transparent",
-            padding: "0.22rem 0.75rem",
-            borderRadius: "9999px",
-            cursor: "pointer",
-            display: "inline-flex",
-            alignItems: "center",
-            gap: "0.35rem",
-            transition: "all 0.15s ease",
-            boxShadow: "0 1px 4px rgba(0,0,0,0.02)",
-          }}
-          title="クリックして出勤ステータス確認・手動調整"
-        >
-          <span>
-            {selectedShift.type === "holiday"
-              ? `🌙 休日 ${selectedShift.streakNumber}日目`
-              : `✦ 出勤 ${selectedShift.streakNumber}日目${selectedShift.shiftName ? ` (${selectedShift.shiftName})` : ""}`}
-          </span>
-          {selectedShift.isOverridden && (
-            <span style={{ fontSize: "0.62rem", opacity: 0.85 }}>(手動)</span>
-          )}
-          <svg viewBox="0 0 24 24" fill="none" strokeWidth={2} stroke="currentColor" style={{ width: "0.68rem", height: "0.68rem", opacity: 0.7 }}>
-            <path strokeLinecap="round" strokeLinejoin="round" d="m16.862 4.487 1.687-1.688a1.875 1.875 0 1 1 2.652 2.652L10.582 16.07a4.5 4.5 0 0 1-1.897 1.13L6 18l.8-2.685a4.5 4.5 0 0 1 1.13-1.897l8.932-8.931Zm0 0L19.5 7.125" />
-          </svg>
-        </button>
+          testId="calendar-shift-badge"
+          size="sm"
+        />
       </div>
 
       {/* ─── 左右2ペイン（PC: 2カラム横並び / モバイル: 縦積み） ─── */}
@@ -1616,7 +1591,7 @@ export default function Calendar() {
           style={{ animation: "arca-module-in 0.22s ease" }}
         >
           {/* ── 予定セクション ── */}
-          <div className="arca-card" style={{ padding: "1.15rem 1.4rem" }}>
+          <div className="arca-card" style={{ padding: "1.15rem 1.4rem", borderRadius: "20px" }}>
             <p style={sectionLabelStyle}>予定</p>
 
             {dayEvents.length === 0 ? (
@@ -1641,7 +1616,7 @@ export default function Calendar() {
           </div>
 
           {/* ── タスク期限セクション ── */}
-          <div className="arca-card" style={{ padding: "1.15rem 1.4rem" }}>
+          <div className="arca-card" style={{ padding: "1.15rem 1.4rem", borderRadius: "20px" }}>
             <p style={sectionLabelStyle}>タスク期限</p>
 
             {dayTasks.length === 0 ? (
@@ -1666,7 +1641,7 @@ export default function Calendar() {
 
           {/* ── PM（予防保全）セクション ── */}
           {selectedDatePMItems.length > 0 && (
-            <div className="arca-card" style={{ padding: "1.15rem 1.4rem" }}>
+            <div className="arca-card" style={{ padding: "1.15rem 1.4rem", borderRadius: "20px" }}>
               <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: "0.75rem" }}>
                 <div style={{ display: "flex", alignItems: "center", gap: "0.45rem" }}>
                   <span style={{ fontSize: "0.75rem", color: C.gold }}>✦</span>
@@ -1771,7 +1746,7 @@ export default function Calendar() {
       </div>
 
       {/* ─── 出勤ステータス確認 & 手動調整モーダル ─── */}
-      <PMShiftOverrideModal
+      <ShiftOverrideModal
         isOpen={showShiftOverrideModal}
         targetDate={selectedDate}
         currentShift={selectedShift}

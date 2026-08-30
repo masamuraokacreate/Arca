@@ -9,35 +9,32 @@
  *  - 各タイル内部スクロール（overflow-y-auto）とモバイル縦スクロール対応
  */
 
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import {
   collection,
   query,
-  where,
   onSnapshot,
   orderBy,
   doc,
-  getDoc,
   updateDoc,
 } from "firebase/firestore";
 import { db } from "../lib/firebase";
-import type { CalendarEvent, TaskItem, ListItem, NoteItem, SyncStatus } from "../types";
-import type { PMSettings, PMTemplateItem, PMLogItem } from "../types/pm";
+import type { CalendarEvent, TaskItem, NoteItem, TaskListCategory, SyncStatus } from "../types";
+import type { PMSettings } from "../types/pm";
 import type { Recipe } from "../types/recipe";
 import { subscribeRecipes } from "../lib/recipeStorage";
 import { C } from "../lib/designSystem";
 import {
-  recordPMLog,
-  buildLogMapForDate,
-  resolveItemStatus,
   resolveShiftInfo,
   saveShiftOverride,
-  getActivePMTasksForDate,
   DEFAULT_PM_SETTINGS,
 } from "../services/pmCycleService";
 import { useGoogleAuth } from "../hooks/useGoogleAuth";
 import { syncGoogleCalendarToArca } from "../services/googleCalendarSync";
-import { PMShiftOverrideModal } from "./tasks/PMShiftOverrideModal";
+import { getTaskLists, type GTaskList } from "../lib/googleTasks";
+import { createGoogleTaskList } from "../services/googleTasksSync";
+import { ShiftOverrideModal } from "./calendar/ShiftOverrideModal";
+import { ShiftBadge } from "./calendar/ShiftBadge";
 
 // ---------- ユーティリティ ----------
 function toDateStr(y: number, m: number, d: number): string {
@@ -154,10 +151,161 @@ export default function Dashboard({ onNavigate, onSelectNote }: DashboardProps =
 
   const [events, setEvents] = useState<CalendarEvent[]>([]);
   const [tasks, setTasks] = useState<TaskItem[]>([]);
-  const [lists, setLists] = useState<ListItem[]>([]);
   const [notes, setNotes] = useState<NoteItem[]>([]);
   const [recipes, setRecipes] = useState<Recipe[]>([]);
-  const [taskTab, setTaskTab] = useState<"tasks" | "lists">("tasks");
+  
+  // タスクグループ（動的タブ）
+  const [categories, setCategories] = useState<TaskListCategory[]>([
+    { id: "default", title: "マイタスク", isDefault: true },
+    { id: "shopping", title: "買い物リスト" },
+  ]);
+  const [activeListId, setActiveListId] = useState<string>("default");
+
+  // 新規リスト作成モーダル
+  const [showAddListModal, setShowAddListModal] = useState(false);
+  const [newListName, setNewListName] = useState("");
+
+  // Sliding Pill アニメーション用の Ref & State
+  const tabTrackRef = useRef<HTMLDivElement>(null);
+  const tabItemRefs = useRef<Map<string, HTMLDivElement>>(new Map());
+  const [pillStyle, setPillStyle] = useState<{
+    left: number;
+    top: number;
+    width: number;
+    height: number;
+    ready: boolean;
+  }>({
+    left: 0,
+    top: 2,
+    width: 0,
+    height: 0,
+    ready: false,
+  });
+
+  // Sliding Pill の位置・幅更新
+  const updatePill = useCallback(() => {
+    const activeEl = tabItemRefs.current.get(activeListId);
+    const track = tabTrackRef.current;
+    if (!activeEl || !track) return;
+
+    const elLeft = activeEl.offsetLeft;
+    const elTop = activeEl.offsetTop;
+    const elWidth = activeEl.offsetWidth;
+    const elHeight = activeEl.offsetHeight;
+
+    setPillStyle({
+      left: elLeft,
+      top: elTop,
+      width: elWidth,
+      height: elHeight,
+      ready: true,
+    });
+  }, [activeListId]);
+
+  useEffect(() => {
+    updatePill();
+    const raf = requestAnimationFrame(updatePill);
+    const timer = setTimeout(updatePill, 60);
+
+    const handleResize = () => updatePill();
+    window.addEventListener("resize", handleResize);
+
+    return () => {
+      cancelAnimationFrame(raf);
+      clearTimeout(timer);
+      window.removeEventListener("resize", handleResize);
+    };
+  }, [updatePill, categories]);
+
+  // Google Tasks リスト同期
+  useEffect(() => {
+    if (!isSignedIn || !accessToken) return;
+    let isCancelled = false;
+
+    async function initGoogleLists() {
+      try {
+        const gLists: GTaskList[] = await getTaskLists(accessToken!);
+        if (isCancelled || !gLists || gLists.length === 0) return;
+
+        const mappedCategories: TaskListCategory[] = [];
+        for (const gl of gLists) {
+          const isMyTasks = gl.title === "My Tasks" || gl.title === "マイタスク" || gl.id === "@default";
+          const isShop = gl.title === "買い物リスト" || gl.title === "買い物" || gl.title === "Shopping List";
+
+          if (isMyTasks) {
+            mappedCategories.push({
+              id: "default",
+              title: "マイタスク",
+              googleListId: gl.id,
+              isDefault: true,
+            });
+          } else if (isShop) {
+            mappedCategories.push({
+              id: "shopping",
+              title: gl.title,
+              googleListId: gl.id,
+            });
+          } else {
+            mappedCategories.push({
+              id: gl.id,
+              title: gl.title,
+              googleListId: gl.id,
+            });
+          }
+        }
+
+        const uniqueCategories: TaskListCategory[] = [];
+        for (const cat of mappedCategories) {
+          if (!uniqueCategories.some((u) => u.id === cat.id)) {
+            uniqueCategories.push(cat);
+          }
+        }
+        if (!uniqueCategories.some((u) => u.id === "default")) {
+          uniqueCategories.unshift({ id: "default", title: "マイタスク", isDefault: true });
+        }
+        if (!uniqueCategories.some((u) => u.id === "shopping")) {
+          uniqueCategories.push({ id: "shopping", title: "買い物リスト" });
+        }
+
+        setCategories(uniqueCategories);
+      } catch (err) {
+        console.error("Dashboard Google Tasks list sync error:", err);
+      }
+    }
+
+    initGoogleLists();
+    return () => {
+      isCancelled = true;
+    };
+  }, [isSignedIn, accessToken]);
+
+  // 新規リスト作成ハンドラ
+  const handleCreateList = async () => {
+    const title = newListName.trim().slice(0, 15);
+    if (!title) return;
+
+    let googleListId: string | undefined;
+    if (isSignedIn && accessToken) {
+      try {
+        const createdGList = await createGoogleTaskList(accessToken, title);
+        googleListId = createdGList.id;
+      } catch (err) {
+        console.error("Failed to create Google TaskList from Dashboard:", err);
+      }
+    }
+
+    const newId = "list-" + Math.random().toString(36).slice(2, 9);
+    const newCat: TaskListCategory = {
+      id: newId,
+      title,
+      googleListId,
+    };
+
+    setCategories((prev) => [...prev, newCat]);
+    setActiveListId(newId);
+    setNewListName("");
+    setShowAddListModal(false);
+  };
 
   // 手動同期ハンドラ
   const handleManualSync = useCallback(async () => {
@@ -175,8 +323,6 @@ export default function Dashboard({ onNavigate, onSelectNote }: DashboardProps =
 
   // PM ステート
   const [pmSettings, setPmSettings] = useState<PMSettings | null>(null);
-  const [pmTemplates, setPmTemplates] = useState<PMTemplateItem[]>([]);
-  const [pmLogs, setPmLogs] = useState<PMLogItem[]>([]);
   const [showShiftOverrideModal, setShowShiftOverrideModal] = useState(false);
 
   // Firestore リアルタイム同期
@@ -190,13 +336,6 @@ export default function Dashboard({ onNavigate, onSelectNote }: DashboardProps =
   useEffect(() => {
     const unsub = onSnapshot(query(collection(db, "tasks"), orderBy("createdAt", "asc")), (snap) => {
       setTasks(snap.docs.map((d) => ({ id: d.id, ...d.data() } as TaskItem)));
-    });
-    return unsub;
-  }, []);
-
-  useEffect(() => {
-    const unsub = onSnapshot(query(collection(db, "lists"), orderBy("createdAt", "asc")), (snap) => {
-      setLists(snap.docs.map((d) => ({ id: d.id, ...d.data() } as ListItem)));
     });
     return unsub;
   }, []);
@@ -225,32 +364,16 @@ export default function Dashboard({ onNavigate, onSelectNote }: DashboardProps =
     return () => unsub();
   }, []);
 
-  // PM 設定・テンプレート・ログ
+  // 勤務シフト設定
   useEffect(() => {
-    const unsubSettings = onSnapshot(doc(db, "pm_settings", "main"), (snap) => {
+    const unsubSettings = onSnapshot(doc(db, "shift_settings", "main"), (snap) => {
       if (snap?.exists?.()) {
         setPmSettings(snap.data() as PMSettings);
-      } else {
-        getDoc(doc(db, "pm_settings", "config")).then((cSnap) => {
-          if (cSnap?.exists?.()) setPmSettings(cSnap.data() as PMSettings);
-        });
       }
     });
 
-    const unsubTemplates = onSnapshot(
-      query(collection(db, "pm_templates"), orderBy("dayIndex", "asc")),
-      (snap) => setPmTemplates(snap.docs.map((d) => ({ id: d.id, ...d.data() } as PMTemplateItem)))
-    );
-
-    const unsubLogs = onSnapshot(
-      query(collection(db, "pm_logs"), where("date", "==", today)),
-      (snap) => setPmLogs(snap.docs.map((d) => ({ id: d.id, ...d.data() } as PMLogItem)))
-    );
-
     return () => {
       unsubSettings();
-      unsubTemplates();
-      unsubLogs();
     };
   }, [today]);
 
@@ -258,8 +381,6 @@ export default function Dashboard({ onNavigate, onSelectNote }: DashboardProps =
   const todayEvents = events
     .filter((e) => e.date === today && !e.isShiftOnly)
     .sort((a, b) => (a.startTime || "").localeCompare(b.startTime || ""));
-  const todayTasks = tasks.filter((t) => !t.completed && (t.dueDate === today || !t.dueDate));
-  const activeLists = lists.filter((l) => !l.completed);
   const activeNotes = notes.filter((n) => !n.isDeleted && (n.title.trim() !== "" || n.content.trim() !== ""));
   const recentNotes = activeNotes.slice(0, 6);
 
@@ -269,31 +390,10 @@ export default function Dashboard({ onNavigate, onSelectNote }: DashboardProps =
   // シフト判定（オーバーライド優先）
   const currentShift = resolveShiftInfo(today, events, pmSettings);
 
-  // PM 今日のプレビュー（未完了・完了含む、最大2件）
-  const pmTodayAll = pmSettings ? getActivePMTasksForDate(today, pmTemplates, events, pmSettings) : [];
-  const pmLogMap = buildLogMapForDate(pmLogs, today);
-  const pmTodayPending = pmTodayAll.filter((item) => resolveItemStatus(item, pmLogMap) === "pending");
-  const pmTodayItems = pmTodayPending.slice(0, 2);
-
   // タスク完了トグル
   const toggleTask = useCallback(async (id: string, current: boolean) => {
     await updateDoc(doc(db, "tasks", id), { completed: !current });
   }, []);
-
-  // PM 完了トグル
-  const togglePMTask = useCallback(async (item: PMTemplateItem) => {
-    try {
-      await recordPMLog({
-        date: today,
-        templateId: item.id,
-        dayIndex: currentShift.streakNumber,
-        title: item.title,
-        status: "completed",
-      });
-    } catch (err) {
-      console.error("Failed to record PM log from dashboard:", err);
-    }
-  }, [today, currentShift.streakNumber]);
 
   // 手動オーバーライド保存ハンドラ（楽観的即時反映）
   const handleSaveShiftOverride = useCallback(
@@ -325,11 +425,6 @@ export default function Dashboard({ onNavigate, onSelectNote }: DashboardProps =
     },
     [today]
   );
-
-  // 買い物完了トグル
-  const toggleList = useCallback(async (id: string, current: boolean) => {
-    await updateDoc(doc(db, "lists", id), { completed: !current });
-  }, []);
 
   // 日付の和風フォーマット
   const displayDate = new Date().toLocaleDateString("ja-JP", {
@@ -370,34 +465,13 @@ export default function Dashboard({ onNavigate, onSelectNote }: DashboardProps =
           </h1>
         </div>
 
-        {/* 出勤ステータスバッジ（クリックで手動調整モーダルを開く） */}
+        {/* 勤務ステータスバッジ（クリックで手動調整モーダルを開く） */}
         <div style={{ display: "flex", alignItems: "center", gap: "0.6rem" }}>
-          <button
-            type="button"
-            data-testid="dashboard-shift-badge"
+          <ShiftBadge
+            shift={currentShift}
             onClick={() => setShowShiftOverrideModal(true)}
-            style={{
-              display: "inline-flex",
-              alignItems: "center",
-              gap: "0.35rem",
-              background: currentShift.type === "holiday" ? "rgba(82, 121, 111, 0.12)" : "rgba(197, 160, 89, 0.12)",
-              color: currentShift.type === "holiday" ? C.sage : C.goldDark,
-              border: `1px solid ${currentShift.type === "holiday" ? "rgba(82, 121, 111, 0.2)" : "rgba(197, 160, 89, 0.2)"}`,
-              padding: "0.32rem 0.75rem",
-              borderRadius: "9999px",
-              fontSize: "0.76rem",
-              fontWeight: 650,
-              cursor: "pointer",
-              transition: "all 0.15s ease",
-            }}
-            title="クリックして勤務・休日ステータスを手動補正"
-          >
-            <span>
-              {currentShift.type === "holiday"
-                ? `🌙 休日 ${currentShift.streakNumber}日目`
-                : `✦ 出勤 ${currentShift.streakNumber}日目${currentShift.shiftName ? ` (${currentShift.shiftName})` : ""}`}
-            </span>
-          </button>
+            testId="dashboard-shift-badge"
+          />
           <p style={{ fontSize: "0.78rem", color: C.charcoalLight, margin: 0, letterSpacing: "0.01em" }}>
             {displayDate}
           </p>
@@ -405,7 +479,7 @@ export default function Dashboard({ onNavigate, onSelectNote }: DashboardProps =
       </div>
 
       {/* 出勤ステータス確認 & 手動調整モーダル */}
-      <PMShiftOverrideModal
+      <ShiftOverrideModal
         isOpen={showShiftOverrideModal}
         targetDate={today}
         currentShift={currentShift}
@@ -508,7 +582,7 @@ export default function Dashboard({ onNavigate, onSelectNote }: DashboardProps =
             </div>
           </div>
 
-          {/* ─── タイルB: 今日のタスク ＆ 買い物リスト（一体化タイル） ─── */}
+          {/* ─── タイルB: タスク ＆ リスト（動的グループ・Sliding Pill付き） ─── */}
           <div
             className="arca-card"
             style={{
@@ -520,83 +594,159 @@ export default function Dashboard({ onNavigate, onSelectNote }: DashboardProps =
               borderRadius: "20px",
             }}
           >
-            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: "0.8rem", gap: "0.5rem", flexWrap: "wrap" }}>
-              {/* 小タブ切り替え: [ ✦ タスク | 🛒 買い物 ] */}
+            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: "0.8rem", gap: "0.5rem" }}>
+              {/* 動的タスクグループタブ（Sliding Pill アニメーション付き） */}
               <div
+                ref={tabTrackRef}
                 style={{
+                  position: "relative",
                   display: "inline-flex",
                   alignItems: "center",
-                  background: "rgba(0, 0, 0, 0.04)",
+                  background: "rgba(0, 0, 0, 0.05)",
                   padding: "2px",
                   borderRadius: "9999px",
                   gap: "2px",
+                  overflowX: "auto",
+                  scrollbarWidth: "none",
+                  maxWidth: "calc(100% - 70px)",
                 }}
               >
+                {/* 移動する白い楕円ピル */}
+                <div
+                  style={{
+                    position: "absolute",
+                    top: pillStyle.top,
+                    left: 0,
+                    transform: `translate3d(${pillStyle.left}px, 0, 0)`,
+                    width: pillStyle.width,
+                    height: pillStyle.height,
+                    background: C.white,
+                    borderRadius: "9999px",
+                    boxShadow: "0 1px 3px rgba(0, 0, 0, 0.08)",
+                    transition: pillStyle.ready
+                      ? "transform 0.28s cubic-bezier(0.16, 1, 0.3, 1), width 0.28s cubic-bezier(0.16, 1, 0.3, 1)"
+                      : "none",
+                    pointerEvents: "none",
+                    zIndex: 0,
+                    opacity: pillStyle.width > 0 ? 1 : 0,
+                  }}
+                />
+
+                {categories.map((cat) => {
+                  const isActive = activeListId === cat.id;
+                  const count = tasks.filter(
+                    (t) => (t.listId || "default") === cat.id && !t.completed
+                  ).length;
+                  return (
+                    <div
+                      key={cat.id}
+                      ref={(el) => {
+                        if (el) tabItemRefs.current.set(cat.id, el);
+                        else tabItemRefs.current.delete(cat.id);
+                      }}
+                      style={{
+                        position: "relative",
+                        zIndex: 1,
+                        display: "inline-flex",
+                        alignItems: "center",
+                        justifyContent: "center",
+                        borderRadius: "9999px",
+                        padding: "0.3rem 0.75rem",
+                        minWidth: "auto",
+                        flexShrink: 0,
+                        boxSizing: "border-box",
+                      }}
+                    >
+                      <button
+                        type="button"
+                        data-testid={`dashboard-tab-${cat.id}`}
+                        onClick={() => setActiveListId(cat.id)}
+                        style={{
+                          border: "none",
+                          background: "transparent",
+                          fontSize: "0.78rem",
+                          fontWeight: isActive ? 700 : 500,
+                          color: isActive ? C.charcoal : C.charcoalLight,
+                          cursor: "pointer",
+                          padding: 0,
+                          display: "flex",
+                          alignItems: "center",
+                          minWidth: 0,
+                          whiteSpace: "nowrap",
+                        }}
+                      >
+                        {cat.id === "shopping" && <span style={{ marginRight: "3px", flexShrink: 0 }}>🛒</span>}
+                        {cat.id === "default" && <span style={{ marginRight: "3px", flexShrink: 0 }}>✦</span>}
+                        <span
+                          style={{
+                            maxWidth: "160px",
+                            overflow: "hidden",
+                            textOverflow: "ellipsis",
+                            whiteSpace: "nowrap",
+                          }}
+                          title={cat.title}
+                        >
+                          {cat.title}
+                        </span>
+                        <span style={{ fontSize: "0.7rem", opacity: 0.8, marginLeft: "4px", flexShrink: 0, fontWeight: 550 }}>
+                          ({count})
+                        </span>
+                      </button>
+                    </div>
+                  );
+                })}
+
+                {/* ＋ 新しいリスト追加ボタン */}
                 <button
                   type="button"
-                  onClick={() => setTaskTab("tasks")}
+                  data-testid="dashboard-add-list-btn"
+                  onClick={() => setShowAddListModal(true)}
                   style={{
+                    position: "relative",
+                    zIndex: 1,
                     border: "none",
-                    borderRadius: "9999px",
-                    padding: "0.26rem 0.7rem",
-                    fontSize: "0.76rem",
-                    fontWeight: taskTab === "tasks" ? 700 : 500,
-                    color: taskTab === "tasks" ? C.charcoal : C.charcoalLight,
-                    background: taskTab === "tasks" ? C.white : "transparent",
-                    boxShadow: taskTab === "tasks" ? "0 1px 3px rgba(0,0,0,0.08)" : "none",
+                    background: "transparent",
+                    padding: "0.26rem 0.5rem",
+                    fontSize: "0.75rem",
+                    fontWeight: 650,
+                    color: C.goldDark,
                     cursor: "pointer",
-                    transition: "all 0.15s ease",
+                    flexShrink: 0,
+                    lineHeight: 1,
                   }}
+                  title="新しいリストを作成"
                 >
-                  ✦ タスク ({todayTasks.length + pmTodayItems.length})
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setTaskTab("lists")}
-                  style={{
-                    border: "none",
-                    borderRadius: "9999px",
-                    padding: "0.26rem 0.7rem",
-                    fontSize: "0.76rem",
-                    fontWeight: taskTab === "lists" ? 700 : 500,
-                    color: taskTab === "lists" ? C.charcoal : C.charcoalLight,
-                    background: taskTab === "lists" ? C.white : "transparent",
-                    boxShadow: taskTab === "lists" ? "0 1px 3px rgba(0,0,0,0.08)" : "none",
-                    cursor: "pointer",
-                    transition: "all 0.15s ease",
-                  }}
-                >
-                  🛒 買い物 ({activeLists.length})
+                  ＋
                 </button>
               </div>
 
               {/* 遷移ボタン */}
-              {taskTab === "tasks" ? (
-                <TileNavButton
-                  label="タスク"
-                  onClick={() => onNavigate?.("tasks")}
-                />
-              ) : (
-                <TileNavButton
-                  label="買い物リスト"
-                  onClick={() => onNavigate?.("lists")}
-                />
-              )}
+              <TileNavButton
+                label="タスク"
+                onClick={() => onNavigate?.("tasks")}
+              />
             </div>
 
             {/* 内部スクロールコンテンツ */}
             <div style={{ flex: 1, overflowY: "auto", maxHeight: "240px", paddingRight: "0.25rem" }}>
-              {taskTab === "tasks" ? (
-                /* ─── タスク一覧表示 ─── */
-                todayTasks.length === 0 && pmTodayItems.length === 0 ? (
-                  <div style={{ height: "100%", display: "flex", alignItems: "center", justifyContent: "center", padding: "1.5rem 0" }}>
-                    <p style={{ margin: 0, fontSize: "0.85rem", color: C.charcoalLight }}>
-                      残っているタスクはありません
-                    </p>
-                  </div>
-                ) : (
+              {(() => {
+                const currentFilteredTasks = tasks.filter(
+                  (t) => (t.listId || "default") === activeListId && !t.completed
+                );
+
+                if (currentFilteredTasks.length === 0) {
+                  return (
+                    <div style={{ height: "100%", display: "flex", alignItems: "center", justifyContent: "center", padding: "1.5rem 0" }}>
+                      <p style={{ margin: 0, fontSize: "0.85rem", color: C.charcoalLight }}>
+                        残っているアイテムはありません
+                      </p>
+                    </div>
+                  );
+                }
+
+                return (
                   <ul style={{ listStyle: "none", margin: 0, padding: 0, display: "flex", flexDirection: "column", gap: "0.4rem" }}>
-                    {todayTasks.map((t) => (
+                    {currentFilteredTasks.map((t) => (
                       <li
                         key={t.id}
                         style={{
@@ -628,11 +778,11 @@ export default function Dashboard({ onNavigate, onSelectNote }: DashboardProps =
                         {t.priority === "high" && (
                           <span
                             style={{
-                              fontSize: "0.68rem",
+                              fontSize: "0.65rem",
                               fontWeight: 600,
                               color: C.danger,
                               background: "rgba(224, 86, 74, 0.08)",
-                              padding: "0.15rem 0.45rem",
+                              padding: "0.12rem 0.4rem",
                               borderRadius: "4px",
                               flexShrink: 0,
                             }}
@@ -640,127 +790,26 @@ export default function Dashboard({ onNavigate, onSelectNote }: DashboardProps =
                             高
                           </span>
                         )}
-                      </li>
-                    ))}
-
-                    {/* PM プレビュー（最大2件） */}
-                    {pmTodayItems.map((item) => (
-                      <li
-                        key={`pm-${item.id}`}
-                        style={{
-                          display: "flex",
-                          alignItems: "center",
-                          gap: "0.75rem",
-                          padding: "0.45rem 0.55rem",
-                          borderBottom: "1px solid rgba(0, 0, 0, 0.03)",
-                          background: C.goldFaint,
-                          borderRadius: "10px",
-                          transition: "background 0.15s ease",
-                        }}
-                      >
-                        <button
-                          type="button"
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            togglePMTask(item);
-                          }}
-                          style={{ background: "none", border: "none", cursor: "pointer", padding: 0, lineHeight: 0 }}
-                          title="クリックで完了を記録"
-                        >
-                          <CheckCircle completed={false} />
-                        </button>
-                        <div
-                          onClick={() => onNavigate?.("tasks")}
-                          style={{
-                            flex: 1,
-                            display: "flex",
-                            alignItems: "center",
-                            gap: "0.45rem",
-                            cursor: "pointer",
-                            minWidth: 0,
-                          }}
-                          title="クリックでタスク画面のPMセクションへ移動"
-                        >
+                        {t.priority === "low" && (
                           <span
                             style={{
                               fontSize: "0.65rem",
-                              fontWeight: 700,
-                              color: currentShift.type === "holiday" ? C.sage : C.goldDark,
-                              background: currentShift.type === "holiday" ? "rgba(82, 121, 111, 0.15)" : "rgba(197, 160, 89, 0.15)",
-                              padding: "0.1rem 0.45rem",
+                              fontWeight: 600,
+                              color: "#4A709C",
+                              background: "rgba(74, 112, 156, 0.08)",
+                              padding: "0.12rem 0.4rem",
                               borderRadius: "4px",
                               flexShrink: 0,
                             }}
                           >
-                            {currentShift.type === "holiday" ? "PM 休日" : "PM 出勤"}
-                          </span>
-                          <span
-                            style={{
-                              fontSize: "0.86rem",
-                              color: C.charcoal,
-                              lineHeight: 1.35,
-                              overflow: "hidden",
-                              textOverflow: "ellipsis",
-                              whiteSpace: "nowrap",
-                            }}
-                          >
-                            {item.title}
-                          </span>
-                        </div>
-                      </li>
-                    ))}
-                  </ul>
-                )
-              ) : (
-                /* ─── 買い物リスト一覧表示 ─── */
-                activeLists.length === 0 ? (
-                  <div style={{ height: "100%", display: "flex", alignItems: "center", justifyContent: "center", padding: "1.5rem 0" }}>
-                    <p style={{ margin: 0, fontSize: "0.85rem", color: C.charcoalLight }}>
-                      未購入アイテムはありません
-                    </p>
-                  </div>
-                ) : (
-                  <ul style={{ listStyle: "none", margin: 0, padding: 0, display: "flex", flexDirection: "column", gap: "0.4rem" }}>
-                    {activeLists.map((item) => (
-                      <li
-                        key={item.id}
-                        style={{
-                          display: "flex",
-                          alignItems: "center",
-                          gap: "0.75rem",
-                          padding: "0.4rem 0",
-                          borderBottom: "1px solid rgba(0, 0, 0, 0.03)",
-                        }}
-                      >
-                        <button
-                          onClick={() => toggleList(item.id, item.completed)}
-                          style={{ background: "none", border: "none", cursor: "pointer", padding: 0, lineHeight: 0 }}
-                          title={item.completed ? "未購入に戻す" : "購入済みにする"}
-                        >
-                          <CheckCircle completed={item.completed} />
-                        </button>
-                        <span style={{ flex: 1, fontSize: "0.88rem", color: C.charcoal }}>
-                          {item.text}
-                        </span>
-                        {item.category && (
-                          <span
-                            style={{
-                              fontSize: "0.68rem",
-                              color: C.charcoalLight,
-                              background: "rgba(0, 0, 0, 0.04)",
-                              padding: "0.15rem 0.5rem",
-                              borderRadius: "6px",
-                              flexShrink: 0,
-                            }}
-                          >
-                            {item.category}
+                            低
                           </span>
                         )}
                       </li>
                     ))}
                   </ul>
-                )
-              )}
+                );
+              })()}
             </div>
           </div>
 
@@ -953,6 +1002,109 @@ export default function Dashboard({ onNavigate, onSelectNote }: DashboardProps =
         </div>
 
       </div>
+
+      {/* ─── 新規リスト作成モーダル ─── */}
+      {showAddListModal && (
+        <div
+          role="dialog"
+          aria-modal="true"
+          style={{
+            position: "fixed",
+            inset: 0,
+            zIndex: 1200,
+            background: "rgba(0, 0, 0, 0.45)",
+            backdropFilter: "blur(8px)",
+            WebkitBackdropFilter: "blur(8px)",
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            padding: "1rem",
+          }}
+          onClick={() => setShowAddListModal(false)}
+        >
+          <div
+            className="arca-card"
+            style={{
+              width: "100%",
+              maxWidth: "380px",
+              background: C.white,
+              borderRadius: "18px",
+              padding: "1.4rem",
+              display: "flex",
+              flexDirection: "column",
+              gap: "0.85rem",
+              boxShadow: "0 16px 40px rgba(0,0,0,0.16)",
+            }}
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+              <h3 style={{ margin: 0, fontSize: "1rem", fontWeight: 700, color: C.charcoal }}>
+                新しいリストを作成
+              </h3>
+              <span style={{ fontSize: "0.72rem", color: newListName.length >= 15 ? C.danger : C.charcoalLight }}>
+                {newListName.length}/15
+              </span>
+            </div>
+            <input
+              type="text"
+              value={newListName}
+              maxLength={15}
+              onChange={(e) => setNewListName(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") handleCreateList();
+              }}
+              placeholder="リスト名（最大15文字）"
+              autoFocus
+              style={{
+                width: "100%",
+                padding: "0.65rem 0.85rem",
+                borderRadius: "12px",
+                border: "1px solid rgba(0, 0, 0, 0.08)",
+                background: C.ivory,
+                fontSize: "0.9rem",
+                color: C.charcoal,
+                outline: "none",
+                boxSizing: "border-box",
+              }}
+            />
+            <div style={{ display: "flex", justifyContent: "flex-end", gap: "0.6rem", marginTop: "0.3rem" }}>
+              <button
+                type="button"
+                onClick={() => setShowAddListModal(false)}
+                style={{
+                  background: "rgba(0,0,0,0.05)",
+                  border: "none",
+                  borderRadius: "8px",
+                  padding: "0.5rem 0.9rem",
+                  fontSize: "0.8rem",
+                  color: C.charcoalMid,
+                  cursor: "pointer",
+                }}
+              >
+                キャンセル
+              </button>
+              <button
+                type="button"
+                onClick={handleCreateList}
+                disabled={!newListName.trim()}
+                style={{
+                  background: C.gold,
+                  border: "none",
+                  borderRadius: "8px",
+                  padding: "0.5rem 1.1rem",
+                  fontSize: "0.8rem",
+                  fontWeight: 650,
+                  color: "#FDFCFA",
+                  cursor: !newListName.trim() ? "default" : "pointer",
+                  opacity: !newListName.trim() ? 0.6 : 1,
+                }}
+              >
+                作成する
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

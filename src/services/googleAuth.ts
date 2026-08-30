@@ -2,14 +2,19 @@
  * src/services/googleAuth.ts
  * Google OAuth 2.0 認証サービス定数・トークン管理
  * 
+/**
  * 要求スコープ:
- * - Google Calendar: https://www.googleapis.com/auth/calendar.events
+ * - Google Calendar: https://www.googleapis.com/auth/calendar (カレンダー一覧・読み書き)
+ * - Google Calendar Events: https://www.googleapis.com/auth/calendar.events
+ * - Google Calendar Readonly: https://www.googleapis.com/auth/calendar.readonly
  * - Google Tasks: https://www.googleapis.com/auth/tasks
  * - Google Drive: https://www.googleapis.com/auth/drive.file
  */
 
 export const GOOGLE_OAUTH_SCOPES = [
+  "https://www.googleapis.com/auth/calendar",
   "https://www.googleapis.com/auth/calendar.events",
+  "https://www.googleapis.com/auth/calendar.readonly",
   "https://www.googleapis.com/auth/tasks",
   "https://www.googleapis.com/auth/drive.file",
 ].join(" ");

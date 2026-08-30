@@ -24,8 +24,17 @@ import {
   serverTimestamp,
 } from "firebase/firestore";
 import { db } from "../lib/firebase";
-import type { PMSettings, PMTemplateItem, PMLogItem, PMDayOverride, PMDayResolution, DateShiftInfo, ShiftInfo, ShiftOverride } from "../types/pm";
-import type { CalendarEvent } from "../types";
+import type {
+  ShiftInfo,
+  ShiftOverride,
+  DateShiftInfo,
+  PMSettings,
+  PMTemplateItem,
+  PMLogItem,
+  PMDayOverride,
+  PMDayResolution,
+  CalendarEvent,
+} from "../types";
 
 // ═══════════════════════════════════════════════════════════
 // SECTION A: 定数 & デフォルト
@@ -34,8 +43,14 @@ import type { CalendarEvent } from "../types";
 /** デフォルトサイクル長（日数） */
 export const DEFAULT_CYCLE_LENGTH = 6;
 
-/** 勤務系キーワード正規表現（「早番(○時)」「遅番(○時)」「日勤(○時半)」などのフォーマットのみを出勤日として検出） */
-export const WORK_SHIFT_KEYWORDS = /早番|遅番|日勤/;
+/** 勤務系キーワード正規表現（「仕事」「出勤」「早番」「遅番」「日勤」「夜勤」「当直」「勤務」「シフト」「work」「shift」など） */
+export const WORK_SHIFT_KEYWORDS = /(仕事|出勤|早番|遅番|日勤|夜勤|当直|勤務|シフト|work|shift)/i;
+
+/** イベント名が出勤予定かどうかを判定（勤務系キーワードにマッチすれば true） */
+export function isWorkEvent(title?: string | null): boolean {
+  if (!title) return false;
+  return WORK_SHIFT_KEYWORDS.test(title.trim());
+}
 
 /** 休日系キーワード正規表現（公休、休み、有休、休暇等） */
 export const HOLIDAY_KEYWORDS = /公休|休み|休養|有休|有給|休暇|特休|振休|代休|off|holiday/i;
@@ -145,24 +160,33 @@ export function calculateDayIndex(
   const cycleLength = settings.cycleLength ?? DEFAULT_CYCLE_LENGTH;
 
   // ── 1. 単日オーバーライド（最優先） ──
-  const override: PMDayOverride | undefined = settings.overrides?.[targetDate];
+  const override: PMDayOverride | ShiftOverride | undefined = settings.overrides?.[targetDate];
   if (override) {
-    if (override.isRestDay) {
+    if (("isRestDay" in override && override.isRestDay) || ("type" in override && override.type === "holiday")) {
       return {
         dayIndex: 0,
         cycleLength,
         isRestDay: true,
         isOverridden: true,
-        note: override.note,
+        note: "note" in override ? override.note : undefined,
       };
     }
-    if (override.overrideDayIndex != null) {
+    if ("overrideDayIndex" in override && override.overrideDayIndex != null) {
       return {
         dayIndex: override.overrideDayIndex,
         cycleLength,
         isRestDay: false,
         isOverridden: true,
         note: override.note,
+      };
+    }
+    if ("type" in override && override.type === "work") {
+      return {
+        dayIndex: override.streakNumber ?? 1,
+        cycleLength,
+        isRestDay: false,
+        isOverridden: true,
+        note: override.shiftName,
       };
     }
   }
@@ -393,7 +417,7 @@ function getDayShiftStatus(
   events: CalendarEvent[],
   settings?: PMSettings | null
 ): { isWork: boolean; shiftName?: string; isOverridden: boolean; streakOverride?: number } {
-  // 1. 手動オーバーライドチェック
+  // 1. 手動オーバーライドチェック（最優先）
   const rawOverride = settings?.overrides?.[dateStr];
   if (rawOverride) {
     if ("type" in rawOverride && rawOverride.type) {
@@ -409,22 +433,22 @@ function getDayShiftStatus(
         isWork: false,
         shiftName: rawOverride.note,
         isOverridden: true,
-        streakOverride: rawOverride.streakNumber,
+        streakOverride: rawOverride.streakNumber ?? 1,
       };
     }
-    if (rawOverride.type) {
+    if (rawOverride.overrideDayIndex != null) {
       return {
-        isWork: rawOverride.type === "work",
-        shiftName: rawOverride.shiftName || rawOverride.note,
+        isWork: true,
+        shiftName: rawOverride.note,
         isOverridden: true,
-        streakOverride: rawOverride.streakNumber,
+        streakOverride: rawOverride.overrideDayIndex,
       };
     }
   }
 
   // イベントからの判定
   const dayEvents = events.filter((e) => e.date === dateStr);
-  const workEvent = dayEvents.find((e) => WORK_SHIFT_KEYWORDS.test(e.title));
+  const workEvent = dayEvents.find((e) => isWorkEvent(e.title));
   if (workEvent) {
     return {
       isWork: true,
@@ -469,81 +493,86 @@ export function resolveShiftInfo(
   // 1. 対象日のステータス取得（手動オーバーライド最優先）
   const currentStatus = getDayShiftStatus(targetDate, events, settings);
 
+  let result: ShiftInfo;
+
   // 対象日自身が手動オーバーライドされている場合は最優先でそのまま返す
   if (currentStatus.isOverridden) {
-    return {
+    result = {
       date: targetDate,
       type: currentStatus.isWork ? "work" : "holiday",
       streakNumber: currentStatus.streakOverride ?? 1,
       shiftName: currentStatus.shiftName,
       isOverridden: true,
     };
-  }
+  } else {
+    // 2. カレンダー・オーバーライド全体に仕事予定が存在するかチェック
+    const hasAnyWork =
+      events.some((e) => isWorkEvent(e.title)) ||
+      Object.values(settings?.overrides || {}).some((o) => (o as any)?.type === "work");
 
-  // 2. カレンダー・オーバーライド全体に仕事予定が存在するかチェック
-  const hasAnyWork =
-    events.some((e) => WORK_SHIFT_KEYWORDS.test(e.title)) ||
-    Object.values(settings?.overrides || {}).some((o) => (o as any)?.type === "work");
-
-  // 仕事予定が全期間で0件の場合
-  if (!hasAnyWork) {
-    if (settings?.manualAnchorDate) {
-      const anchorEpoch = dateStrToEpochDays(settings.manualAnchorDate);
+    // 仕事予定が全期間で0件の場合
+    if (!hasAnyWork) {
+      if (settings?.manualAnchorDate) {
+        const anchorEpoch = dateStrToEpochDays(settings.manualAnchorDate);
+        const targetEpoch = dateStrToEpochDays(targetDate);
+        const cycleLen = settings.cycleLength || DEFAULT_CYCLE_LENGTH;
+        const diff = targetEpoch - anchorEpoch;
+        const dayIndex = (((diff % cycleLen) + cycleLen) % cycleLen) + (settings.manualAnchorDay || 1);
+        const normDay = ((dayIndex - 1) % cycleLen) + 1;
+        result = {
+          date: targetDate,
+          type: "holiday",
+          streakNumber: normDay,
+          shiftName: undefined,
+          isOverridden: false,
+        };
+      } else {
+        result = {
+          date: targetDate,
+          type: "holiday",
+          streakNumber: 1,
+          shiftName: undefined,
+          isOverridden: false,
+        };
+      }
+    } else {
+      // 3. 自動判定: 連続日数の計算（過去方向へ最大30日探索）
       const targetEpoch = dateStrToEpochDays(targetDate);
-      const cycleLen = settings.cycleLength || DEFAULT_CYCLE_LENGTH;
-      const diff = targetEpoch - anchorEpoch;
-      const dayIndex = (((diff % cycleLen) + cycleLen) % cycleLen) + (settings.manualAnchorDay || 1);
-      const normDay = ((dayIndex - 1) % cycleLen) + 1;
-      return {
+      const isWorkDay = currentStatus.isWork;
+
+      let streakCount = 1;
+      let cursorEpoch = targetEpoch - 1;
+      let foundBoundary = false;
+
+      while (streakCount < 30) {
+        const prevDateStr = epochDaysToDateStr(cursorEpoch);
+        const prevStatus = getDayShiftStatus(prevDateStr, events, settings);
+
+        if (isWorkDay ? prevStatus.isWork : !prevStatus.isWork) {
+          streakCount++;
+          cursorEpoch--;
+        } else {
+          foundBoundary = true;
+          break;
+        }
+      }
+
+      // 過去30日探索しても境界が見つからなかった場合
+      if (!foundBoundary && streakCount >= 30) {
+        streakCount = 1;
+      }
+
+      result = {
         date: targetDate,
-        type: "holiday",
-        streakNumber: normDay,
-        shiftName: undefined,
+        type: isWorkDay ? "work" : "holiday",
+        streakNumber: streakCount,
+        shiftName: currentStatus.shiftName || undefined,
         isOverridden: false,
       };
     }
-    return {
-      date: targetDate,
-      type: "holiday",
-      streakNumber: 1,
-      shiftName: undefined,
-      isOverridden: false,
-    };
   }
 
-  // 3. 自動判定: 連続日数の計算（過去方向へ最大30日探索）
-  const targetEpoch = dateStrToEpochDays(targetDate);
-  const isWorkDay = currentStatus.isWork;
-
-  let streakCount = 1;
-  let cursorEpoch = targetEpoch - 1;
-  let foundBoundary = false;
-
-  while (streakCount < 30) {
-    const prevDateStr = epochDaysToDateStr(cursorEpoch);
-    const prevStatus = getDayShiftStatus(prevDateStr, events, settings);
-
-    if (isWorkDay ? prevStatus.isWork : !prevStatus.isWork) {
-      streakCount++;
-      cursorEpoch--;
-    } else {
-      foundBoundary = true;
-      break;
-    }
-  }
-
-  // 過去30日探索しても境界が見つからなかった場合
-  if (!foundBoundary && streakCount >= 30) {
-    streakCount = 1;
-  }
-
-  return {
-    date: targetDate,
-    type: isWorkDay ? "work" : "holiday",
-    streakNumber: streakCount,
-    shiftName: currentStatus.shiftName || undefined,
-    isOverridden: false,
-  };
+  return result;
 }
 
 /**
@@ -556,7 +585,7 @@ export async function saveShiftOverride(
   date: string,
   override: Omit<ShiftOverride, "date" | "updatedAt"> | null
 ): Promise<void> {
-  const currentSettings = await getPMSettings();
+  const currentSettings = await getShiftSettings();
   const overrides = { ...(currentSettings.overrides || {}) };
 
   if (override === null) {
@@ -571,7 +600,7 @@ export async function saveShiftOverride(
     };
   }
 
-  await savePMSettings({ overrides });
+  await saveShiftSettings({ overrides });
 }
 
 /**
@@ -732,30 +761,21 @@ export async function seedDefaultPMTemplatesIfEmpty(): Promise<PMTemplateItem[]>
 // ═══════════════════════════════════════════════════════════
 
 // ─────────────────────────────────────────
-// PM 設定
+// 勤務シフト設定（Shift Settings）
 // ─────────────────────────────────────────
 
-const PM_SETTINGS_COL = "pm_settings";
-export const PM_SETTINGS_DOC_ID = "main";
-const LOCAL_STORAGE_PM_SETTINGS_KEY = "arca_pm_settings";
+const SHIFT_SETTINGS_COL = "shift_settings";
+export const SHIFT_SETTINGS_DOC_ID = "main";
+const LOCAL_STORAGE_SHIFT_SETTINGS_KEY = "arca_shift_settings";
 
-/** Firestore から PM 設定を取得する（main なければ config / localStorage から取得、存在しない場合はデフォルトを返す） */
-export async function getPMSettings(): Promise<PMSettings> {
+/** Firestore から 勤務シフト設定を取得する（main なければ localStorage から取得、存在しない場合はデフォルトを返す） */
+export async function getShiftSettings(): Promise<PMSettings> {
   try {
-    const snap = await getDoc(doc(db, PM_SETTINGS_COL, PM_SETTINGS_DOC_ID));
+    const snap = await getDoc(doc(db, SHIFT_SETTINGS_COL, SHIFT_SETTINGS_DOC_ID));
     if (snap.exists()) {
       const data = snap.data() as PMSettings;
       try {
-        localStorage.setItem(LOCAL_STORAGE_PM_SETTINGS_KEY, JSON.stringify(data));
-      } catch {}
-      return data;
-    }
-    // 後方互換: 旧 config ドキュメントからのフォールバック
-    const configSnap = await getDoc(doc(db, PM_SETTINGS_COL, "config"));
-    if (configSnap.exists()) {
-      const data = configSnap.data() as PMSettings;
-      try {
-        localStorage.setItem(LOCAL_STORAGE_PM_SETTINGS_KEY, JSON.stringify(data));
+        localStorage.setItem(LOCAL_STORAGE_SHIFT_SETTINGS_KEY, JSON.stringify(data));
       } catch {}
       return data;
     }
@@ -764,28 +784,34 @@ export async function getPMSettings(): Promise<PMSettings> {
   }
 
   try {
-    const cached = localStorage.getItem(LOCAL_STORAGE_PM_SETTINGS_KEY);
+    const cached = localStorage.getItem(LOCAL_STORAGE_SHIFT_SETTINGS_KEY);
     if (cached) return JSON.parse(cached) as PMSettings;
   } catch {}
 
   return { ...DEFAULT_PM_SETTINGS };
 }
 
+/** 後方互換エイリアス */
+export const getPMSettings = getShiftSettings;
+
 /**
- * PM 設定を Firestore に保存する（部分更新・マージ & localStorage ローカルファースト即時反映）
+ * 勤務シフト設定を Firestore に保存する（部分更新・マージ & localStorage ローカルファースト即時反映）
  * @param settings 更新したいフィールドのみ渡す（Partial）
  */
-export async function savePMSettings(settings: Partial<PMSettings>): Promise<void> {
-  const existing = await getPMSettings();
+export async function saveShiftSettings(settings: Partial<PMSettings>): Promise<void> {
+  const existing = await getShiftSettings();
   const merged: PMSettings = { ...existing, ...settings };
 
   // 即座に localStorage へ保存（ローカルファースト）
   try {
-    localStorage.setItem(LOCAL_STORAGE_PM_SETTINGS_KEY, JSON.stringify(merged));
+    localStorage.setItem(LOCAL_STORAGE_SHIFT_SETTINGS_KEY, JSON.stringify(merged));
   } catch {}
 
-  await setDoc(doc(db, PM_SETTINGS_COL, PM_SETTINGS_DOC_ID), merged);
+  await setDoc(doc(db, SHIFT_SETTINGS_COL, SHIFT_SETTINGS_DOC_ID), merged);
 }
+
+/** 後方互換エイリアス */
+export const savePMSettings = saveShiftSettings;
 
 // ─────────────────────────────────────────
 // PM テンプレート
@@ -945,3 +971,4 @@ export async function getEffectivePMTasksForDate(
     };
   });
 }
+

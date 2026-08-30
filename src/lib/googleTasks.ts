@@ -60,6 +60,47 @@ export async function getTaskLists(token: string): Promise<GTaskList[]> {
   return data.items ?? [];
 }
 
+/** 新しいタスクリストを作成する */
+export async function addTaskList(
+  token: string,
+  title: string
+): Promise<GTaskList> {
+  return await gFetch<GTaskList>(token, "/users/@me/lists", {
+    method: "POST",
+    body: JSON.stringify({ title }),
+  });
+}
+
+/** タスクリストの名前を変更する */
+export async function updateTaskList(
+  token: string,
+  tasklistId: string,
+  title: string
+): Promise<GTaskList> {
+  return await gFetch<GTaskList>(
+    token,
+    `/users/@me/lists/${encodeURIComponent(tasklistId)}`,
+    {
+      method: "PATCH",
+      body: JSON.stringify({ title }),
+    }
+  );
+}
+
+/** タスクリストを削除する */
+export async function deleteTaskList(
+  token: string,
+  tasklistId: string
+): Promise<void> {
+  await gFetch<void>(
+    token,
+    `/users/@me/lists/${encodeURIComponent(tasklistId)}`,
+    {
+      method: "DELETE",
+    }
+  );
+}
+
 // ---------- タスク ----------
 
 /** 指定タスクリストのタスク一覧を取得する */

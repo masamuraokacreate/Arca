@@ -109,6 +109,13 @@ describe("MarkdownViewer", () => {
     expect(ols.length).toBeGreaterThanOrEqual(1);
   });
 
+  it("1回の改行（remark-breaks）で閲覧モードでも改行（br）される", () => {
+    const breakMd = "1行目のテキスト\n2行目のテキスト";
+    const { container } = render(<MarkdownViewer content={breakMd} />);
+    const br = container.querySelector("br");
+    expect(br).toBeInTheDocument();
+  });
+
   it("テーブル（GFM table）がレンダリングされる", () => {
     const tableMd = `
 | 項目 | 内容 |
@@ -295,13 +302,14 @@ describe("ConfirmModal", () => {
 // ─────────────────────────────────────────
 
 describe("NoteEditor", () => {
-  it("テキストエリアに下部40vh余白スタイルが適用されている", () => {
+  it("テキストエリアに適度な最小高とパディングスタイルが適用されている", () => {
     const handleChange = vi.fn();
     render(<NoteEditor content="テスト内容" onChange={handleChange} />);
 
     const textarea = screen.getByDisplayValue("テスト内容");
     expect(textarea).toBeInTheDocument();
-    expect(textarea.style.paddingBottom || textarea.style.padding).toContain("40vh");
+    expect(textarea.style.minHeight).toBe("280px");
+    expect(textarea.style.paddingBottom).toBe("1.5rem");
   });
 
   it("テキスト入力で onChange が呼ばれる", async () => {

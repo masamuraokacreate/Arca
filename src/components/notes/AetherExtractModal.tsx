@@ -76,22 +76,23 @@ export function AetherExtractModal({
     try {
       const promises: Promise<unknown>[] = [];
 
-      // 買い物リストの保存
+      // 買い物アイテムの保存（tasks コレクション / listId: "shopping"）
       for (const idx of selectedLists) {
         const item = items.lists[idx];
         if (item) {
           promises.push(
-            addDoc(collection(db, "lists"), {
-              text: item.title,
+            addDoc(collection(db, "tasks"), {
+              title: item.title,
               completed: false,
-              category: item.category || null,
+              listId: "shopping",
+              subtasks: [],
               createdAt: serverTimestamp(),
             })
           );
         }
       }
 
-      // タスクの保存
+      // タスクの保存（tasks コレクション / listId: "default"）
       for (const idx of selectedTasks) {
         const task = items.tasks[idx];
         if (task) {
@@ -100,6 +101,8 @@ export function AetherExtractModal({
               title: task.title,
               dueDate: task.dueDate || null,
               completed: false,
+              listId: "default",
+              subtasks: [],
               createdAt: serverTimestamp(),
             })
           );

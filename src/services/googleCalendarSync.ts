@@ -17,10 +17,36 @@ import {
   serverTimestamp,
 } from "firebase/firestore";
 import { db } from "../lib/firebase";
+import { clearSavedToken } from "./googleAuth";
 import type { CalendarEvent } from "../types";
 
 const CALENDAR_API_ROOT = "https://www.googleapis.com/calendar/v3";
 const CALENDAR_BASE_URL = "https://www.googleapis.com/calendar/v3/calendars/primary";
+
+/** Google Calendar API カスタムエラー */
+export class GoogleCalendarApiError extends Error {
+  status: number;
+  endpoint: string;
+  errorData?: any;
+
+  constructor(status: number, endpoint: string, message: string, errorData?: any) {
+    super(`Google Calendar API error ${status} at ${endpoint}: ${message}`);
+    this.name = "GoogleCalendarApiError";
+    this.status = status;
+    this.endpoint = endpoint;
+    this.errorData = errorData;
+  }
+
+  /** スコープ不足エラー (403 ACCESS_TOKEN_SCOPE_INSUFFICIENT) */
+  isScopeInsufficient(): boolean {
+    return this.status === 403;
+  }
+
+  /** 認証切れ・無効トークン (401 Unauthorized) */
+  isUnauthorized(): boolean {
+    return this.status === 401;
+  }
+}
 
 export interface GoogleCalendarListItem {
   id: string;
@@ -73,7 +99,34 @@ async function calendarFetch<T>(
 
   if (!res.ok) {
     const text = await res.text();
-    throw new Error(`Google Calendar API error ${res.status}: ${text}`);
+    let errorData: any;
+    try {
+      errorData = JSON.parse(text);
+    } catch {
+      errorData = text;
+    }
+
+    // 401 (認証切れ) または 403 (スコープ不足等) の場合、無効なトークンを自動破棄
+    if (res.status === 401 || res.status === 403) {
+      clearSavedToken();
+      const reason =
+        res.status === 403
+          ? "スコープ権限不足 (ACCESS_TOKEN_SCOPE_INSUFFICIENT) のため、再同意・再認証が必要です。"
+          : "認証有効期限切れのため、再認証が必要です。";
+      console.error(
+        `[Google Calendar Error] ${res.status} at ${url}: ${reason}\n詳細:`,
+        errorData
+      );
+    } else {
+      console.error(`[Google Calendar Error] ${res.status} at ${url}:`, errorData);
+    }
+
+    throw new GoogleCalendarApiError(
+      res.status,
+      url,
+      typeof errorData === "object" ? JSON.stringify(errorData) : text,
+      errorData
+    );
   }
 
   if (res.status === 204) {
@@ -173,6 +226,10 @@ export async function fetchUserCalendarList(
     );
     return data.items || [];
   } catch (err) {
+    // 401 (認証切れ) または 403 (スコープ不足) の場合は上位に再スローして再同意を促す
+    if (err instanceof GoogleCalendarApiError && (err.isUnauthorized() || err.isScopeInsufficient())) {
+      throw err;
+    }
     console.warn("fetchUserCalendarList failed, fallback to primary:", err);
     return [{ id: "primary", summary: "Primary", primary: true }];
   }
@@ -188,8 +245,10 @@ export async function fetchEventsFromCalendar(
   timeMax?: string
 ): Promise<GoogleCalendarApiEvent[]> {
   const now = new Date();
-  const defaultMin = new Date(now.getFullYear(), now.getMonth() - 1, 1).toISOString();
-  const defaultMax = new Date(now.getFullYear(), now.getMonth() + 4, 0).toISOString();
+  // 当月1日の1ヶ月前 (前月1日 00:00:00)
+  const defaultMin = new Date(now.getFullYear(), now.getMonth() - 1, 1, 0, 0, 0, 0).toISOString();
+  // 当月末日の1ヶ月後 (翌月末日 23:59:59.999 = 翌々月0日)
+  const defaultMax = new Date(now.getFullYear(), now.getMonth() + 2, 0, 23, 59, 59, 999).toISOString();
 
   const min = timeMin || defaultMin;
   const max = timeMax || defaultMax;
@@ -460,6 +519,9 @@ export async function syncGoogleCalendarToArca(
     }
 
     return { added, updated };
+  } catch (err) {
+    console.error("[Google Calendar Sync Error] Googleカレンダー同期中にエラーが発生しました:", err);
+    throw err;
   } finally {
     isCalendarSyncInProgress = false;
   }

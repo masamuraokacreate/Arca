@@ -1,16 +1,13 @@
 /**
  * src/components/Tasks.tsx
- * Arca — Tasks / タスク管理 (Apple HIG × Arca 準拠)
+ * Arca — Tasks / タスク管理 (Apple HIG × Google Todo 双方向同期)
  *
- * Sprint 5:
- *  - Apple HIG準拠 サブタスク機能（Subtasks）:
- *    - 各タスクごとのアコーディオン展開 / 折りたたみ
- *    - サブタスク専用チェックボックス・インライン連続追加・個別削除
- *    - 進捗インジケーターピル（例: 1/3）
- *    - Gemini「✦ ステップ分解」連携（生成結果を subtasks 配列に直接一括追加）
- *  - 自然言語タスク入力推論（Smart Quick Add）: 期日・優先度の自動抽出プレビュー（SVGアイコン）
- *  - Google Tasks（マイタスク）同期 & 期限管理（相互マッピング）
- *  - モバイル（iPhone）画面での入力バー横幅縮退・はみ出し完全防止
+ * 設計原則:
+ * - 一体化タブ型リスト管理（Sliding Pill スライディングアニメーション・均一幅・文字数制限）
+ * - クリック領域の厳密な分離（チェックボックス: 完了トグル / カード・テキスト: 詳細編集モーダル起動）
+ * - モバイル対応（一覧からの直接削除ボタン、優先度・期限バッジの常時クリーン表示）
+ * - Google Tasks 完全双方向同期 & 冪等性確保
+ * - AetherCore ステップ分解 & サブタスク管理統合
  */
 
 import { useState, useEffect, useRef, useCallback } from "react";
@@ -20,7 +17,6 @@ import {
   updateDoc,
   deleteDoc,
   doc,
-  getDocs,
   onSnapshot,
   query,
   orderBy,
@@ -30,24 +26,39 @@ import { db } from "../lib/firebase";
 import { useGoogleAuth } from "../hooks/useGoogleAuth";
 import {
   getTaskLists,
-  getTasks,
-  addTask as gAddTask,
-  updateTaskStatus,
   type GTaskList,
 } from "../lib/googleTasks";
-import { breakdownTask, parseTaskInput } from "../lib/aetherCore";
-import type { TaskItem, SubTaskItem, SyncStatus } from "../types";
+import {
+  syncGoogleTasksForList,
+  pushTaskToGoogleTasks,
+  pushTaskStatusToGoogleTasks,
+  pushTaskUpdateToGoogleTasks,
+  removeTaskFromGoogleTasks,
+  createGoogleTaskList,
+  renameGoogleTaskList,
+  deleteGoogleTaskList,
+} from "../services/googleTasksSync";
+import { parseTaskInput } from "../lib/aetherCore";
+import type { TaskItem, TaskListCategory, SyncStatus } from "../types";
 import { C } from "../lib/designSystem";
 import { useUndoToast } from "../hooks/useUndoToast";
 import { UndoToast } from "./common/UndoToast";
 import { PMSection } from "./tasks/PMSection";
-import Lists from "./Lists";
+import { TaskDetailModal } from "./tasks/TaskDetailModal";
 
 export interface TasksProps {
-  initialTab?: "tasks" | "lists";
+  initialTab?: string;
 }
 
 type Task = TaskItem;
+
+// ── 初期デフォルトカテゴリ ──
+const DEFAULT_CATEGORIES: TaskListCategory[] = [
+  { id: "default", title: "マイタスク", isDefault: true },
+  { id: "shopping", title: "買い物リスト" },
+];
+
+const MAX_LIST_NAME_LENGTH = 15;
 
 // ---------- ユーティリティ ----------
 
@@ -76,12 +87,12 @@ function dueColor(dateStr: string): string {
 }
 
 // ---------- アイコン ----------
-function CheckCircle({ completed, size = "1.25rem" }: { completed: boolean; size?: string }) {
+function CheckCircle({ completed, size = "1.3rem" }: { completed: boolean; size?: string }) {
   return (
     <svg
       viewBox="0 0 24 24"
       fill="none"
-      strokeWidth={1.75}
+      strokeWidth={1.8}
       style={{
         width: size,
         height: size,
@@ -95,59 +106,6 @@ function CheckCircle({ completed, size = "1.25rem" }: { completed: boolean; size
       ) : (
         <circle cx="12" cy="12" r="9" />
       )}
-    </svg>
-  );
-}
-
-function SubtaskCheck({ completed }: { completed: boolean }) {
-  return (
-    <svg
-      viewBox="0 0 24 24"
-      fill="none"
-      strokeWidth={2}
-      style={{
-        width: "0.95rem",
-        height: "0.95rem",
-        stroke: completed ? C.gold : C.charcoalLight,
-        transition: "stroke 0.2s ease",
-        flexShrink: 0,
-      }}
-    >
-      {completed ? (
-        <path strokeLinecap="round" strokeLinejoin="round" d="M4.5 12.75l6 6 9-13.5" />
-      ) : (
-        <circle cx="12" cy="12" r="8" strokeDasharray="3 3" />
-      )}
-    </svg>
-  );
-}
-
-function TrashIcon({ size = "0.95rem" }: { size?: string }) {
-  return (
-    <svg
-      viewBox="0 0 24 24"
-      fill="none"
-      strokeWidth={1.75}
-      stroke="currentColor"
-      style={{ width: size, height: size }}
-    >
-      <path
-        strokeLinecap="round"
-        strokeLinejoin="round"
-        d="M3 6h18m-2 0v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6m3 0V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2"
-      />
-    </svg>
-  );
-}
-
-function SparklesIcon({ size = "13" }: { size?: string }) {
-  return (
-    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0, color: C.gold }}>
-      <path d="m12 3-1.912 5.813a2 2 0 0 1-1.275 1.275L3 12l5.813 1.912a2 2 0 0 1 1.275 1.275L12 21l1.912-5.813a2 2 0 0 1 1.275-1.275L21 12l-5.813-1.912a2 2 0 0 1-1.275-1.275L12 3Z" />
-      <path d="M5 3v4" />
-      <path d="M19 17v4" />
-      <path d="M3 5h4" />
-      <path d="M17 19h4" />
     </svg>
   );
 }
@@ -169,22 +127,18 @@ function ZapIcon() {
   );
 }
 
-function ChevronDown({ expanded }: { expanded: boolean }) {
+function PencilIcon() {
   return (
-    <svg
-      viewBox="0 0 24 24"
-      fill="none"
-      strokeWidth={2}
-      stroke="currentColor"
-      style={{
-        width: "0.85rem",
-        height: "0.85rem",
-        transform: expanded ? "rotate(180deg)" : "rotate(0deg)",
-        transition: "transform 0.2s cubic-bezier(0.16, 1, 0.3, 1)",
-        color: C.charcoalLight,
-      }}
-    >
-      <path strokeLinecap="round" strokeLinejoin="round" d="m19.5 8.25-7.5 7.5-7.5-7.5" />
+    <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M17 3a2.85 2.83 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5Z" />
+    </svg>
+  );
+}
+
+function TrashIcon() {
+  return (
+    <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0 }}>
+      <path d="M3 6h18m-2 0v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6m3 0V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2" />
     </svg>
   );
 }
@@ -269,113 +223,95 @@ function SyncBadge({
   );
 }
 
-// ---------- タスク行（サブタスク機能・ステップ分解対応） ----------
+// ---------- タスク行（クリック領域完全分離・直接削除ボタン付き） ----------
 function TaskRow({
   task,
   onToggle,
+  onClickRow,
   onDelete,
-  onToggleSubtask,
-  onAddSubtask,
-  onDeleteSubtask,
-  onAiBreakdown,
 }: {
   task: Task;
   onToggle: (task: Task) => void;
+  onClickRow: (task: Task) => void;
   onDelete: (task: Task) => void;
-  onToggleSubtask: (task: Task, subtaskId: string) => void;
-  onAddSubtask: (task: Task, title: string) => Promise<void>;
-  onDeleteSubtask: (task: Task, subtaskId: string) => void;
-  onAiBreakdown: (task: Task) => Promise<void>;
 }) {
-  const [hovered, setHovered] = useState(false);
-  const [isExpanded, setIsExpanded] = useState(false);
-  const [isBreakingDown, setIsBreakingDown] = useState(false);
-  const [newSubtaskTitle, setNewSubtaskTitle] = useState("");
-  const [subtaskHoveredId, setSubtaskHoveredId] = useState<string | null>(null);
-
   const subtasks = task.subtasks || [];
   const totalSubtasks = subtasks.length;
   const completedSubtasks = subtasks.filter((s) => s.completed).length;
 
-  // AIステップ分解の実行
-  const handleBreakdownClick = async (e: React.MouseEvent) => {
-    e.stopPropagation();
-    if (isBreakingDown || task.completed) return;
-    setIsBreakingDown(true);
-    setIsExpanded(true);
-    try {
-      await onAiBreakdown(task);
-    } finally {
-      setIsBreakingDown(false);
-    }
-  };
-
-  // サブタスクインライン追加
-  const handleSubtaskKeyDown = async (e: React.KeyboardEvent<HTMLInputElement>) => {
-    if (e.key === "Enter" && newSubtaskTitle.trim()) {
-      e.preventDefault();
-      const val = newSubtaskTitle.trim();
-      setNewSubtaskTitle("");
-      await onAddSubtask(task, val);
-    }
-  };
-
   return (
     <li
-      onMouseEnter={() => setHovered(true)}
-      onMouseLeave={() => setHovered(false)}
+      onClick={() => onClickRow(task)}
+      data-testid="task-item-row"
       style={{
         display: "flex",
-        flexDirection: "column",
-        padding: "0.75rem 0",
-        borderBottom: "1px solid rgba(0, 0, 0, 0.035)",
+        alignItems: "center",
+        gap: "0.85rem",
+        padding: "0.85rem 0.6rem",
+        borderBottom: "1px solid rgba(0, 0, 0, 0.04)",
         opacity: task.completed ? 0.45 : 1,
-        transition: "opacity 0.2s ease",
+        transition: "opacity 0.2s ease, background 0.15s ease",
+        cursor: "pointer",
+        borderRadius: "10px",
       }}
     >
-      {/* メインタスク行 */}
-      <div style={{ display: "flex", alignItems: "center", gap: "0.85rem", width: "100%" }}>
-        {/* チェックボタン */}
-        <button
-          onClick={() => onToggle(task)}
-          style={{ background: "none", border: "none", padding: 0, cursor: "pointer", lineHeight: 0 }}
-          title={task.completed ? "未完了に戻す" : "完了にする"}
-        >
-          <CheckCircle completed={task.completed} />
-        </button>
+      {/* ─── 左端: 丸いチェックボタン（e.stopPropagation で完了トグルのみ） ─── */}
+      <button
+        type="button"
+        data-testid="task-toggle-btn"
+        onClick={(e) => {
+          e.stopPropagation();
+          onToggle(task);
+        }}
+        style={{
+          background: "none",
+          border: "none",
+          padding: "0.25rem",
+          margin: "-0.25rem",
+          cursor: "pointer",
+          lineHeight: 0,
+          minWidth: "32px",
+          minHeight: "32px",
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "center",
+          flexShrink: 0,
+        }}
+        title={task.completed ? "未完了に戻す" : "完了にする"}
+      >
+        <CheckCircle completed={task.completed} />
+      </button>
 
-        {/* タスク名 */}
-        <span
-          onClick={() => onToggle(task)}
-          style={{
-            flex: 1,
-            fontSize: "0.875rem",
-            fontWeight: 400,
-            color: task.completed ? C.charcoalLight : C.charcoal,
-            textDecoration: task.completed ? "line-through" : "none",
-            transition: "text-decoration 0.2s ease",
-            letterSpacing: "0.01em",
-            cursor: "pointer",
-            lineHeight: 1.35,
-          }}
-        >
-          {task.title}
-        </span>
+      {/* ─── タスクタイトル ─── */}
+      <span
+        style={{
+          flex: 1,
+          fontSize: "0.9rem",
+          fontWeight: 450,
+          color: task.completed ? C.charcoalLight : C.charcoal,
+          textDecoration: task.completed ? "line-through" : "none",
+          transition: "text-decoration 0.2s ease",
+          letterSpacing: "0.01em",
+          lineHeight: 1.4,
+          wordBreak: "break-word",
+        }}
+      >
+        {task.title}
+      </span>
 
-        {/* サブタスク進捗ピルバッジ (例: 1/3) */}
+      {/* ─── 右端情報（サブタスク進捗ピル・優先度・期限・ゴミ箱） ─── */}
+      <div style={{ display: "flex", alignItems: "center", gap: "0.5rem", flexShrink: 0 }}>
+        {/* サブタスク進捗ピルバッジ */}
         {totalSubtasks > 0 && !task.completed && (
           <span
-            onClick={() => setIsExpanded(!isExpanded)}
             style={{
               fontSize: "0.68rem",
-              fontWeight: 550,
+              fontWeight: 600,
               color: completedSubtasks === totalSubtasks ? C.sage : C.charcoalLight,
               background: completedSubtasks === totalSubtasks ? "rgba(107, 142, 111, 0.12)" : "rgba(0, 0, 0, 0.04)",
               padding: "0.15rem 0.45rem",
               borderRadius: "6px",
-              flexShrink: 0,
-              cursor: "pointer",
-              userSelect: "none",
+              whiteSpace: "nowrap",
             }}
             title={`${totalSubtasks}件中${completedSubtasks}件完了`}
           >
@@ -383,20 +319,37 @@ function TaskRow({
           </span>
         )}
 
-        {/* 優先度バッジ */}
+        {/* 優先度バッジ（高・低） */}
         {task.priority === "high" && !task.completed && (
           <span
+            data-testid="priority-high-badge"
             style={{
               fontSize: "0.65rem",
               fontWeight: 600,
               color: C.danger,
               background: "rgba(224, 86, 74, 0.08)",
-              padding: "0.1rem 0.4rem",
-              borderRadius: "4px",
-              flexShrink: 0,
+              padding: "0.12rem 0.4rem",
+              borderRadius: "5px",
+              whiteSpace: "nowrap",
             }}
           >
             高
+          </span>
+        )}
+        {task.priority === "low" && !task.completed && (
+          <span
+            data-testid="priority-low-badge"
+            style={{
+              fontSize: "0.65rem",
+              fontWeight: 600,
+              color: "#4A709C",
+              background: "rgba(74, 112, 156, 0.08)",
+              padding: "0.12rem 0.4rem",
+              borderRadius: "5px",
+              whiteSpace: "nowrap",
+            }}
+          >
+            低
           </span>
         )}
 
@@ -408,218 +361,75 @@ function TaskRow({
               letterSpacing: "0.02em",
               fontWeight: 500,
               color: dueColor(task.dueDate),
-              flexShrink: 0,
               padding: "0.15rem 0.45rem",
               borderRadius: "6px",
               background: "rgba(0, 0, 0, 0.03)",
+              whiteSpace: "nowrap",
             }}
           >
             {formatDue(task.dueDate)}
           </span>
         )}
 
-        {/* アクションボタン群 */}
-        <div
+        {/* 一覧からの直接削除ボタン */}
+        <button
+          type="button"
+          data-testid="task-delete-btn"
+          onClick={(e) => {
+            e.stopPropagation();
+            onDelete(task);
+          }}
           style={{
+            background: "none",
+            border: "none",
+            padding: "0.3rem",
+            margin: "-0.2rem",
+            cursor: "pointer",
+            color: C.charcoalLight,
+            opacity: 0.6,
+            lineHeight: 0,
             display: "flex",
             alignItems: "center",
-            gap: "0.3rem",
-            opacity: hovered || isBreakingDown || isExpanded ? 1 : 0,
-            transition: "opacity 0.15s ease",
-            flexShrink: 0,
+            justifyContent: "center",
+            transition: "opacity 0.15s ease, color 0.15s ease",
           }}
+          onMouseEnter={(e) => {
+            (e.currentTarget as HTMLElement).style.opacity = "1";
+            (e.currentTarget as HTMLElement).style.color = C.danger;
+          }}
+          onMouseLeave={(e) => {
+            (e.currentTarget as HTMLElement).style.opacity = "0.6";
+            (e.currentTarget as HTMLElement).style.color = C.charcoalLight;
+          }}
+          title="タスクを削除"
         >
-          {/* ✦ ステップ分解ボタン */}
-          {!task.completed && (
-            <button
-              onClick={handleBreakdownClick}
-              disabled={isBreakingDown}
-              style={{
-                display: "inline-flex",
-                alignItems: "center",
-                gap: "0.2rem",
-                background: "transparent",
-                border: "none",
-                borderRadius: "6px",
-                padding: "0.2rem 0.45rem",
-                cursor: isBreakingDown ? "default" : "pointer",
-                color: C.goldDark,
-                fontSize: "0.68rem",
-                fontWeight: 600,
-                transition: "all 0.15s ease",
-              }}
-              title="AIでサブタスクに分解"
-              data-testid="task-breakdown-btn"
-            >
-              {isBreakingDown ? (
-                <span style={{ display: "inline-flex", gap: "2px", alignItems: "center" }}>
-                  {[0, 1, 2].map((i) => (
-                    <span
-                      key={i}
-                      style={{
-                        width: "3px",
-                        height: "3px",
-                        borderRadius: "50%",
-                        backgroundColor: C.gold,
-                        display: "inline-block",
-                        animation: `aether-pulse 1.2s ease-in-out ${i * 0.2}s infinite`,
-                      }}
-                    />
-                  ))}
-                </span>
-              ) : (
-                <SparklesIcon />
-              )}
-              <span>分解</span>
-            </button>
-          )}
-
-          {/* サブタスク展開トグル Chevron */}
-          <button
-            onClick={() => setIsExpanded(!isExpanded)}
-            style={{
-              background: "none",
-              border: "none",
-              padding: "0.2rem",
-              cursor: "pointer",
-              lineHeight: 0,
-              borderRadius: "4px",
-            }}
-            title={isExpanded ? "サブタスクを閉じる" : "サブタスクを開く"}
-          >
-            <ChevronDown expanded={isExpanded} />
-          </button>
-
-          {/* 削除ボタン */}
-          <button
-            onClick={() => onDelete(task)}
-            style={{
-              background: "none",
-              border: "none",
-              padding: "0.2rem",
-              cursor: "pointer",
-              color: C.charcoalLight,
-              lineHeight: 0,
-              borderRadius: "4px",
-            }}
-            title="削除"
-            data-testid="task-delete-btn"
-          >
-            <TrashIcon />
-          </button>
-        </div>
+          <TrashIcon />
+        </button>
       </div>
-
-      {/* ─── サブタスク アコーディオン展開エリア ─── */}
-      {isExpanded && (
-        <div
-          style={{
-            marginTop: "0.65rem",
-            marginLeft: "2.1rem",
-            padding: "0.65rem 0.85rem",
-            background: "rgba(0, 0, 0, 0.02)",
-            borderRadius: "12px",
-            borderLeft: `2px solid ${C.goldFaint3}`,
-            animation: "arca-view-in 0.18s cubic-bezier(0.16, 1, 0.3, 1)",
-          }}
-        >
-          {/* サブタスク一覧 */}
-          {subtasks.length > 0 && (
-            <div style={{ display: "flex", flexDirection: "column", gap: "0.35rem", marginBottom: "0.55rem" }}>
-              {subtasks.map((st) => (
-                <div
-                  key={st.id}
-                  onMouseEnter={() => setSubtaskHoveredId(st.id)}
-                  onMouseLeave={() => setSubtaskHoveredId(null)}
-                  style={{
-                    display: "flex",
-                    alignItems: "center",
-                    gap: "0.55rem",
-                    padding: "0.25rem 0.35rem",
-                    borderRadius: "6px",
-                    background: st.completed ? "transparent" : "rgba(255, 255, 255, 0.4)",
-                  }}
-                >
-                  <button
-                    onClick={() => onToggleSubtask(task, st.id)}
-                    style={{ background: "none", border: "none", padding: 0, cursor: "pointer", lineHeight: 0 }}
-                  >
-                    <SubtaskCheck completed={st.completed} />
-                  </button>
-                  <span
-                    onClick={() => onToggleSubtask(task, st.id)}
-                    style={{
-                      flex: 1,
-                      fontSize: "0.8rem",
-                      color: st.completed ? C.charcoalLight : C.charcoal,
-                      textDecoration: st.completed ? "line-through" : "none",
-                      cursor: "pointer",
-                    }}
-                  >
-                    {st.title}
-                  </span>
-                  {subtaskHoveredId === st.id && (
-                    <button
-                      onClick={() => onDeleteSubtask(task, st.id)}
-                      style={{
-                        background: "none",
-                        border: "none",
-                        padding: "0.15rem",
-                        cursor: "pointer",
-                        color: C.charcoalLight,
-                        lineHeight: 0,
-                      }}
-                      title="サブタスクを削除"
-                    >
-                      <TrashIcon size="0.75rem" />
-                    </button>
-                  )}
-                </div>
-              ))}
-            </div>
-          )}
-
-          {/* サブタスク インライン追加入力欄 */}
-          <div style={{ display: "flex", alignItems: "center", gap: "0.45rem", marginTop: "0.25rem" }}>
-            <span style={{ fontSize: "0.85rem", color: C.charcoalLight, lineHeight: 1 }}>+</span>
-            <input
-              type="text"
-              value={newSubtaskTitle}
-              onChange={(e) => setNewSubtaskTitle(e.target.value)}
-              onKeyDown={handleSubtaskKeyDown}
-              placeholder="サブタスクを追加…（Enterで追加）"
-              style={{
-                flex: 1,
-                minWidth: 0,
-                background: "transparent",
-                border: "none",
-                outline: "none",
-                fontSize: "0.78rem",
-                color: C.charcoal,
-                padding: "0.15rem 0",
-              }}
-            />
-          </div>
-        </div>
-      )}
     </li>
   );
 }
 
 // ---------- メインコンポーネント ----------
-export default function Tasks({ initialTab = "tasks" }: TasksProps = {}) {
-  const [activeTab, setActiveTab] = useState<"tasks" | "lists">(initialTab);
+export default function Tasks({ initialTab = "default" }: TasksProps = {}) {
+  const [categories, setCategories] = useState<TaskListCategory[]>(DEFAULT_CATEGORIES);
+  const [activeListId, setActiveListId] = useState<string>(
+    initialTab === "shopping" ? "shopping" : "default"
+  );
   const [tasks, setTasks] = useState<Task[]>([]);
   const [titleInput, setTitleInput] = useState("");
   const [dueInput, setDueInput] = useState("");
   const [isAdding, setIsAdding] = useState(false);
   const [syncStatus, setSyncStatus] = useState<SyncStatus>("idle");
 
-  useEffect(() => {
-    if (initialTab) {
-      setActiveTab(initialTab);
-    }
-  }, [initialTab]);
+  // 詳細編集モーダル用 State
+  const [detailTask, setDetailTask] = useState<Task | null>(null);
+
+  // リスト作成・編集モーダル用 State
+  const [showAddListModal, setShowAddListModal] = useState(false);
+  const [newListName, setNewListName] = useState("");
+  const [editingCategory, setEditingCategory] = useState<TaskListCategory | null>(null);
+  const [showDeleteListConfirm, setShowDeleteListConfirm] = useState(false);
 
   // 自然言語推論ステート
   const [parsedInfo, setParsedInfo] = useState<{
@@ -628,14 +438,64 @@ export default function Tasks({ initialTab = "tasks" }: TasksProps = {}) {
     priority?: "low" | "medium" | "high";
   } | null>(null);
   const parseTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-
   const inputRef = useRef<HTMLInputElement>(null);
-  const gTaskListIdRef = useRef<string | null>(null);
+
+  // Sliding Pill アニメーション用の Ref & State
+  const tabTrackRef = useRef<HTMLDivElement>(null);
+  const tabItemRefs = useRef<Map<string, HTMLDivElement>>(new Map());
+  const [pillStyle, setPillStyle] = useState<{
+    left: number;
+    top: number;
+    width: number;
+    height: number;
+    ready: boolean;
+  }>({
+    left: 0,
+    top: 3,
+    width: 0,
+    height: 0,
+    ready: false,
+  });
 
   const { isReady, isSignedIn, accessToken, signIn, signOut } = useGoogleAuth();
-  const { toast, showUndoToast, showMessageToast, dismissToast, triggerUndo } = useUndoToast<Task>();
+  const { toast, showUndoToast, dismissToast, triggerUndo } = useUndoToast<Task>();
 
-  // ---------- Firestore リアルタイム購読 ----------
+  // Sliding Pill の位置・幅更新
+  const updatePill = useCallback(() => {
+    const activeEl = tabItemRefs.current.get(activeListId);
+    const track = tabTrackRef.current;
+    if (!activeEl || !track) return;
+
+    const elLeft = activeEl.offsetLeft;
+    const elTop = activeEl.offsetTop;
+    const elWidth = activeEl.offsetWidth;
+    const elHeight = activeEl.offsetHeight;
+
+    setPillStyle({
+      left: elLeft,
+      top: elTop,
+      width: elWidth,
+      height: elHeight,
+      ready: true,
+    });
+  }, [activeListId]);
+
+  useEffect(() => {
+    updatePill();
+    const raf = requestAnimationFrame(updatePill);
+    const timer = setTimeout(updatePill, 60);
+
+    const handleResize = () => updatePill();
+    window.addEventListener("resize", handleResize);
+
+    return () => {
+      cancelAnimationFrame(raf);
+      clearTimeout(timer);
+      window.removeEventListener("resize", handleResize);
+    };
+  }, [updatePill, categories]);
+
+  // ---------- Firestore リアルタイム購読（タスク） ----------
   useEffect(() => {
     const q = query(collection(db, "tasks"), orderBy("createdAt", "asc"));
     return onSnapshot(q, (snapshot) => {
@@ -648,79 +508,69 @@ export default function Tasks({ initialTab = "tasks" }: TasksProps = {}) {
     });
   }, []);
 
-  // ---------- Google Tasks（マイタスク）初期同期 ----------
+  // ---------- Google Tasks リスト & タスク初期同期 ----------
   useEffect(() => {
     if (!isSignedIn || !accessToken) return;
     let isCancelled = false;
 
-    async function initGoogleTasks() {
+    async function initGoogleSync() {
       try {
         setSyncStatus("syncing");
-        const lists = await getTaskLists(accessToken!);
-        if (!lists || lists.length === 0) {
-          setSyncStatus("error");
+        const gLists: GTaskList[] = await getTaskLists(accessToken!);
+        if (isCancelled || !gLists || gLists.length === 0) {
+          setSyncStatus("idle");
           return;
         }
 
-        const target = lists.find((l: GTaskList) => l.title === "My Tasks" || l.title === "マイタスク") || lists[0];
-        gTaskListIdRef.current = target.id;
+        // Google Tasks のリストをカテゴリにマッピング
+        const mappedCategories: TaskListCategory[] = [];
+        for (const gl of gLists) {
+          const isMyTasks = gl.title === "My Tasks" || gl.title === "マイタスク" || gl.id === "@default";
+          const isShop = gl.title === "買い物リスト" || gl.title === "買い物" || gl.title === "Shopping List";
 
-        const gTasks = await getTasks(accessToken!, target.id);
-        if (isCancelled) return;
-
-        // 冪等性確保: 最新のFirestoreデータを直接取得して照合
-        const currentSnap = await getDocs(collection(db, "tasks"));
-        const existingDocs = currentSnap.docs.map((d) => ({
-          id: d.id,
-          data: d.data() as Omit<Task, "id">,
-        }));
-
-        for (const gTask of gTasks) {
-          if (isCancelled) return;
-
-          const parsedDue = gTask.due ? gTask.due.split("T")[0] : null;
-
-          // 1) googleTaskId が一致するか確認
-          const matchById = existingDocs.find(
-            (item) => item.data.googleTaskId === gTask.id
-          );
-
-          if (matchById) {
-            const isCompleted = gTask.status === "completed";
-            const dueDiffers = (matchById.data.dueDate || null) !== parsedDue;
-            if (matchById.data.completed !== isCompleted || dueDiffers) {
-              await updateDoc(doc(db, "tasks", matchById.id), {
-                completed: isCompleted,
-                dueDate: parsedDue,
-              });
-            }
-            continue;
-          }
-
-          // 2) 同一タイトルの未紐付けタスクが存在するか確認
-          const matchByTitle = existingDocs.find(
-            (item) =>
-              !item.data.googleTaskId &&
-              item.data.title.trim() === gTask.title.trim()
-          );
-
-          if (matchByTitle) {
-            await updateDoc(doc(db, "tasks", matchByTitle.id), {
-              googleTaskId: gTask.id,
-              completed: gTask.status === "completed",
-              dueDate: parsedDue || matchByTitle.data.dueDate || null,
+          if (isMyTasks) {
+            mappedCategories.push({
+              id: "default",
+              title: "マイタスク",
+              googleListId: gl.id,
+              isDefault: true,
             });
-            continue;
+          } else if (isShop) {
+            mappedCategories.push({
+              id: "shopping",
+              title: gl.title,
+              googleListId: gl.id,
+            });
+          } else {
+            mappedCategories.push({
+              id: gl.id,
+              title: gl.title,
+              googleListId: gl.id,
+            });
           }
+        }
 
-          // 3) どちらにも該当しない場合は新規追加
-          await addDoc(collection(db, "tasks"), {
-            title: gTask.title,
-            dueDate: parsedDue,
-            completed: gTask.status === "completed",
-            googleTaskId: gTask.id,
-            createdAt: serverTimestamp(),
-          });
+        // 重複排除
+        const uniqueCategories: TaskListCategory[] = [];
+        for (const cat of mappedCategories) {
+          if (!uniqueCategories.some((u) => u.id === cat.id)) {
+            uniqueCategories.push(cat);
+          }
+        }
+        if (!uniqueCategories.some((u) => u.id === "default")) {
+          uniqueCategories.unshift(DEFAULT_CATEGORIES[0]);
+        }
+        if (!uniqueCategories.some((u) => u.id === "shopping")) {
+          uniqueCategories.push(DEFAULT_CATEGORIES[1]);
+        }
+
+        setCategories(uniqueCategories);
+
+        // 各カテゴリのタスクを同期
+        for (const cat of uniqueCategories) {
+          if (cat.googleListId) {
+            await syncGoogleTasksForList(accessToken!, cat.googleListId, cat.id);
+          }
         }
 
         setSyncStatus("done");
@@ -728,12 +578,12 @@ export default function Tasks({ initialTab = "tasks" }: TasksProps = {}) {
           if (!isCancelled) setSyncStatus("idle");
         }, 3000);
       } catch (err) {
-        console.error("Google Tasks sync error:", err);
+        console.error("Google Tasks sync failed:", err);
         if (!isCancelled) setSyncStatus("error");
       }
     }
 
-    initGoogleTasks();
+    initGoogleSync();
     return () => {
       isCancelled = true;
     };
@@ -775,14 +625,16 @@ export default function Tasks({ initialTab = "tasks" }: TasksProps = {}) {
     const finalPriority = parsedInfo?.priority || "medium";
 
     try {
+      const currentCategory = categories.find((c) => c.id === activeListId);
       let googleTaskId: string | undefined;
-      if (isSignedIn && accessToken && gTaskListIdRef.current) {
+
+      if (isSignedIn && accessToken && currentCategory?.googleListId) {
         try {
-          googleTaskId = await gAddTask(
+          googleTaskId = await pushTaskToGoogleTasks(
             accessToken,
-            gTaskListIdRef.current,
+            currentCategory.googleListId,
             finalTitle,
-            finalDue || undefined
+            finalDue
           );
         } catch (gErr) {
           console.error("Failed to add task to Google Tasks:", gErr);
@@ -794,10 +646,13 @@ export default function Tasks({ initialTab = "tasks" }: TasksProps = {}) {
         dueDate: finalDue,
         priority: finalPriority,
         completed: false,
-        subtasks: [],
+        listId: activeListId,
         googleTaskId: googleTaskId || null,
+        googleListId: currentCategory?.googleListId || null,
+        subtasks: [],
         createdAt: serverTimestamp(),
       });
+
       setTitleInput("");
       setDueInput("");
       setParsedInfo(null);
@@ -805,62 +660,7 @@ export default function Tasks({ initialTab = "tasks" }: TasksProps = {}) {
     } finally {
       setIsAdding(false);
     }
-  }, [titleInput, dueInput, parsedInfo, isAdding, isSignedIn, accessToken]);
-
-  // ---------- サブタスク完了トグル ----------
-  const handleToggleSubtask = useCallback(async (task: Task, subtaskId: string) => {
-    const nextSubtasks = (task.subtasks || []).map((st) =>
-      st.id === subtaskId ? { ...st, completed: !st.completed } : st
-    );
-    await updateDoc(doc(db, "tasks", task.id), {
-      subtasks: nextSubtasks,
-    });
-  }, []);
-
-  // ---------- サブタスクインライン追加 ----------
-  const handleAddSubtask = useCallback(async (task: Task, title: string) => {
-    const newSub: SubTaskItem = {
-      id: "sub-" + Math.random().toString(36).slice(2, 9),
-      title,
-      completed: false,
-    };
-    const nextSubtasks = [...(task.subtasks || []), newSub];
-    await updateDoc(doc(db, "tasks", task.id), {
-      subtasks: nextSubtasks,
-    });
-  }, []);
-
-  // ---------- サブタスク削除 ----------
-  const handleDeleteSubtask = useCallback(async (task: Task, subtaskId: string) => {
-    const nextSubtasks = (task.subtasks || []).filter((st) => st.id !== subtaskId);
-    await updateDoc(doc(db, "tasks", task.id), {
-      subtasks: nextSubtasks,
-    });
-  }, []);
-
-  // ---------- Gemini「✦ ステップ分解」連携 ----------
-  const handleAiBreakdown = useCallback(async (task: Task) => {
-    try {
-      const generated = await breakdownTask(task.title);
-      if (generated && generated.length > 0) {
-        const newSubs: SubTaskItem[] = generated.map((title) => ({
-          id: "sub-" + Math.random().toString(36).slice(2, 9),
-          title,
-          completed: false,
-        }));
-        const nextSubtasks = [...(task.subtasks || []), ...newSubs];
-        await updateDoc(doc(db, "tasks", task.id), {
-          subtasks: nextSubtasks,
-        });
-        showMessageToast(`${generated.length}件のサブタスクを展開しました`);
-      } else {
-        showMessageToast("サブタスクを生成できませんでした");
-      }
-    } catch (e) {
-      console.error("AI breakdown failed", e);
-      showMessageToast("ステップ分解中にエラーが発生しました");
-    }
-  }, [showMessageToast]);
+  }, [titleInput, dueInput, parsedInfo, isAdding, activeListId, categories, isSignedIn, accessToken]);
 
   // ---------- 完了トグル ----------
   const handleToggle = useCallback(
@@ -870,27 +670,78 @@ export default function Tasks({ initialTab = "tasks" }: TasksProps = {}) {
         completed: next,
       });
 
-      if (isSignedIn && accessToken && gTaskListIdRef.current && task.googleTaskId) {
-        try {
-          await updateTaskStatus(
-            accessToken,
-            gTaskListIdRef.current,
-            task.googleTaskId,
-            next
-          );
-        } catch (gErr) {
-          console.error("Failed to update Google Task status:", gErr);
+      if (isSignedIn && accessToken && task.googleTaskId) {
+        const cat = categories.find((c) => c.id === (task.listId || "default"));
+        const targetGoogleListId = task.googleListId || cat?.googleListId;
+        if (targetGoogleListId) {
+          try {
+            await pushTaskStatusToGoogleTasks(
+              accessToken,
+              targetGoogleListId,
+              task.googleTaskId,
+              next
+            );
+          } catch (gErr) {
+            console.error("Failed to update Google Task status:", gErr);
+          }
         }
       }
     },
-    [isSignedIn, accessToken]
+    [isSignedIn, accessToken, categories]
   );
 
-  // ---------- 削除（Undo対応） ----------
-  const handleDelete = useCallback(
+  // ---------- タスク詳細保存 ----------
+  const handleSaveDetail = useCallback(
+    async (updatedTask: Task) => {
+      await updateDoc(doc(db, "tasks", updatedTask.id), {
+        title: updatedTask.title,
+        dueDate: updatedTask.dueDate || null,
+        priority: updatedTask.priority || "medium",
+        listId: updatedTask.listId || "default",
+        subtasks: updatedTask.subtasks || [],
+        updatedAt: serverTimestamp(),
+      });
+
+      if (isSignedIn && accessToken && updatedTask.googleTaskId) {
+        const cat = categories.find((c) => c.id === (updatedTask.listId || "default"));
+        const targetGoogleListId = updatedTask.googleListId || cat?.googleListId;
+        if (targetGoogleListId) {
+          try {
+            await pushTaskUpdateToGoogleTasks(
+              accessToken,
+              targetGoogleListId,
+              updatedTask.googleTaskId,
+              {
+                title: updatedTask.title,
+                dueDate: updatedTask.dueDate || null,
+              }
+            );
+          } catch (gErr) {
+            console.error("Failed to update Google Task:", gErr);
+          }
+        }
+      }
+    },
+    [isSignedIn, accessToken, categories]
+  );
+
+  // ---------- タスク削除（Undo対応） ----------
+  const handleDeleteTask = useCallback(
     async (task: Task) => {
       try {
         await deleteDoc(doc(db, "tasks", task.id));
+
+        if (isSignedIn && accessToken && task.googleTaskId) {
+          const cat = categories.find((c) => c.id === (task.listId || "default"));
+          const targetGoogleListId = task.googleListId || cat?.googleListId;
+          if (targetGoogleListId) {
+            try {
+              await removeTaskFromGoogleTasks(accessToken, targetGoogleListId, task.googleTaskId);
+            } catch (gErr) {
+              console.error("Failed to delete Google Task:", gErr);
+            }
+          }
+        }
 
         showUndoToast({
           message: `「${task.title}」を削除しました`,
@@ -901,8 +752,10 @@ export default function Tasks({ initialTab = "tasks" }: TasksProps = {}) {
               dueDate: restoredTask.dueDate || null,
               priority: restoredTask.priority || "medium",
               completed: restoredTask.completed,
+              listId: restoredTask.listId || "default",
               subtasks: restoredTask.subtasks || [],
               googleTaskId: restoredTask.googleTaskId || null,
+              googleListId: restoredTask.googleListId || null,
               createdAt: serverTimestamp(),
             });
           },
@@ -911,336 +764,779 @@ export default function Tasks({ initialTab = "tasks" }: TasksProps = {}) {
         console.error("Delete task failed", e);
       }
     },
-    [showUndoToast]
+    [showUndoToast, isSignedIn, accessToken, categories]
   );
+
+  // ---------- 新規リスト作成 ----------
+  const handleCreateList = async () => {
+    const title = newListName.trim().slice(0, MAX_LIST_NAME_LENGTH);
+    if (!title) return;
+
+    let googleListId: string | undefined;
+    if (isSignedIn && accessToken) {
+      try {
+        const createdGList = await createGoogleTaskList(accessToken, title);
+        googleListId = createdGList.id;
+      } catch (err) {
+        console.error("Failed to create Google TaskList:", err);
+      }
+    }
+
+    const newId = "list-" + Math.random().toString(36).slice(2, 9);
+    const newCat: TaskListCategory = {
+      id: newId,
+      title,
+      googleListId,
+    };
+
+    setCategories((prev) => [...prev, newCat]);
+    setActiveListId(newId);
+    setNewListName("");
+    setShowAddListModal(false);
+  };
+
+  // ---------- リスト名変更 ----------
+  const handleRenameList = async () => {
+    if (!editingCategory) return;
+    const title = editingCategory.title.trim().slice(0, MAX_LIST_NAME_LENGTH);
+    if (!title) return;
+
+    if (isSignedIn && accessToken && editingCategory.googleListId) {
+      try {
+        await renameGoogleTaskList(accessToken, editingCategory.googleListId, title);
+      } catch (err) {
+        console.error("Failed to rename Google TaskList:", err);
+      }
+    }
+
+    setCategories((prev) =>
+      prev.map((c) => (c.id === editingCategory.id ? { ...editingCategory, title } : c))
+    );
+    setEditingCategory(null);
+  };
+
+  // ---------- リスト削除（所属タスクも全削除） ----------
+  const handleDeleteList = async () => {
+    if (!editingCategory || editingCategory.isDefault) return;
+
+    const listIdToDelete = editingCategory.id;
+
+    // 1. 所属するタスクをFirestoreからすべて削除
+    const tasksToDelete = tasks.filter((t) => (t.listId || "default") === listIdToDelete);
+    for (const t of tasksToDelete) {
+      await deleteDoc(doc(db, "tasks", t.id));
+    }
+
+    // 2. Google Tasks 側でもリスト削除
+    if (isSignedIn && accessToken && editingCategory.googleListId) {
+      try {
+        await deleteGoogleTaskList(accessToken, editingCategory.googleListId);
+      } catch (err) {
+        console.error("Failed to delete Google TaskList:", err);
+      }
+    }
+
+    // 3. カテゴリState更新
+    setCategories((prev) => prev.filter((c) => c.id !== listIdToDelete));
+    if (activeListId === listIdToDelete) {
+      setActiveListId("default");
+    }
+
+    setShowDeleteListConfirm(false);
+    setEditingCategory(null);
+  };
 
   const handleKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
     if (e.key === "Enter") handleAdd();
   };
 
-  // 未完了 / 完了済み 分類・ソート
-  const pending = tasks.filter((t) => !t.completed).sort((a, b) => {
+  // 選択中リストのタスクを抽出・分類
+  const currentTasks = tasks.filter(
+    (t) => (t.listId || "default") === activeListId
+  );
+
+  const pending = currentTasks.filter((t) => !t.completed).sort((a, b) => {
     if (a.dueDate && b.dueDate) return a.dueDate.localeCompare(b.dueDate);
     if (a.dueDate) return -1;
     if (b.dueDate) return 1;
     return 0;
   });
-  const done = tasks.filter((t) => t.completed);
+  const done = currentTasks.filter((t) => t.completed);
 
   return (
-    <div className="w-full max-w-xl mx-auto" style={{ padding: "2.8rem 1.5rem 6rem", boxSizing: "border-box" }}>
+    <div className="w-full max-w-3xl mx-auto" style={{ padding: "2.4rem 1.2rem 6rem", boxSizing: "border-box" }}>
       
-      {/* ─── ヘッダー（統一された静かなデザイン） ─── */}
+      {/* ─── ヘッダー ─── */}
       <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", marginBottom: "1.2rem", padding: "0 0.25rem" }}>
         <div>
           <p style={{ fontSize: "0.68rem", fontWeight: 650, color: C.charcoalLight, letterSpacing: "0.1em", textTransform: "uppercase", margin: 0 }}>
             TASKS & LISTS
           </p>
           <h1 style={{ fontSize: "1.75rem", fontWeight: 750, color: C.charcoal, margin: "0.15rem 0 0", letterSpacing: "-0.03em" }}>
-            {activeTab === "tasks" ? "タスク" : "買い物リスト"}
+            {categories.find((c) => c.id === activeListId)?.title || "タスク"}
           </h1>
         </div>
 
-        {activeTab === "tasks" && (
-          <SyncBadge
-            isReady={isReady}
-            isSignedIn={isSignedIn}
-            syncStatus={syncStatus}
-            onSignIn={signIn}
-            onSignOut={signOut}
-          />
-        )}
+        <SyncBadge
+          isReady={isReady}
+          isSignedIn={isSignedIn}
+          syncStatus={syncStatus}
+          onSignIn={signIn}
+          onSignOut={signOut}
+        />
       </div>
 
-      {/* ─── サブタブ & 新規作成ボタン（一体化バー） ─── */}
-      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: "1.8rem", padding: "0 0.25rem", gap: "0.5rem" }}>
-        {/* 小タブ切り替え: [ ✦ タスク | 🛒 買い物リスト ] */}
+      {/* ─── 一体化タブ型セグメントコントロール（Sliding Pill アニメーション付き） ─── */}
+      <div
+        ref={tabTrackRef}
+        style={{
+          position: "relative",
+          display: "flex",
+          alignItems: "center",
+          background: "rgba(0, 0, 0, 0.05)",
+          borderRadius: "9999px",
+          padding: "3px",
+          marginBottom: "1.6rem",
+          overflowX: "auto",
+          scrollbarWidth: "none",
+          WebkitOverflowScrolling: "touch",
+          gap: "2px",
+          boxSizing: "border-box",
+        }}
+      >
+        {/* 移動する白い楕円ピル (Sliding Pill) */}
         <div
+          data-testid="tab-sliding-pill"
           style={{
-            display: "inline-flex",
-            alignItems: "center",
-            background: "rgba(0, 0, 0, 0.04)",
-            padding: "3px",
+            position: "absolute",
+            top: pillStyle.top,
+            left: 0,
+            transform: `translate3d(${pillStyle.left}px, 0, 0)`,
+            width: pillStyle.width,
+            height: pillStyle.height,
+            background: C.white,
             borderRadius: "9999px",
-            gap: "3px",
+            boxShadow: "0 1px 4px rgba(0, 0, 0, 0.08), 0 0 1px rgba(0, 0, 0, 0.04)",
+            transition: pillStyle.ready
+              ? "transform 0.28s cubic-bezier(0.16, 1, 0.3, 1), width 0.28s cubic-bezier(0.16, 1, 0.3, 1)"
+              : "none",
+            pointerEvents: "none",
+            zIndex: 0,
+            opacity: pillStyle.width > 0 ? 1 : 0,
+          }}
+        />
+
+        {/* 各タスクグループタブ */}
+        {categories.map((cat) => {
+          const isActive = activeListId === cat.id;
+          return (
+            <div
+              key={cat.id}
+              ref={(el) => {
+                if (el) tabItemRefs.current.set(cat.id, el);
+                else tabItemRefs.current.delete(cat.id);
+              }}
+              style={{
+                position: "relative",
+                zIndex: 1,
+                display: "inline-flex",
+                alignItems: "center",
+                justifyContent: "center",
+                borderRadius: "9999px",
+                padding: "0.38rem 0.95rem",
+                minWidth: "auto",
+                gap: "0.35rem",
+                flexShrink: 0,
+                boxSizing: "border-box",
+              }}
+            >
+              <button
+                type="button"
+                data-testid={`tab-${cat.id}`}
+                onClick={() => setActiveListId(cat.id)}
+                style={{
+                  border: "none",
+                  background: "transparent",
+                  fontSize: "0.82rem",
+                  fontWeight: isActive ? 650 : 450,
+                  color: isActive ? C.charcoal : C.charcoalLight,
+                  cursor: "pointer",
+                  padding: 0,
+                  display: "flex",
+                  alignItems: "center",
+                  minWidth: 0,
+                  whiteSpace: "nowrap",
+                }}
+              >
+                {cat.id === "shopping" && <span style={{ marginRight: "4px", flexShrink: 0 }}>🛒</span>}
+                {cat.id === "default" && <span style={{ marginRight: "4px", flexShrink: 0 }}>✦</span>}
+                <span
+                  style={{
+                    maxWidth: "200px",
+                    overflow: "hidden",
+                    textOverflow: "ellipsis",
+                    whiteSpace: "nowrap",
+                  }}
+                  title={cat.title}
+                >
+                  {cat.title}
+                </span>
+              </button>
+
+              {/* カスタムリストの編集・設定トリガー */}
+              {!cat.isDefault && (
+                <button
+                  type="button"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    setEditingCategory({ ...cat });
+                  }}
+                  style={{
+                    background: "transparent",
+                    border: "none",
+                    padding: "0 0.15rem",
+                    cursor: "pointer",
+                    color: C.charcoalLight,
+                    lineHeight: 1,
+                    display: "flex",
+                    alignItems: "center",
+                    flexShrink: 0,
+                    opacity: isActive ? 0.85 : 0.5,
+                  }}
+                  title="リスト設定"
+                >
+                  <PencilIcon />
+                </button>
+              )}
+            </div>
+          );
+        })}
+
+        {/* ＋ 新しいリスト追加ボタン（右端にシームレス配置） */}
+        <button
+          type="button"
+          data-testid="add-list-tab-btn"
+          onClick={() => setShowAddListModal(true)}
+          style={{
+            position: "relative",
+            zIndex: 1,
+            border: "none",
+            borderRadius: "9999px",
+            background: "transparent",
+            padding: "0.38rem 0.85rem",
+            fontSize: "0.76rem",
+            fontWeight: 600,
+            color: C.goldDark,
+            cursor: "pointer",
+            flexShrink: 0,
+            whiteSpace: "nowrap",
+            transition: "opacity 0.15s ease",
           }}
         >
-          <button
-            type="button"
-            onClick={() => setActiveTab("tasks")}
-            style={{
-              border: "none",
-              borderRadius: "9999px",
-              padding: "0.35rem 0.95rem",
-              fontSize: "0.78rem",
-              fontWeight: activeTab === "tasks" ? 650 : 450,
-              color: activeTab === "tasks" ? C.charcoal : C.charcoalLight,
-              background: activeTab === "tasks" ? C.white : "transparent",
-              boxShadow: activeTab === "tasks" ? "0 1px 4px rgba(0,0,0,0.08)" : "none",
-              cursor: "pointer",
-              transition: "all 0.18s ease",
-            }}
-          >
-            ✦ タスク
-          </button>
-          <button
-            type="button"
-            onClick={() => setActiveTab("lists")}
-            style={{
-              border: "none",
-              borderRadius: "9999px",
-              padding: "0.35rem 0.95rem",
-              fontSize: "0.78rem",
-              fontWeight: activeTab === "lists" ? 650 : 450,
-              color: activeTab === "lists" ? C.charcoal : C.charcoalLight,
-              background: activeTab === "lists" ? C.white : "transparent",
-              boxShadow: activeTab === "lists" ? "0 1px 4px rgba(0,0,0,0.08)" : "none",
-              cursor: "pointer",
-              transition: "all 0.18s ease",
-            }}
-          >
-            🛒 買い物リスト
-          </button>
-        </div>
-
-        {/* 右端に一体化した新規作成ボタン */}
-        {activeTab === "tasks" && (
-          <button
-            type="button"
-            onClick={() => {
-              inputRef.current?.focus();
-            }}
-            style={{
-              display: "inline-flex",
-              alignItems: "center",
-              gap: "0.28rem",
-              background: C.gold,
-              color: "#FDFCFA",
-              border: "none",
-              borderRadius: "9999px",
-              padding: "0.35rem 0.85rem",
-              fontSize: "0.76rem",
-              fontWeight: 650,
-              cursor: "pointer",
-              boxShadow: "0 1px 4px rgba(197, 160, 89, 0.3)",
-              transition: "all 0.15s ease",
-              whiteSpace: "nowrap",
-              userSelect: "none",
-            }}
-            onMouseEnter={(e) => {
-              (e.currentTarget as HTMLButtonElement).style.opacity = "0.9";
-            }}
-            onMouseLeave={(e) => {
-              (e.currentTarget as HTMLButtonElement).style.opacity = "1";
-            }}
-          >
-            <span style={{ fontSize: "0.95rem", lineHeight: 1 }}>＋</span>
-            <span>新規タスク</span>
-          </button>
-        )}
+          ＋ 新しいリスト
+        </button>
       </div>
 
-      {/* ─── 買い物リスト 小タブ表示 ─── */}
-      {activeTab === "lists" ? (
-        <Lists isEmbedded={true} />
-      ) : (
-        /* ─── タスク表示 ─── */
-        <>
-          {/* ─── 入力フォーム（自然言語推論プレビュー付き） ─── */}
-          <div style={{ marginBottom: "2.2rem" }}>
+      {/* ─── 入力フォーム（自然言語推論プレビュー付き） ─── */}
+      <div style={{ marginBottom: "2.2rem" }}>
+        <div
+          className="arca-card"
+          style={{
+            display: "flex",
+            alignItems: "center",
+            padding: "0.6rem 0.95rem",
+            gap: "0.5rem",
+            width: "100%",
+            maxWidth: "100%",
+            boxSizing: "border-box",
+            overflow: "hidden",
+            borderRadius: "14px",
+          }}
+        >
+          {/* テキスト入力欄 */}
+          <input
+            ref={inputRef}
+            type="text"
+            value={titleInput}
+            onChange={handleInputChange}
+            onKeyDown={handleKeyDown}
+            placeholder="タスクを追加…（例: 明日15時に書類提出）"
+            style={{
+              flex: 1,
+              minWidth: 0,
+              background: "transparent",
+              border: "none",
+              outline: "none",
+              fontSize: "0.92rem",
+              color: C.charcoal,
+              letterSpacing: "0.01em",
+            }}
+          />
+
+          {/* AI推論プレビューバッジ（期日・優先度） */}
+          {parsedInfo && (
+            <div style={{ display: "flex", alignItems: "center", gap: "0.3rem", flexShrink: 0 }}>
+              {parsedInfo.dueDate && (
+                <span
+                  style={{
+                    display: "inline-flex",
+                    alignItems: "center",
+                    gap: "0.25rem",
+                    fontSize: "0.68rem",
+                    fontWeight: 600,
+                    color: C.goldDark,
+                    background: "rgba(184, 150, 106, 0.12)",
+                    padding: "0.2rem 0.5rem",
+                    borderRadius: "9999px",
+                    whiteSpace: "nowrap",
+                  }}
+                  title={`推論された期日: ${parsedInfo.dueDate}`}
+                >
+                  <CalendarIcon />
+                  <span>{formatDue(parsedInfo.dueDate)}</span>
+                </span>
+              )}
+              {parsedInfo.priority === "high" && (
+                <span
+                  style={{
+                    display: "inline-flex",
+                    alignItems: "center",
+                    gap: "0.2rem",
+                    fontSize: "0.68rem",
+                    fontWeight: 600,
+                    color: C.danger,
+                    background: "rgba(224, 86, 74, 0.12)",
+                    padding: "0.2rem 0.5rem",
+                    borderRadius: "9999px",
+                    whiteSpace: "nowrap",
+                  }}
+                  title="優先度: 高"
+                >
+                  <ZapIcon />
+                  <span>高</span>
+                </span>
+              )}
+            </div>
+          )}
+
+          {/* 期限日手動選択 */}
+          <input
+            type="date"
+            value={dueInput}
+            onChange={(e) => setDueInput(e.target.value)}
+            style={{
+              flexShrink: 0,
+              width: "auto",
+              maxWidth: "120px",
+              background: "rgba(0, 0, 0, 0.03)",
+              borderRadius: "8px",
+              padding: "0.35rem 0.5rem",
+              border: "none",
+              outline: "none",
+              fontSize: "0.75rem",
+              color: dueInput ? C.charcoalMid : C.charcoalXLight,
+              cursor: "pointer",
+              fontFamily: "-apple-system, sans-serif",
+            }}
+            title="期限日を設定"
+          />
+
+          {/* 追加ボタン */}
+          <button
+            onClick={handleAdd}
+            disabled={!titleInput.trim() || isAdding}
+            style={{
+              flexShrink: 0,
+              background: titleInput.trim() ? C.gold : "rgba(0, 0, 0, 0.06)",
+              color: titleInput.trim() ? "#FDFCFA" : C.charcoalXLight,
+              border: "none",
+              borderRadius: "10px",
+              padding: "0.45rem 0.95rem",
+              fontSize: "0.8rem",
+              fontWeight: 650,
+              cursor: titleInput.trim() ? "pointer" : "default",
+              transition: "all 0.15s ease",
+              minWidth: "46px",
+              minHeight: "34px",
+            }}
+          >
+            追加
+          </button>
+        </div>
+      </div>
+
+      {/* ─── タスク一覧 ─── */}
+      <div style={{ display: "flex", flexDirection: "column", gap: "1.8rem" }}>
+        
+        {/* 未完了タスク */}
+        <div
+          className="arca-card"
+          style={{
+            padding: "0.8rem 1.1rem",
+            borderRadius: "16px",
+          }}
+        >
+          {pending.length === 0 ? (
+            <p style={{ margin: 0, fontSize: "0.85rem", color: C.charcoalLight, textAlign: "center", padding: "2.2rem 0" }}>
+              タスクはありません
+            </p>
+          ) : (
+            <ul style={{ listStyle: "none", margin: 0, padding: 0, display: "flex", flexDirection: "column" }}>
+              {pending.map((task) => (
+                <TaskRow
+                  key={task.id}
+                  task={task}
+                  onToggle={handleToggle}
+                  onClickRow={(t) => setDetailTask(t)}
+                  onDelete={handleDeleteTask}
+                />
+              ))}
+            </ul>
+          )}
+        </div>
+
+        {/* 完了済みタスク */}
+        {done.length > 0 && (
+          <div>
+            <span style={{ fontSize: "0.72rem", color: C.charcoalLight, letterSpacing: "0.06em", padding: "0 0.5rem", display: "block", marginBottom: "0.6rem" }}>
+              完了済み ({done.length})
+            </span>
             <div
               className="arca-card"
               style={{
-                display: "flex",
-                alignItems: "center",
-                padding: "0.55rem 0.85rem",
-                gap: "0.45rem",
-                width: "100%",
-                maxWidth: "100%",
-                boxSizing: "border-box",
-                overflow: "hidden",
+                padding: "0.8rem 1.1rem",
+                borderRadius: "16px",
+                opacity: 0.85,
               }}
             >
-              {/* テキスト入力欄: minWidth: 0 で縮退可能にし、はみ出しを防止 */}
-              <input
-                ref={inputRef}
-                type="text"
-                value={titleInput}
-                onChange={handleInputChange}
-                onKeyDown={handleKeyDown}
-                placeholder="タスクを追加…（例: 明日15時に書類提出）"
-                style={{
-                  flex: 1,
-                  minWidth: 0,
-                  background: "transparent",
-                  border: "none",
-                  outline: "none",
-                  fontSize: "0.92rem",
-                  color: C.charcoal,
-                  letterSpacing: "0.01em",
-                }}
-              />
+              <ul style={{ listStyle: "none", margin: 0, padding: 0, display: "flex", flexDirection: "column" }}>
+                {done.map((task) => (
+                  <TaskRow
+                    key={task.id}
+                    task={task}
+                    onToggle={handleToggle}
+                    onClickRow={(t) => setDetailTask(t)}
+                    onDelete={handleDeleteTask}
+                  />
+                ))}
+              </ul>
+            </div>
+          </div>
+        )}
 
-              {/* AI推論プレビューバッジ（期日・優先度） */}
-              {parsedInfo && (
-                <div style={{ display: "flex", alignItems: "center", gap: "0.3rem", flexShrink: 0 }}>
-                  {parsedInfo.dueDate && (
-                    <span
-                      style={{
-                        display: "inline-flex",
-                        alignItems: "center",
-                        gap: "0.25rem",
-                        fontSize: "0.68rem",
-                        fontWeight: 600,
-                        color: C.goldDark,
-                        background: "rgba(184, 150, 106, 0.12)",
-                        padding: "0.2rem 0.5rem",
-                        borderRadius: "9999px",
-                        whiteSpace: "nowrap",
-                      }}
-                      title={`推論された期日: ${parsedInfo.dueDate}`}
-                    >
-                      <CalendarIcon />
-                      <span>{formatDue(parsedInfo.dueDate)}</span>
-                    </span>
-                  )}
-                  {parsedInfo.priority === "high" && (
-                    <span
-                      style={{
-                        display: "inline-flex",
-                        alignItems: "center",
-                        gap: "0.2rem",
-                        fontSize: "0.68rem",
-                        fontWeight: 600,
-                        color: C.danger,
-                        background: "rgba(224, 86, 74, 0.12)",
-                        padding: "0.2rem 0.5rem",
-                        borderRadius: "9999px",
-                        whiteSpace: "nowrap",
-                      }}
-                      title="優先度: 高"
-                    >
-                      <ZapIcon />
-                      <span>高</span>
-                    </span>
-                  )}
-                </div>
-              )}
+        {/* ─── PM（予防保全）セクション ─── */}
+        <PMSection />
 
-              {/* 期限日手動選択 */}
-              <input
-                type="date"
-                value={dueInput}
-                onChange={(e) => setDueInput(e.target.value)}
-                style={{
-                  flexShrink: 0,
-                  width: "auto",
-                  maxWidth: "115px",
-                  background: "rgba(0, 0, 0, 0.03)",
-                  borderRadius: "8px",
-                  padding: "0.3rem 0.4rem",
-                  border: "none",
-                  outline: "none",
-                  fontSize: "0.72rem",
-                  color: dueInput ? C.charcoalMid : C.charcoalXLight,
-                  cursor: "pointer",
-                  fontFamily: "-apple-system, sans-serif",
-                }}
-                title="期限日を設定"
-              />
+      </div>
 
-              {/* 追加ボタン */}
+      {/* ─── タスク詳細編集モーダル ─── */}
+      {detailTask && (
+        <TaskDetailModal
+          task={detailTask}
+          categories={categories}
+          isOpen={true}
+          onClose={() => setDetailTask(null)}
+          onSave={handleSaveDetail}
+          onDelete={handleDeleteTask}
+        />
+      )}
+
+      {/* ─── 新規リスト作成モーダル ─── */}
+      {showAddListModal && (
+        <div
+          role="dialog"
+          aria-modal="true"
+          style={{
+            position: "fixed",
+            inset: 0,
+            zIndex: 1200,
+            background: "rgba(0, 0, 0, 0.45)",
+            backdropFilter: "blur(8px)",
+            WebkitBackdropFilter: "blur(8px)",
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            padding: "1rem",
+          }}
+          onClick={() => setShowAddListModal(false)}
+        >
+          <div
+            className="arca-card"
+            style={{
+              width: "100%",
+              maxWidth: "380px",
+              background: C.white,
+              borderRadius: "18px",
+              padding: "1.4rem",
+              display: "flex",
+              flexDirection: "column",
+              gap: "0.85rem",
+              boxShadow: "0 16px 40px rgba(0,0,0,0.16)",
+            }}
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+              <h3 style={{ margin: 0, fontSize: "1rem", fontWeight: 700, color: C.charcoal }}>
+                新しいリストを作成
+              </h3>
+              <span style={{ fontSize: "0.72rem", color: newListName.length >= MAX_LIST_NAME_LENGTH ? C.danger : C.charcoalLight }}>
+                {newListName.length}/{MAX_LIST_NAME_LENGTH}
+              </span>
+            </div>
+            <input
+              type="text"
+              value={newListName}
+              maxLength={MAX_LIST_NAME_LENGTH}
+              onChange={(e) => setNewListName(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") handleCreateList();
+              }}
+              placeholder={`リスト名（最大${MAX_LIST_NAME_LENGTH}文字）`}
+              autoFocus
+              style={{
+                width: "100%",
+                padding: "0.65rem 0.85rem",
+                borderRadius: "12px",
+                border: "1px solid rgba(0, 0, 0, 0.08)",
+                background: C.ivory,
+                fontSize: "0.9rem",
+                color: C.charcoal,
+                outline: "none",
+                boxSizing: "border-box",
+              }}
+            />
+            <div style={{ display: "flex", justifyContent: "flex-end", gap: "0.6rem", marginTop: "0.3rem" }}>
               <button
-                onClick={handleAdd}
-                disabled={!titleInput.trim() || isAdding}
+                type="button"
+                onClick={() => setShowAddListModal(false)}
                 style={{
-                  flexShrink: 0,
-                  background: titleInput.trim() ? C.gold : "rgba(0, 0, 0, 0.06)",
-                  color: titleInput.trim() ? "#FDFCFA" : C.charcoalXLight,
+                  background: "rgba(0,0,0,0.05)",
                   border: "none",
-                  borderRadius: "10px",
-                  padding: "0.45rem 0.85rem",
-                  fontSize: "0.78rem",
-                  fontWeight: 600,
-                  cursor: titleInput.trim() ? "pointer" : "default",
-                  transition: "all 0.15s ease",
-                  minWidth: "44px",
-                  minHeight: "34px",
+                  borderRadius: "8px",
+                  padding: "0.5rem 0.9rem",
+                  fontSize: "0.8rem",
+                  color: C.charcoalMid,
+                  cursor: "pointer",
                 }}
               >
-                追加
+                キャンセル
+              </button>
+              <button
+                type="button"
+                onClick={handleCreateList}
+                disabled={!newListName.trim()}
+                style={{
+                  background: C.gold,
+                  border: "none",
+                  borderRadius: "8px",
+                  padding: "0.5rem 1.1rem",
+                  fontSize: "0.8rem",
+                  fontWeight: 650,
+                  color: "#FDFCFA",
+                  cursor: !newListName.trim() ? "default" : "pointer",
+                  opacity: !newListName.trim() ? 0.6 : 1,
+                }}
+              >
+                作成する
               </button>
             </div>
           </div>
+        </div>
+      )}
 
-          {/* ─── タスク一覧 ─── */}
-          <div style={{ display: "flex", flexDirection: "column", gap: "1.8rem" }}>
-            
-            {/* 未完了タスク */}
-            <div
-              className="arca-card"
-              style={{
-                padding: "0.8rem 1.25rem",
-              }}
-            >
-              {pending.length === 0 ? (
-                <p style={{ margin: 0, fontSize: "0.85rem", color: C.charcoalLight, textAlign: "center", padding: "2rem 0" }}>
-                  タスクはありません
-                </p>
-              ) : (
-                <ul style={{ listStyle: "none", margin: 0, padding: 0, display: "flex", flexDirection: "column" }}>
-                  {pending.map((task) => (
-                    <TaskRow
-                      key={task.id}
-                      task={task}
-                      onToggle={handleToggle}
-                      onDelete={handleDelete}
-                      onToggleSubtask={handleToggleSubtask}
-                      onAddSubtask={handleAddSubtask}
-                      onDeleteSubtask={handleDeleteSubtask}
-                      onAiBreakdown={handleAiBreakdown}
-                    />
-                  ))}
-                </ul>
-              )}
+      {/* ─── リスト編集・削除モーダル ─── */}
+      {editingCategory && (
+        <div
+          role="dialog"
+          aria-modal="true"
+          style={{
+            position: "fixed",
+            inset: 0,
+            zIndex: 1200,
+            background: "rgba(0, 0, 0, 0.45)",
+            backdropFilter: "blur(8px)",
+            WebkitBackdropFilter: "blur(8px)",
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            padding: "1rem",
+          }}
+          onClick={() => setEditingCategory(null)}
+        >
+          <div
+            className="arca-card"
+            style={{
+              width: "100%",
+              maxWidth: "380px",
+              background: C.white,
+              borderRadius: "18px",
+              padding: "1.4rem",
+              display: "flex",
+              flexDirection: "column",
+              gap: "0.85rem",
+              boxShadow: "0 16px 40px rgba(0,0,0,0.16)",
+            }}
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+              <h3 style={{ margin: 0, fontSize: "1rem", fontWeight: 700, color: C.charcoal }}>
+                リスト設定
+              </h3>
+              <span style={{ fontSize: "0.72rem", color: editingCategory.title.length >= MAX_LIST_NAME_LENGTH ? C.danger : C.charcoalLight }}>
+                {editingCategory.title.length}/{MAX_LIST_NAME_LENGTH}
+              </span>
             </div>
-
-            {/* 完了済みタスク */}
-            {done.length > 0 && (
-              <div>
-                <span style={{ fontSize: "0.72rem", color: C.charcoalLight, letterSpacing: "0.06em", padding: "0 0.5rem", display: "block", marginBottom: "0.6rem" }}>
-                  完了済み ({done.length})
-                </span>
-                <div
-                  className="arca-card"
+            <input
+              type="text"
+              value={editingCategory.title}
+              maxLength={MAX_LIST_NAME_LENGTH}
+              onChange={(e) =>
+                setEditingCategory({ ...editingCategory, title: e.target.value })
+              }
+              onKeyDown={(e) => {
+                if (e.key === "Enter") handleRenameList();
+              }}
+              style={{
+                width: "100%",
+                padding: "0.65rem 0.85rem",
+                borderRadius: "12px",
+                border: "1px solid rgba(0, 0, 0, 0.08)",
+                background: C.ivory,
+                fontSize: "0.9rem",
+                color: C.charcoal,
+                outline: "none",
+                boxSizing: "border-box",
+              }}
+            />
+            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginTop: "0.3rem" }}>
+              <button
+                type="button"
+                onClick={() => setShowDeleteListConfirm(true)}
+                style={{
+                  background: "transparent",
+                  border: "none",
+                  color: C.danger,
+                  fontSize: "0.78rem",
+                  fontWeight: 600,
+                  cursor: "pointer",
+                  padding: "0.4rem 0",
+                }}
+              >
+                リストを削除
+              </button>
+              <div style={{ display: "flex", gap: "0.5rem" }}>
+                <button
+                  type="button"
+                  onClick={() => setEditingCategory(null)}
                   style={{
-                    padding: "0.8rem 1.25rem",
-                    opacity: 0.85,
+                    background: "rgba(0,0,0,0.05)",
+                    border: "none",
+                    borderRadius: "8px",
+                    padding: "0.5rem 0.9rem",
+                    fontSize: "0.8rem",
+                    color: C.charcoalMid,
+                    cursor: "pointer",
                   }}
                 >
-                  <ul style={{ listStyle: "none", margin: 0, padding: 0, display: "flex", flexDirection: "column" }}>
-                    {done.map((task) => (
-                      <TaskRow
-                        key={task.id}
-                        task={task}
-                        onToggle={handleToggle}
-                        onDelete={handleDelete}
-                        onToggleSubtask={handleToggleSubtask}
-                        onAddSubtask={handleAddSubtask}
-                        onDeleteSubtask={handleDeleteSubtask}
-                        onAiBreakdown={handleAiBreakdown}
-                      />
-                    ))}
-                  </ul>
-                </div>
+                  キャンセル
+                </button>
+                <button
+                  type="button"
+                  onClick={handleRenameList}
+                  style={{
+                    background: C.gold,
+                    border: "none",
+                    borderRadius: "8px",
+                    padding: "0.5rem 1.1rem",
+                    fontSize: "0.8rem",
+                    fontWeight: 650,
+                    color: "#FDFCFA",
+                    cursor: "pointer",
+                  }}
+                >
+                  保存
+                </button>
               </div>
-            )}
-
-            {/* ─── PM（予防保全）セクション ─── */}
-            <PMSection />
-
+            </div>
           </div>
-        </>
+        </div>
+      )}
+
+      {/* ─── リスト削除確認ポップアップ ─── */}
+      {showDeleteListConfirm && editingCategory && (
+        <div
+          role="dialog"
+          aria-modal="true"
+          style={{
+            position: "fixed",
+            inset: 0,
+            zIndex: 1300,
+            background: "rgba(0, 0, 0, 0.5)",
+            backdropFilter: "blur(8px)",
+            WebkitBackdropFilter: "blur(8px)",
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            padding: "1rem",
+          }}
+          onClick={() => setShowDeleteListConfirm(false)}
+        >
+          <div
+            className="arca-card"
+            style={{
+              width: "100%",
+              maxWidth: "360px",
+              background: C.white,
+              borderRadius: "18px",
+              padding: "1.4rem",
+              display: "flex",
+              flexDirection: "column",
+              gap: "0.8rem",
+              boxShadow: "0 20px 48px rgba(0,0,0,0.2)",
+            }}
+            onClick={(e) => e.stopPropagation()}
+          >
+            <h4 style={{ margin: 0, fontSize: "0.98rem", fontWeight: 700, color: C.charcoal }}>
+              「{editingCategory.title}」を削除しますか？
+            </h4>
+            <p style={{ margin: 0, fontSize: "0.82rem", color: C.charcoalLight, lineHeight: 1.5 }}>
+              リスト内のタスクもすべて削除されます。よろしいですか？
+            </p>
+            <div style={{ display: "flex", justifyContent: "flex-end", gap: "0.6rem", marginTop: "0.4rem" }}>
+              <button
+                type="button"
+                onClick={() => setShowDeleteListConfirm(false)}
+                style={{
+                  background: "rgba(0,0,0,0.05)",
+                  border: "none",
+                  borderRadius: "8px",
+                  padding: "0.5rem 0.9rem",
+                  fontSize: "0.8rem",
+                  color: C.charcoalMid,
+                  cursor: "pointer",
+                }}
+              >
+                キャンセル
+              </button>
+              <button
+                type="button"
+                onClick={handleDeleteList}
+                style={{
+                  background: C.danger,
+                  border: "none",
+                  borderRadius: "8px",
+                  padding: "0.5rem 1.1rem",
+                  fontSize: "0.8rem",
+                  fontWeight: 650,
+                  color: "#FFFFFF",
+                  cursor: "pointer",
+                }}
+              >
+                削除する
+              </button>
+            </div>
+          </div>
+        </div>
       )}
 
       {/* ─── 共通 Undo トースト ─── */}
@@ -1248,4 +1544,3 @@ export default function Tasks({ initialTab = "tasks" }: TasksProps = {}) {
     </div>
   );
 }
-

@@ -1,6 +1,6 @@
 /**
  * src/test/Tasks.test.tsx
- * Tasks コンポーネントのインテグレーションテスト
+ * Tasks コンポーネントのインテグレーションテスト (動的タブ・詳細モーダル・Google Todo連動)
  */
 import { describe, it, expect, vi, beforeEach, type Mock } from "vitest";
 import { render, screen, waitFor, fireEvent } from "@testing-library/react";
@@ -9,6 +9,7 @@ import {
   onSnapshot,
   addDoc,
   updateDoc,
+  deleteDoc,
   getDocs,
 } from "firebase/firestore";
 import { useGoogleAuth } from "../hooks/useGoogleAuth";
@@ -42,14 +43,15 @@ describe("Tasks コンポーネント", () => {
     mockSnapshot([]);
     (addDoc as Mock).mockResolvedValue({ id: "new-task-id" });
     (updateDoc as Mock).mockResolvedValue(undefined);
+    (deleteDoc as Mock).mockResolvedValue(undefined);
     (getDocs as Mock).mockResolvedValue({ docs: [] });
   });
 
   // ─── 表示テスト ───
 
-  it("ヘッダー「タスク」が表示される", () => {
+  it("ヘッダー「マイタスク」が表示される", () => {
     render(<Tasks />);
-    expect(screen.getByText("タスク")).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "マイタスク" })).toBeInTheDocument();
   });
 
   it("空状態で「タスクはありません」を表示する", () => {
@@ -61,11 +63,11 @@ describe("Tasks コンポーネント", () => {
     mockSnapshot([
       {
         id: "t1",
-        data: { title: "牛乳を買う", dueDate: null, completed: false, createdAt: null },
+        data: { title: "牛乳を買う", dueDate: null, completed: false, listId: "default", createdAt: null },
       },
       {
         id: "t2",
-        data: { title: "部屋の掃除", dueDate: "2026-08-20", completed: false, createdAt: null },
+        data: { title: "部屋の掃除", dueDate: "2026-08-20", completed: false, listId: "default", createdAt: null },
       },
     ]);
     render(<Tasks />);
@@ -77,11 +79,11 @@ describe("Tasks コンポーネント", () => {
     mockSnapshot([
       {
         id: "t1",
-        data: { title: "完了タスク", dueDate: null, completed: true, createdAt: null },
+        data: { title: "完了タスク", dueDate: null, completed: true, listId: "default", createdAt: null },
       },
       {
         id: "t2",
-        data: { title: "未完了タスク", dueDate: null, completed: false, createdAt: null },
+        data: { title: "未完了タスク", dueDate: null, completed: false, listId: "default", createdAt: null },
       },
     ]);
     render(<Tasks />);
@@ -94,12 +96,32 @@ describe("Tasks コンポーネント", () => {
     mockSnapshot([
       {
         id: "t1",
-        data: { title: "レポート提出", dueDate: "2026-08-20", completed: false, createdAt: null },
+        data: { title: "レポート提出", dueDate: "2026-08-20", completed: false, listId: "default", createdAt: null },
       },
     ]);
     render(<Tasks />);
     expect(screen.getByText("レポート提出")).toBeInTheDocument();
     expect(screen.getByText(/8月20日|明日|今日|昨日/)).toBeInTheDocument();
+  });
+
+  it("優先度が高または低のタスクにバッジが表示される（中は非表示）", () => {
+    mockSnapshot([
+      {
+        id: "t1",
+        data: { title: "高優先度タスク", priority: "high", completed: false, listId: "default", createdAt: null },
+      },
+      {
+        id: "t2",
+        data: { title: "低優先度タスク", priority: "low", completed: false, listId: "default", createdAt: null },
+      },
+      {
+        id: "t3",
+        data: { title: "中優先度タスク", priority: "medium", completed: false, listId: "default", createdAt: null },
+      },
+    ]);
+    render(<Tasks />);
+    expect(screen.getByTestId("priority-high-badge")).toHaveTextContent("高");
+    expect(screen.getByTestId("priority-low-badge")).toHaveTextContent("低");
   });
 
   // ─── 追加テスト ───
@@ -121,6 +143,7 @@ describe("Tasks コンポーネント", () => {
     const callArg = (addDoc as Mock).mock.calls[0][1];
     expect(callArg.title).toBe("新しいタスク");
     expect(callArg.completed).toBe(false);
+    expect(callArg.listId).toBe("default");
   });
 
   it("Enter キーで追加できる", async () => {
@@ -163,78 +186,64 @@ describe("Tasks コンポーネント", () => {
     });
   });
 
-  // ─── 完了トグルテスト ───
+  // ─── クリック領域の分離と完了トグル ───
 
-  it("チェックボタンを押すと updateDoc が呼ばれる", async () => {
+  it("左端チェックボタンを押すと完了トグル（updateDoc）のみが呼ばれる", async () => {
     mockSnapshot([
       {
         id: "t1",
-        data: { title: "トグルテスト", dueDate: null, completed: false, createdAt: null },
+        data: { title: "トグルテスト", dueDate: null, completed: false, listId: "default", createdAt: null },
       },
     ]);
     const user = userEvent.setup();
     render(<Tasks />);
 
-    const item = screen.getByText("トグルテスト");
-    await user.click(item);
+    const toggleBtn = screen.getByTestId("task-toggle-btn");
+    await user.click(toggleBtn);
 
     await waitFor(() => {
       expect(updateDoc).toHaveBeenCalledTimes(1);
       const callArg = (updateDoc as Mock).mock.calls[0][1];
       expect(callArg.completed).toBe(true);
     });
+
+    // 詳細モーダルは開いていないこと
+    expect(screen.queryByText("TASK DETAILS")).not.toBeInTheDocument();
   });
 
-  it("完了済みタスクをクリックすると completed: false になる", async () => {
+  // ─── 一覧からの直接削除 ───
+
+  it("タスク行のゴミ箱ボタンを押すと deleteDoc が呼ばれる", async () => {
     mockSnapshot([
       {
         id: "t1",
-        data: { title: "完了タスク", dueDate: null, completed: true, createdAt: null },
+        data: { title: "一覧削除テスト", dueDate: null, completed: false, listId: "default", createdAt: null },
       },
     ]);
     const user = userEvent.setup();
     render(<Tasks />);
 
-    const item = screen.getByText("完了タスク");
-    await user.click(item);
+    const deleteBtn = screen.getByTestId("task-delete-btn");
+    await user.click(deleteBtn);
 
     await waitFor(() => {
-      const callArg = (updateDoc as Mock).mock.calls[0][1];
-      expect(callArg.completed).toBe(false);
+      expect(deleteDoc).toHaveBeenCalledTimes(1);
     });
   });
 
-  // ─── サブタスク機能テスト ───
+  // ─── タスク詳細モーダルの起動と操作 ───
 
-  it("サブタスクがある場合、進捗ピルバッジ（例: 1/2）が表示される", () => {
+  it("タスク行をクリックすると詳細モーダルが開き、タスク編集や削除ができる", async () => {
     mockSnapshot([
       {
         id: "t1",
         data: {
           title: "企画書作成",
-          dueDate: null,
+          dueDate: "2026-08-25",
+          priority: "high",
           completed: false,
-          subtasks: [
-            { id: "s1", title: "リサーチ", completed: true },
-            { id: "s2", title: "構成案", completed: false },
-          ],
-          createdAt: null,
-        },
-      },
-    ]);
-    render(<Tasks />);
-    expect(screen.getByText("1/2")).toBeInTheDocument();
-  });
-
-  it("サブタスク展開ボタンを押してインラインでサブタスクを追加できる", async () => {
-    mockSnapshot([
-      {
-        id: "t1",
-        data: {
-          title: "部屋の片付け",
-          dueDate: null,
-          completed: false,
-          subtasks: [],
+          listId: "default",
+          subtasks: [{ id: "s1", title: "リサーチ", completed: false }],
           createdAt: null,
         },
       },
@@ -242,29 +251,38 @@ describe("Tasks コンポーネント", () => {
     const user = userEvent.setup();
     render(<Tasks />);
 
-    const chevronBtn = screen.getByTitle("サブタスクを開く");
-    await user.click(chevronBtn);
+    const row = screen.getByTestId("task-item-row");
+    await user.click(row);
 
-    const subtaskInput = screen.getByPlaceholderText(/サブタスクを追加…/);
-    await user.type(subtaskInput, "ゴミ出し{Enter}");
+    // 詳細モーダルが開く
+    expect(screen.getByText("TASK DETAILS")).toBeInTheDocument();
+    expect(screen.getByDisplayValue("企画書作成")).toBeInTheDocument();
+    expect(screen.getByText("リサーチ")).toBeInTheDocument();
+
+    // タイトルを変更して保存
+    const titleInput = screen.getByDisplayValue("企画書作成");
+    await user.clear(titleInput);
+    await user.type(titleInput, "企画書改訂");
+
+    const saveBtn = screen.getByTestId("detail-task-save-btn");
+    await user.click(saveBtn);
 
     await waitFor(() => {
-      expect(updateDoc).toHaveBeenCalledTimes(1);
+      expect(updateDoc).toHaveBeenCalled();
       const callArg = (updateDoc as Mock).mock.calls[0][1];
-      expect(callArg.subtasks).toHaveLength(1);
-      expect(callArg.subtasks[0].title).toBe("ゴミ出し");
+      expect(callArg.title).toBe("企画書改訂");
     });
   });
 
-  it("サブタスクの完了チェックをトグルできる", async () => {
+  it("詳細モーダル内でタスクを完全削除できる", async () => {
     mockSnapshot([
       {
         id: "t1",
         data: {
-          title: "旅行計画",
+          title: "削除予定タスク",
           dueDate: null,
           completed: false,
-          subtasks: [{ id: "s1", title: "ホテル予約", completed: false }],
+          listId: "default",
           createdAt: null,
         },
       },
@@ -272,21 +290,20 @@ describe("Tasks コンポーネント", () => {
     const user = userEvent.setup();
     render(<Tasks />);
 
-    await user.click(screen.getByTitle("サブタスクを開く"));
+    await user.click(screen.getByTestId("task-item-row"));
+    expect(screen.getByText("TASK DETAILS")).toBeInTheDocument();
 
-    const subItem = screen.getByText("ホテル予約");
-    await user.click(subItem);
+    const deleteBtn = screen.getByTestId("detail-task-delete-btn");
+    await user.click(deleteBtn);
 
     await waitFor(() => {
-      expect(updateDoc).toHaveBeenCalledTimes(1);
-      const callArg = (updateDoc as Mock).mock.calls[0][1];
-      expect(callArg.subtasks[0].completed).toBe(true);
+      expect(deleteDoc).toHaveBeenCalledTimes(1);
     });
   });
 
-  // ─── サブタスク分解テスト（Gemini連携） ───
+  // ─── サブタスク分解テスト（Gemini連携 in 詳細モーダル） ───
 
-  it("「分解」ボタンをクリックしてAIサブタスクを一括展開できる", async () => {
+  it("詳細モーダル内で「✦ AIでステップ分解」を実行してサブタスクを展開できる", async () => {
     const { breakdownTask } = await import("../lib/aetherCore");
     (breakdownTask as Mock).mockResolvedValue([
       "サブタスク1: 資料集め",
@@ -296,123 +313,70 @@ describe("Tasks コンポーネント", () => {
     mockSnapshot([
       {
         id: "t1",
-        data: { title: "プレゼン準備", dueDate: "2026-08-25", completed: false, subtasks: [], createdAt: null },
+        data: { title: "プレゼン準備", dueDate: "2026-08-25", completed: false, listId: "default", subtasks: [], createdAt: null },
       },
     ]);
     const user = userEvent.setup();
     render(<Tasks />);
 
-    const breakdownBtn = screen.getByTestId("task-breakdown-btn");
+    // 詳細モーダルを開く
+    await user.click(screen.getByTestId("task-item-row"));
+
+    const breakdownBtn = screen.getByTestId("detail-ai-breakdown-btn");
     await user.click(breakdownBtn);
 
     await waitFor(() => {
       expect(breakdownTask).toHaveBeenCalledWith("プレゼン準備");
-      expect(updateDoc).toHaveBeenCalledTimes(1);
-      const callArg = (updateDoc as Mock).mock.calls[0][1];
-      expect(callArg.subtasks).toHaveLength(2);
-      expect(callArg.subtasks[0].title).toBe("サブタスク1: 資料集め");
-      expect(callArg.subtasks[1].title).toBe("サブタスク2: スライド作成");
+      expect(screen.getByText("サブタスク1: 資料集め")).toBeInTheDocument();
+      expect(screen.getByText("サブタスク2: スライド作成")).toBeInTheDocument();
     });
   });
 
-  // ─── Google Tasks 同期 & 期限連携テスト ───
+  // ─── 動的タブ型リスト管理テスト ───
 
-  it("Google Tasks から期限付きタスクを同期した際、dueDate にマッピングされて登録される", async () => {
-    const { getTaskLists, getTasks } = await import("../lib/googleTasks");
-    (useGoogleAuth as Mock).mockReturnValue({
-      accessToken: "mock-token",
-      isSignedIn: true,
-      isReady: true,
-      signIn: vi.fn(),
-      signOut: vi.fn(),
-    });
-
-    (getTaskLists as Mock).mockResolvedValue([
-      { id: "list-default", title: "My Tasks" },
-    ]);
-    (getTasks as Mock).mockResolvedValue([
+  it("動的タブで「買い物リスト」に切り替えると、買い物リストのタスクのみが表示される", async () => {
+    mockSnapshot([
       {
-        id: "gtask-100",
-        title: "Googleタスク期限付き",
-        status: "needsAction",
-        due: "2026-08-30T00:00:00.000Z",
+        id: "t1",
+        data: { title: "マイタスクのアイテム", dueDate: null, completed: false, listId: "default", createdAt: null },
+      },
+      {
+        id: "t2",
+        data: { title: "牛乳・たまご", dueDate: null, completed: false, listId: "shopping", createdAt: null },
       },
     ]);
-
-    (getDocs as Mock).mockResolvedValue({ docs: [] });
-
-    render(<Tasks />);
-
-    await waitFor(() => {
-      expect(addDoc).toHaveBeenCalled();
-      const callArg = (addDoc as Mock).mock.calls[0][1];
-      expect(callArg.title).toBe("Googleタスク期限付き");
-      expect(callArg.dueDate).toBe("2026-08-30");
-      expect(callArg.googleTaskId).toBe("gtask-100");
-    });
-  });
-
-  // ─── 自然言語タスク入力推論テスト ───
-
-  it("自然言語から期日と優先度が推論され、追加時に自動反映される", async () => {
-    const tomorrow = new Date();
-    tomorrow.setDate(tomorrow.getDate() + 1);
-    const tomorrowStr = `${tomorrow.getFullYear()}-${String(tomorrow.getMonth() + 1).padStart(2, "0")}-${String(tomorrow.getDate()).padStart(2, "0")}`;
-
-    const { parseTaskInput } = await import("../lib/aetherCore");
-    (parseTaskInput as Mock).mockResolvedValue({
-      title: "書類提出",
-      dueDate: tomorrowStr,
-      priority: "high",
-    });
-
     const user = userEvent.setup();
     render(<Tasks />);
 
-    const input = screen.getByPlaceholderText(/タスクを追加…/);
-    await user.type(input, "明日までに書類提出 #高");
-
-    // debounce 後に parseTaskInput が呼ばれ、プレビューが表示される
-    await waitFor(() => {
-      expect(parseTaskInput).toHaveBeenCalledWith("明日までに書類提出 #高");
-      expect(screen.getByText("高")).toBeInTheDocument();
-      expect(screen.getByText("明日")).toBeInTheDocument();
-    });
-
-    const addBtn = screen.getByText("追加");
-    await user.click(addBtn);
-
-    await waitFor(() => {
-      expect(addDoc).toHaveBeenCalledTimes(1);
-      const callArg = (addDoc as Mock).mock.calls[0][1];
-      expect(callArg.title).toBe("書類提出");
-      expect(callArg.dueDate).toBe(tomorrowStr);
-      expect(callArg.priority).toBe("high");
-    });
-  });
-
-  it("小タブ（タスク / 買い物リスト）をクリックして切り替えられる", async () => {
-    const user = userEvent.setup();
-    render(<Tasks />);
-
-    // 初期状態はタスクタブ
-    expect(screen.getByPlaceholderText(/タスクを追加…/)).toBeInTheDocument();
+    // 初期状態: マイタスク
+    expect(screen.getByText("マイタスクのアイテム")).toBeInTheDocument();
+    expect(screen.queryByText("牛乳・たまご")).not.toBeInTheDocument();
 
     // 買い物リストタブをクリック
-    const listsTabBtn = screen.getByRole("button", { name: /買い物リスト/i });
-    await user.click(listsTabBtn);
+    const shoppingTab = screen.getByTestId("tab-shopping");
+    await user.click(shoppingTab);
 
-    // 買い物リスト入力欄が表示される
-    expect(screen.getByPlaceholderText(/アイテムを追加…/)).toBeInTheDocument();
-
-    // 再びタスクタブをクリック
-    const tasksTabBtn = screen.getByRole("button", { name: /タスク/i });
-    await user.click(tasksTabBtn);
-    expect(screen.getByPlaceholderText(/タスクを追加…/)).toBeInTheDocument();
+    // 買い物リストのアイテムが表示される
+    expect(screen.getByText("牛乳・たまご")).toBeInTheDocument();
+    expect(screen.queryByText("マイタスクのアイテム")).not.toBeInTheDocument();
   });
 
-  it("initialTab='lists' の場合は最初から買い物リストが表示される", () => {
-    render(<Tasks initialTab="lists" />);
-    expect(screen.getByPlaceholderText(/アイテムを追加…/)).toBeInTheDocument();
+  it("「＋ 新しいリスト」から新規リストを作成できる（Sliding Pill と文字数制限15文字が適用される）", async () => {
+    const user = userEvent.setup();
+    render(<Tasks />);
+
+    // Sliding Pill が存在すること
+    expect(screen.getByTestId("tab-sliding-pill")).toBeInTheDocument();
+
+    const addListBtn = screen.getByTestId("add-list-tab-btn");
+    await user.click(addListBtn);
+
+    const input = screen.getByPlaceholderText(/リスト名/) as HTMLInputElement;
+    expect(input.maxLength).toBe(15);
+    expect(screen.getByText("0/15")).toBeInTheDocument();
+
+    await user.type(input, "読書リスト{Enter}");
+
+    expect(screen.getByRole("heading", { name: "読書リスト" })).toBeInTheDocument();
   });
 });

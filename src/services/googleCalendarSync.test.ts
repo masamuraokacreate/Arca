@@ -12,6 +12,7 @@ import {
   updateGoogleCalendarEvent,
   deleteGoogleCalendarEvent,
   syncGoogleCalendarToArca,
+  GoogleCalendarApiError,
 } from "./googleCalendarSync";
 import {
   collection,
@@ -347,5 +348,48 @@ describe("googleCalendarSync", () => {
       expect(shiftCall?.[1].isShiftOnly).toBe(true);
       expect(shiftCall?.[1].title).toBe("遅番(15時)");
     });
+
+    it("403 ACCESS_TOKEN_SCOPE_INSUFFICIENT の場合にトークンを破棄して GoogleCalendarApiError をスローする", async () => {
+      localStorage.setItem("arca_g_token", "invalid-scope-token");
+
+      globalThis.fetch = vi.fn().mockResolvedValue({
+        ok: false,
+        status: 403,
+        text: async () =>
+          JSON.stringify({
+            error: {
+              code: 403,
+              message: "Request had insufficient authentication scopes.",
+              status: "PERMISSION_DENIED",
+            },
+          }),
+      });
+
+      await expect(syncGoogleCalendarToArca("invalid-scope-token")).rejects.toThrow(GoogleCalendarApiError);
+      // トークンが自動破棄されていること
+      expect(localStorage.getItem("arca_g_token")).toBeNull();
+    });
+
+    it("401 Unauthorized の場合にトークンを破棄して GoogleCalendarApiError をスローする", async () => {
+      localStorage.setItem("arca_g_token", "expired-token");
+
+      globalThis.fetch = vi.fn().mockResolvedValue({
+        ok: false,
+        status: 401,
+        text: async () =>
+          JSON.stringify({
+            error: {
+              code: 401,
+              message: "Invalid Credentials",
+              status: "UNAUTHENTICATED",
+            },
+          }),
+      });
+
+      await expect(syncGoogleCalendarToArca("expired-token")).rejects.toThrow(GoogleCalendarApiError);
+      // トークンが自動破棄されていること
+      expect(localStorage.getItem("arca_g_token")).toBeNull();
+    });
   });
 });
+

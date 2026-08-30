@@ -12,7 +12,7 @@ describe("Dashboard コンポーネント", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     (onSnapshot as Mock).mockImplementation((_query: unknown, callback: (snap: unknown) => void) => {
-      callback({ docs: [] });
+      callback({ docs: [], exists: () => false, data: () => ({}) });
       return vi.fn();
     });
   });
@@ -47,12 +47,6 @@ describe("Dashboard コンポーネント", () => {
     await user.click(screen.getByRole("button", { name: "タスク" }));
     expect(handleNavigate).toHaveBeenCalledWith("tasks");
 
-    // 買い物タブに切り替えてから買い物リストボタンをクリック
-    const shoppingTab = screen.getByRole("button", { name: /買い物 \(/ });
-    await user.click(shoppingTab);
-    await user.click(screen.getByRole("button", { name: "買い物リスト" }));
-    expect(handleNavigate).toHaveBeenCalledWith("lists");
-
     // レシピボタン
     await user.click(screen.getByRole("button", { name: "レシピ" }));
     expect(handleNavigate).toHaveBeenCalledWith("recipes");
@@ -62,13 +56,26 @@ describe("Dashboard コンポーネント", () => {
     expect(handleNavigate).toHaveBeenCalledWith("notes");
   });
 
+  it("ダッシュボード上から「＋」ボタンで新規タスクグループ（リスト）を追加できること", async () => {
+    const user = userEvent.setup();
+    render(<Dashboard />);
+
+    const addBtn = screen.getByTestId("dashboard-add-list-btn");
+    await user.click(addBtn);
+
+    expect(screen.getByText("新しいリストを作成")).toBeInTheDocument();
+    const input = screen.getByPlaceholderText(/リスト名/);
+    await user.type(input, "出張準備{Enter}");
+
+    expect(screen.getByText("出張準備")).toBeInTheDocument();
+  });
+
   it("最近のノート行をクリックした際に onSelectNote が正しく noteId で呼び出されること", async () => {
     const user = userEvent.setup();
     const handleSelectNote = vi.fn();
 
     // ノートのモックデータを返すように設定
     (onSnapshot as Mock).mockImplementation((_q: unknown, callback: (snap: unknown) => void) => {
-      // 渡されたクエリまたは全クエリに対して安全に notes を判定するか、コールバックを実行
       callback({
         docs: [
           {
@@ -88,7 +95,6 @@ describe("Dashboard コンポーネント", () => {
 
     render(<Dashboard onSelectNote={handleSelectNote} />);
 
-    // 「最近のノート」セクション内の「テスト用ノート」を取得
     const noteItems = screen.getAllByText("テスト用ノート");
     expect(noteItems.length).toBeGreaterThan(0);
 
@@ -112,7 +118,6 @@ describe("Dashboard コンポーネント", () => {
 
   it("無題の空ノートおよび削除済みノート（isDeleted: true）はダッシュボードに表示されないこと", () => {
     (onSnapshot as Mock).mockImplementation((q: any, callback: (snap: unknown) => void) => {
-      // notes コレクションまたはクエリの場合
       const isNotesQuery = q?._query?.path?.segments?.includes("notes") || JSON.stringify(q || {}).includes("notes");
       
       if (isNotesQuery) {
@@ -222,5 +227,49 @@ describe("Dashboard コンポーネント", () => {
     render(<Dashboard />);
     expect(screen.getByText("ミーティング")).toBeInTheDocument();
     expect(screen.queryByText("遅番(15時)")).not.toBeInTheDocument();
+  });
+
+  it("ダッシュボードのタスクタイルに通常タスクのみが表示され、PMタスク項目が混在しないこと", () => {
+    (onSnapshot as Mock).mockImplementation((q: any, callback: (snap: unknown) => void) => {
+      const isTasksQuery = q?._query?.path?.segments?.includes("tasks") || JSON.stringify(q || {}).includes("tasks");
+
+      if (isTasksQuery) {
+        callback({
+          docs: [
+            {
+              id: "task-1",
+              data: () => ({
+                title: "牛乳を買う",
+                completed: false,
+                listId: "default",
+                dueDate: new Date().toISOString().slice(0, 10),
+              }),
+            },
+            {
+              id: "task-2",
+              data: () => ({
+                title: "部屋の片付け",
+                completed: false,
+                listId: "default",
+                dueDate: null,
+              }),
+            },
+          ],
+        });
+      } else {
+        callback({ docs: [] });
+      }
+      return vi.fn();
+    });
+
+    render(<Dashboard />);
+
+    // 通常タスクが表示されていること
+    expect(screen.getByText("牛乳を買う")).toBeInTheDocument();
+    expect(screen.getByText("部屋の片付け")).toBeInTheDocument();
+
+    // PM項目が混在しないこと
+    expect(screen.queryByText("PM 休日")).not.toBeInTheDocument();
+    expect(screen.queryByText("PM 出勤")).not.toBeInTheDocument();
   });
 });

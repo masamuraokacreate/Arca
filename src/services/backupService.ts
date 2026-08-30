@@ -46,8 +46,9 @@ export interface BackupData {
     events: Record<string, unknown>[];
     notes: Record<string, unknown>[];
     recipes?: Record<string, unknown>[];
-    /** PM モジュール（Sprint 9） */
-    pmSettings?: Record<string, unknown>[];
+    /** 勤務シフト設定（Shift / PM） */
+    shiftSettings?: Record<string, unknown>[];
+    pmSettings?: Record<string, unknown>[]; // 旧バックアップ互換
     pmTemplates?: Record<string, unknown>[];
     pmLogs?: Record<string, unknown>[];
     /** Finance モジュール（Sprint 10） */
@@ -161,8 +162,8 @@ export async function generateBackupData(): Promise<BackupData> {
     getDocs(collection(db, "events")),
     getDocs(collection(db, "notes")),
     getDocs(collection(db, "recipes")),
-    // PM モジュール（Sprint 9）
-    getDocs(collection(db, "pm_settings")),
+    // 勤務シフト設定 & PM モジュール
+    getDocs(collection(db, "shift_settings")),
     getDocs(collection(db, "pm_templates")),
     getDocs(collection(db, "pm_logs")),
     // Finance モジュール（Sprint 10）
@@ -194,8 +195,8 @@ export async function generateBackupData(): Promise<BackupData> {
     ...sanitizeDocData(d.data()),
   }));
 
-  // PM コレクション
-  const pmSettings = pmSettingsSnap.docs.map((d) => ({
+  // Shift / PM コレクション
+  const shiftSettings = pmSettingsSnap.docs.map((d) => ({
     id: d.id,
     ...sanitizeDocData(d.data()),
   }));
@@ -236,7 +237,7 @@ export async function generateBackupData(): Promise<BackupData> {
       events,
       notes,
       recipes,
-      pmSettings,
+      shiftSettings,
       pmTemplates,
       pmLogs,
       financeTransactions,
@@ -446,8 +447,12 @@ export async function restoreFromJson(
   const eventsData = Array.isArray(backup.data.events) ? backup.data.events : [];
   const notesData = Array.isArray(backup.data.notes) ? backup.data.notes : [];
   const recipesData = Array.isArray(backup.data.recipes) ? backup.data.recipes : [];
-  // PM コレクション（Sprint 9 以降のバックアップに含まれる）
-  const pmSettingsData = Array.isArray(backup.data.pmSettings) ? backup.data.pmSettings : [];
+  // Shift / PM コレクション（Sprint 9 以降のバックアップに含まれる）
+  const shiftSettingsData = Array.isArray(backup.data.shiftSettings)
+    ? backup.data.shiftSettings
+    : Array.isArray(backup.data.pmSettings)
+    ? backup.data.pmSettings
+    : [];
   const pmTemplatesData = Array.isArray(backup.data.pmTemplates) ? backup.data.pmTemplates : [];
   const pmLogsData = Array.isArray(backup.data.pmLogs) ? backup.data.pmLogs : [];
   // Finance コレクション（Sprint 10 以降のバックアップに含まれる）
@@ -457,8 +462,8 @@ export async function restoreFromJson(
   if (mode === "overwrite") {
     const collectionsToClear = [
       "lists", "tasks", "events", "notes", "recipes",
-      // PM コレクション
-      "pm_settings", "pm_templates", "pm_logs",
+      // Shift / PM コレクション
+      "shift_settings", "pm_settings", "pm_templates", "pm_logs",
       // Finance コレクション
       "finance_transactions",
     ];
@@ -505,8 +510,8 @@ export async function restoreFromJson(
     writeCollection("events", eventsData),
     writeCollection("notes", notesData),
     writeCollection("recipes", recipesData),
-    // PM コレクション
-    writeCollection("pm_settings", pmSettingsData),
+    // Shift / PM コレクション
+    writeCollection("shift_settings", shiftSettingsData),
     writeCollection("pm_templates", pmTemplatesData),
     writeCollection("pm_logs", pmLogsData),
     // Finance コレクション

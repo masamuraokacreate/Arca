@@ -25,7 +25,7 @@ function mockSnapshot(
   (query as Mock).mockImplementation((col) => col);
 
   (onSnapshot as Mock).mockImplementation((q, callback) => {
-    if (typeof q === "object" && q !== null && "path" in q && (q as any).path?.includes?.("pm_settings")) {
+    if (typeof q === "object" && q !== null && "path" in q && ((q as any).path?.includes?.("pm_settings") || (q as any).path?.includes?.("shift_settings"))) {
       callback({
         exists: () => false,
         data: () => ({}),
@@ -226,7 +226,6 @@ describe("Calendar コンポーネント", () => {
     mockSnapshot([], []);
     const user = userEvent.setup({ delay: null });
     render(<Calendar />);
-
     const shiftBadge = screen.getByTestId("calendar-shift-badge");
     expect(shiftBadge).toBeInTheDocument();
     expect(shiftBadge.textContent).toContain("休日");
@@ -236,5 +235,16 @@ describe("Calendar コンポーネント", () => {
     expect(screen.getByText("✦ 出勤日")).toBeInTheDocument();
     expect(screen.getByText("🌙 休日（休み）")).toBeInTheDocument();
   });
+
+  it("勤務イベントが存在する場合に「出勤 1日目」のバッジが表示される", () => {
+    mockSnapshot([makeEvent("仕事")], []);
+
+    render(<Calendar />);
+
+    const shiftBadge = screen.getByTestId("calendar-shift-badge");
+    expect(shiftBadge).toBeInTheDocument();
+    expect(shiftBadge.textContent).toContain("出勤 1日目");
+  });
 });
+
 

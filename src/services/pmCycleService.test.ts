@@ -23,6 +23,7 @@ import {
   DEFAULT_CYCLE_LENGTH,
   DEFAULT_PM_SETTINGS,
   WORK_SHIFT_KEYWORDS,
+  isWorkEvent,
   resolveDateShiftInfo,
   resolveShiftInfo,
   getActivePMTasksForDate,
@@ -362,11 +363,29 @@ describe("detectAnchorFromEvents — シフト自動検出", () => {
   });
 
   it("WORK_SHIFT_KEYWORDS 正規表現が期待通りマッチする", () => {
-    const validTitles = ["早番(8時)", "早番（9:00）", "遅番(12時)", "日勤(8時半)", "日勤", "早番", "遅番"];
+    const validTitles = [
+      "早番(8時)",
+      "早番（9:00）",
+      "遅番(12時)",
+      "日勤(8時半)",
+      "日勤",
+      "早番",
+      "遅番",
+      "夜勤",
+      "当直",
+      "仕事",
+      "出勤",
+      "出勤　予定",
+      "勤務",
+      "シフト",
+      "work",
+      "Work Shift",
+      "NIGHT SHIFT",
+    ];
     for (const title of validTitles) {
       expect(WORK_SHIFT_KEYWORDS.test(title)).toBe(true);
     }
-    const invalidTitles = ["誕生日", "歯科検診", "映画", "休日外出", "仕事の打ち合わせ", "シフト確認", "ミーティング", "出張"];
+    const invalidTitles = ["誕生日", "歯科検診", "映画", "休日外出", "旅行", "買い物", "読書"];
     for (const title of invalidTitles) {
       expect(WORK_SHIFT_KEYWORDS.test(title)).toBe(false);
     }
@@ -748,9 +767,131 @@ describe("resolveDateShiftInfo & getActivePMTasksForDate (Sprint 9 改修)", () 
       const res = resolveShiftInfo(dateStr, sampleEvents);
       expect(res).toBeDefined();
       expect(res.date).toBe(dateStr);
-      expect(["work", "holiday"]).toContain(res.type);
-      expect(typeof res.streakNumber).toBe("number");
       expect(res.streakNumber).toBeGreaterThanOrEqual(1);
     }
   });
+
+  it("終日予定・時間指定予定の双方が type: 'work' として正しく判定される", () => {
+    const allDayEvent: CalendarEvent = {
+      id: "e-all-day",
+      title: "出勤",
+      date: "2026-09-01",
+      startTime: "",
+      endTime: "",
+      note: "",
+      createdAt: null,
+    };
+    const timedEvent: CalendarEvent = {
+      id: "e-timed",
+      title: "夜勤",
+      date: "2026-09-02",
+      startTime: "17:00",
+      endTime: "09:00",
+      note: "",
+      createdAt: null,
+    };
+
+    const resAllDay = resolveShiftInfo("2026-09-01", [allDayEvent, timedEvent]);
+    expect(resAllDay.type).toBe("work");
+    expect(resAllDay.streakNumber).toBe(1);
+    expect(resAllDay.shiftName).toBe("出勤");
+
+    const resTimed = resolveShiftInfo("2026-09-02", [allDayEvent, timedEvent]);
+    expect(resTimed.type).toBe("work");
+    expect(resTimed.streakNumber).toBe(2);
+    expect(resTimed.shiftName).toBe("夜勤");
+  });
+
+  it("イベント名に「仕事」「出勤」「早番」「遅番」「日勤」「夜勤」等が含まれる場合の表記揺れ・大文字小文字を正しく判定する", () => {
+    const events: CalendarEvent[] = [
+      { id: "e1", title: "仕事（東京オフィス）", date: "2026-09-10", startTime: "09:00", endTime: "18:00", note: "", createdAt: null },
+      { id: "e2", title: "出勤　早番", date: "2026-09-11", startTime: "08:00", endTime: "17:00", note: "", createdAt: null },
+      { id: "e3", title: "当直 勤務", date: "2026-09-12", startTime: "17:00", endTime: "09:00", note: "", createdAt: null },
+      { id: "e4", title: "Day Shift work", date: "2026-09-13", startTime: "09:00", endTime: "18:00", note: "", createdAt: null },
+    ];
+
+    expect(resolveShiftInfo("2026-09-10", events).type).toBe("work");
+    expect(resolveShiftInfo("2026-09-11", events).type).toBe("work");
+    expect(resolveShiftInfo("2026-09-12", events).type).toBe("work");
+    expect(resolveShiftInfo("2026-09-13", events).type).toBe("work");
+  });
+
+  it("手動上書き（ShiftOverride: holiday / work）がカレンダーの推論よりも最優先で適用される", () => {
+    const workEvents: CalendarEvent[] = [
+      { id: "e1", title: "日勤", date: "2026-09-20", startTime: "09:00", endTime: "18:00", note: "", createdAt: null },
+      { id: "e2", title: "日勤", date: "2026-09-21", startTime: "09:00", endTime: "18:00", note: "", createdAt: null },
+    ];
+
+    // 2026-09-20 はカレンダー上は出勤だが、手動で「休日 1日目」にオーバーライド
+    const settingsHoliday: PMSettings = {
+      cycleLength: 6,
+      overrides: {
+        "2026-09-20": {
+          date: "2026-09-20",
+          type: "holiday",
+          streakNumber: 1,
+          shiftName: "有休取得",
+          updatedAt: "2026-09-20T00:00:00Z",
+        },
+      },
+    };
+
+    const shiftHoliday = resolveShiftInfo("2026-09-20", workEvents, settingsHoliday);
+    expect(shiftHoliday.type).toBe("holiday");
+    expect(shiftHoliday.streakNumber).toBe(1);
+    expect(shiftHoliday.shiftName).toBe("有休取得");
+    expect(shiftHoliday.isOverridden).toBe(true);
+
+    const dayInfoHoliday = calculateDayIndex("2026-09-20", settingsHoliday);
+    expect(dayInfoHoliday.isRestDay).toBe(true);
+    expect(dayInfoHoliday.isOverridden).toBe(true);
+
+    // 予定がない日を手動で「出勤 3日目 (遅番)」にオーバーライド
+    const settingsWork: PMSettings = {
+      cycleLength: 6,
+      overrides: {
+        "2026-09-25": {
+          date: "2026-09-25",
+          type: "work",
+          streakNumber: 3,
+          shiftName: "遅番",
+          updatedAt: "2026-09-25T00:00:00Z",
+        },
+      },
+    };
+
+    const shiftWork = resolveShiftInfo("2026-09-25", [], settingsWork);
+    expect(shiftWork.type).toBe("work");
+    expect(shiftWork.streakNumber).toBe(3);
+    expect(shiftWork.shiftName).toBe("遅番");
+    expect(shiftWork.isOverridden).toBe(true);
+
+    const dayInfoWork = calculateDayIndex("2026-09-25", settingsWork);
+    expect(dayInfoWork.dayIndex).toBe(3);
+    expect(dayInfoWork.isRestDay).toBe(false);
+    expect(dayInfoWork.isOverridden).toBe(true);
+  });
+
+  it("isWorkEvent が各キーワードに対して正しく判定する", () => {
+    expect(isWorkEvent("仕事")).toBe(true);
+    expect(isWorkEvent("出勤")).toBe(true);
+    expect(isWorkEvent("早番")).toBe(true);
+    expect(isWorkEvent("遅番")).toBe(true);
+    expect(isWorkEvent("日勤")).toBe(true);
+    expect(isWorkEvent("夜勤")).toBe(true);
+    expect(isWorkEvent("当直")).toBe(true);
+    expect(isWorkEvent("勤務")).toBe(true);
+    expect(isWorkEvent("シフト")).toBe(true);
+    expect(isWorkEvent("work")).toBe(true);
+    expect(isWorkEvent("SHIFT")).toBe(true);
+    expect(isWorkEvent("  出勤 9:00 ")).toBe(true);
+    expect(isWorkEvent("")).toBe(false);
+    expect(isWorkEvent(null)).toBe(false);
+    expect(isWorkEvent(undefined)).toBe(false);
+    expect(isWorkEvent("歯医者")).toBe(false);
+    expect(isWorkEvent("映画鑑賞")).toBe(false);
+  });
 });
+
+
+

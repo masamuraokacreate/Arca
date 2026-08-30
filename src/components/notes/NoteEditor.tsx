@@ -15,6 +15,7 @@ import React, {
   useCallback,
   useRef,
   useEffect,
+  useLayoutEffect,
   useImperativeHandle,
   forwardRef,
   type KeyboardEvent,
@@ -214,37 +215,43 @@ export const NoteEditor = forwardRef<NoteEditorHandles, NoteEditorProps>(functio
   const [slashQuery, setSlashQuery] = useState("");
   const [slashLineIdx, setSlashLineIdx] = useState(0);
 
-  // iOS Safari に安全な Auto-resize 処理（スクロール位置やキャレット位置を破壊しない）
+  // スクロール位置とキャレット位置を維持する安全な Auto-resize
   const autoResize = useCallback(() => {
     const el = textareaRef.current;
     if (!el) return;
 
-    // field-sizing: content がサポートされている場合はブラウザネイティブに任せる
-    if (typeof CSS !== "undefined" && CSS.supports && CSS.supports("field-sizing", "content")) {
-      return;
-    }
-
-    // 変換中は高さ計算によるリフローを抑制
+    // 日本語IME変換中は高さの再計算によるリフローを抑制
     if (isComposingRef.current) return;
 
-    const currentScrollTop = window.scrollY || document.documentElement.scrollTop;
-    const caretStart = el.selectionStart;
-    const caretEnd = el.selectionEnd;
+    const prevScrollY = window.scrollY || document.documentElement.scrollTop;
+    const minHeight = 280;
 
-    // 最小高さを確保しつつ scrollHeight に追従
-    const minHeight = Math.max(300, window.innerHeight * 0.45);
-    if (el.scrollHeight > el.offsetHeight) {
-      el.style.height = `${Math.max(el.scrollHeight + 40, minHeight)}px`;
+    // 行が増えた（scrollHeight > clientHeight）場合は auto を経由せず即座に拡張（スクロール跳ねを完全防止）
+    if (el.scrollHeight > el.clientHeight) {
+      el.style.height = `${Math.max(el.scrollHeight, minHeight)}px`;
+    } else {
+      // 縮小時のみ一時的に auto にして正確な scrollHeight を取得
+      el.style.height = "auto";
+      const targetHeight = Math.max(el.scrollHeight, minHeight);
+      el.style.height = `${targetHeight}px`;
     }
 
-    // キャレット位置とスクロール位置の保護
-    if (document.activeElement === el && caretStart !== null) {
-      el.setSelectionRange(caretStart, caretEnd);
-      window.scrollTo(0, currentScrollTop);
+    // スクロール位置が跳ねた場合は即時復元
+    if (window.scrollY !== prevScrollY) {
+      window.scrollTo(0, prevScrollY);
     }
   }, []);
 
-  useEffect(() => {
+  // DOM反映後にキャレット位置の保護とオートリサイズを実行
+  useLayoutEffect(() => {
+    const el = textareaRef.current;
+    if (!el) return;
+
+    if (!isComposingRef.current && document.activeElement === el && cursorPositionRef.current !== null) {
+      if (el.selectionStart !== cursorPositionRef.current) {
+        el.setSelectionRange(cursorPositionRef.current, cursorPositionRef.current);
+      }
+    }
     autoResize();
   }, [content, autoResize]);
 
@@ -272,7 +279,6 @@ export const NoteEditor = forwardRef<NoteEditorHandles, NoteEditorProps>(functio
     onChange(val);
 
     if (!isComposingRef.current) {
-      autoResize();
       detectSlash(val, pos);
     }
   };
@@ -284,6 +290,7 @@ export const NoteEditor = forwardRef<NoteEditorHandles, NoteEditorProps>(functio
   const handleCompositionEnd = (e: React.CompositionEvent<HTMLTextAreaElement>) => {
     isComposingRef.current = false;
     const target = e.currentTarget;
+    cursorPositionRef.current = target.selectionStart;
     autoResize();
     detectSlash(target.value, target.selectionStart);
   };
@@ -330,6 +337,7 @@ export const NoteEditor = forwardRef<NoteEditorHandles, NoteEditorProps>(functio
         newCursor = pos + cmd.syntax.length;
       }
 
+      cursorPositionRef.current = newCursor;
       onChange(newText);
       setSlashActive(false);
       setSlashQuery("");
@@ -370,6 +378,7 @@ export const NoteEditor = forwardRef<NoteEditorHandles, NoteEditorProps>(functio
         newCursor = start + syntax.length;
       }
 
+      cursorPositionRef.current = newCursor;
       onChange(newText);
       requestAnimationFrame(() => {
         if (!textareaRef.current) return;
@@ -413,7 +422,7 @@ export const NoteEditor = forwardRef<NoteEditorHandles, NoteEditorProps>(functio
         style={{
           display: "block",
           width: "100%",
-          minHeight: "50vh",
+          minHeight: "280px",
           background: "transparent",
           border: "none",
           outline: "none",
@@ -423,10 +432,9 @@ export const NoteEditor = forwardRef<NoteEditorHandles, NoteEditorProps>(functio
           color: C.charcoal,
           letterSpacing: "0.005em",
           padding: 0,
-          paddingBottom: "40vh",
+          paddingBottom: "1.5rem",
           boxSizing: "border-box",
           overflowY: "hidden",
-          fieldSizing: "content" as any,
           fontFamily: `-apple-system, BlinkMacSystemFont, "SF Pro Text", "Hiragino Sans", "Segoe UI", sans-serif`,
         }}
       />

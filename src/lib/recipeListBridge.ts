@@ -15,7 +15,7 @@ import {
 import { db } from "./firebase";
 import type { IngredientItem } from "../types/recipe";
 
-const LISTS_COLLECTION = "lists";
+const TASKS_COLLECTION = "tasks";
 
 /**
  * 材料アイテムから買い物リスト用のテキストを生成する
@@ -29,7 +29,7 @@ export function formatIngredientForList(ingredient: IngredientItem): string {
 }
 
 /**
- * 単一の材料を Lists（買い物リスト）に追加する
+ * 単一の材料を買い物リスト（tasksコレクション / listId: "shopping"）に追加する
  * @param recipeTitle レシピのタイトル（任意）
  * @param ingredient 追加する材料アイテム
  * @returns 作成された Firestore ドキュメント ID（空文字の場合はスキップ）
@@ -41,24 +41,24 @@ export async function addIngredientToList(
   const text = formatIngredientForList(ingredient);
   if (!text) return "";
 
-  const docData: Record<string, any> = {
-    text,
+  const titleSuffix = recipeTitle && recipeTitle.trim() ? ` (📎 ${recipeTitle.trim()})` : "";
+  const finalTitle = `${text}${titleSuffix}`;
+
+  const docData: Record<string, unknown> = {
+    title: finalTitle,
     completed: false,
-    category: "食材",
+    listId: "shopping",
     googleTaskId: null,
+    subtasks: [],
     createdAt: serverTimestamp(),
   };
 
-  if (recipeTitle && recipeTitle.trim()) {
-    docData.note = `📎 レシピ: ${recipeTitle.trim()}`;
-  }
-
-  const docRef = await addDoc(collection(db, LISTS_COLLECTION), docData);
+  const docRef = await addDoc(collection(db, TASKS_COLLECTION), docData);
   return docRef?.id || "mock-id";
 }
 
 /**
- * 複数の材料を Lists（買い物リスト）に一括追加する
+ * 複数の材料を買い物リスト（tasksコレクション / listId: "shopping"）に一括追加する
  * @param recipeTitle レシピのタイトル
  * @param ingredients 追加する材料アイテムの配列
  * @returns 追加されたアイテム数
@@ -76,20 +76,19 @@ export async function addIngredientsToList(
   // バッチ書き込みでアトミックに追加
   const batch = writeBatch(db);
   const title = recipeTitle?.trim() || "";
+  const titleSuffix = title ? ` (📎 ${title})` : "";
 
   for (const item of validItems) {
     const text = formatIngredientForList(item);
-    const newDocRef = doc(collection(db, LISTS_COLLECTION));
-    const docData: Record<string, any> = {
-      text,
+    const newDocRef = doc(collection(db, TASKS_COLLECTION));
+    const docData: Record<string, unknown> = {
+      title: `${text}${titleSuffix}`,
       completed: false,
-      category: "食材",
+      listId: "shopping",
       googleTaskId: null,
+      subtasks: [],
       createdAt: serverTimestamp(),
     };
-    if (title) {
-      docData.note = `📎 レシピ: ${title}`;
-    }
     batch.set(newDocRef, docData);
   }
 

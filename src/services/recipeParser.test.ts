@@ -101,28 +101,46 @@ describe("recipeParser (parseRecipeWithGemini)", () => {
     expect(globalThis.fetch).toHaveBeenCalledTimes(1);
   });
 
-  it("材料や手順が欠けている場合でもデフォルト値で安全に補完される（テキスト入力）", async () => {
+  it("材料または手順の一部が欠けている場合でも安全に補完される（テキスト入力）", async () => {
     globalThis.fetch = vi.fn().mockResolvedValueOnce({
       ok: true,
       json: async () => ({
         candidates: [
           {
             content: {
-              parts: [{ text: JSON.stringify({ title: "" }) }],
+              parts: [{ text: JSON.stringify({ title: "簡単トースト", ingredients: [{ name: "食パン", amount: "1枚" }] }) }],
             },
           },
         ],
       }),
     } as unknown as Response);
 
-    const result = await parseRecipeWithGemini("適当なレシピテキスト");
+    const result = await parseRecipeWithGemini("食パン1枚のトースト");
 
     expect(result).not.toBeNull();
-    expect(result?.title).toBe("無題のレシピ");
+    expect(result?.title).toBe("簡単トースト");
     expect(result?.servings).toBe("1人前");
-    expect(result?.ingredients).toEqual([]);
+    expect(result?.ingredients).toEqual([{ name: "食パン", amount: "1枚" }]);
     expect(result?.steps).toEqual([]);
     expect(result?.tags).toEqual([]);
+  });
+
+  it("材料も手順も空の場合は null を返す（テキスト入力）", async () => {
+    globalThis.fetch = vi.fn().mockResolvedValueOnce({
+      ok: true,
+      json: async () => ({
+        candidates: [
+          {
+            content: {
+              parts: [{ text: JSON.stringify({ title: "無題のレシピ", ingredients: [], steps: [] }) }],
+            },
+          },
+        ],
+      }),
+    } as unknown as Response);
+
+    const result = await parseRecipeWithGemini("レシピではない無関係な文章");
+    expect(result).toBeNull();
   });
 
   it("入力が空文字列の場合は fetch を呼ばずに null を返す", async () => {
@@ -134,7 +152,7 @@ describe("recipeParser (parseRecipeWithGemini)", () => {
     expect(fetchSpy).not.toHaveBeenCalled();
   });
 
-  it("Gemini APIエラー（HTTP 500）発生時はクラッシュせず null を返す（URL入力）", async () => {
+  it("Gemini APIエラー（HTTP 500）発生時はエラーメッセージを throw する（URL入力）", async () => {
     // 1回目: CORSプロキシ → HTML取得成功
     // 2回目: Gemini API → 500エラー
     globalThis.fetch = vi.fn()
@@ -148,23 +166,17 @@ describe("recipeParser (parseRecipeWithGemini)", () => {
         text: async () => "Internal Server Error",
       } as unknown as Response);
 
-    const result = await parseRecipeWithGemini("https://example.com/fail");
-    expect(result).toBeNull();
+    await expect(
+      parseRecipeWithGemini("https://example.com/fail")
+    ).rejects.toThrow("Gemini APIの認証または通信制限エラーです（HTTP 500）");
   });
 
   it("全プロキシが失敗した場合は PROXY_FETCH_ERROR_MESSAGE で Error を throw する", async () => {
-    // 全プロキシが HTTP 403 を返す（2回分）
-    globalThis.fetch = vi.fn()
-      .mockResolvedValueOnce({
-        ok: false,
-        status: 403,
-        text: async () => "Forbidden",
-      } as unknown as Response)
-      .mockResolvedValueOnce({
-        ok: false,
-        status: 403,
-        text: async () => "Forbidden",
-      } as unknown as Response);
+    globalThis.fetch = vi.fn().mockResolvedValue({
+      ok: false,
+      status: 403,
+      text: async () => "Forbidden",
+    } as unknown as Response);
 
     await expect(
       parseRecipeWithGemini("https://blocked-site.example.com/recipe")
@@ -206,13 +218,70 @@ describe("fetchPageText", () => {
   });
 
   it("全プロキシ失敗時に PROXY_FETCH_ERROR_MESSAGE で Error を throw する", async () => {
-    globalThis.fetch = vi.fn()
-      .mockResolvedValueOnce({ ok: false, status: 403, text: async () => "" } as unknown as Response)
-      .mockResolvedValueOnce({ ok: false, status: 403, text: async () => "" } as unknown as Response);
+    globalThis.fetch = vi.fn().mockResolvedValue({
+      ok: false,
+      status: 403,
+      text: async () => "",
+    } as unknown as Response);
 
     await expect(fetchPageText("https://blocked.example.com")).rejects.toThrow(
       PROXY_FETCH_ERROR_MESSAGE
     );
+  });
+
+  it("CORSプロキシの試行順序が corsproxy.io ➔ allorigins.win であることを確認する", async () => {
+    const urlsCalled: string[] = [];
+    globalThis.fetch = vi.fn().mockImplementation((input: RequestInfo | URL) => {
+      const urlStr = typeof input === "string" ? input : input.toString();
+      urlsCalled.push(urlStr);
+      return Promise.resolve({
+        ok: false,
+        status: 500,
+        text: async () => "",
+      } as unknown as Response);
+    });
+
+    await expect(fetchPageText("https://example.com/curry")).rejects.toThrow();
+    expect(urlsCalled[0]).toContain("corsproxy.io");
+    expect(urlsCalled[1]).toContain("api.allorigins.win");
+  });
+
+  it("@graph を含む JSON-LD 構造化データを正しく抽出できる", async () => {
+    const htmlWithGraph = `
+      <html>
+        <head>
+          <script type="application/ld+json">
+            {
+              "@context": "https://schema.org",
+              "@graph": [
+                {
+                  "@type": "WebPage",
+                  "name": "トップページ"
+                },
+                {
+                  "@type": "Recipe",
+                  "name": "特製キーマカレー",
+                  "recipeIngredient": ["ひき肉 300g", "玉ねぎ 1個", "カレールー 2片"],
+                  "recipeInstructions": ["玉ねぎをみじん切りにする", "ひき肉と炒める"]
+                }
+              ]
+            }
+          </script>
+        </head>
+        <body>
+          <main><p>キーマカレーのページ</p></main>
+        </body>
+      </html>
+    `;
+
+    globalThis.fetch = vi.fn().mockResolvedValueOnce({
+      ok: true,
+      text: async () => htmlWithGraph,
+    } as unknown as Response);
+
+    const result = await fetchPageText("https://example.com/keema");
+    expect(result).toContain("特製キーマカレー");
+    expect(result).toContain("ひき肉 300g");
   });
 });
 

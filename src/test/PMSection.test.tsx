@@ -18,13 +18,31 @@ function mockOnSnapshot(
 ) {
   (onSnapshot as Mock).mockImplementation((_query: unknown, callback: (snap: unknown) => void) => {
     const q = _query as { id?: string; path?: string };
-    const colPath = q?.id ?? q?.path ?? "";
+    const colPath = q?.path ?? q?.id ?? "";
 
-    if (colPath.includes("pm_settings")) {
+    if (colPath.includes("pm_settings") || colPath.includes("shift_settings")) {
       if (typeof callback === "function") {
+        let resolvedData = settingsData;
+        if (resolvedData === undefined && typeof (getDoc as Mock).getMockImplementation === "function") {
+          const fn = (getDoc as Mock).getMockImplementation();
+          if (fn) {
+            try {
+              const res = fn();
+              if (res && typeof res.then === "function") {
+                res.then((val: any) => {
+                  if (val && val.exists?.()) {
+                    callback({ exists: () => true, data: () => val.data() });
+                  }
+                });
+              } else if (res && res.exists?.()) {
+                resolvedData = res.data();
+              }
+            } catch {}
+          }
+        }
         callback({
-          exists: () => Boolean(settingsData),
-          data: () => settingsData,
+          exists: () => Boolean(resolvedData),
+          data: () => resolvedData,
         });
       }
       return vi.fn();

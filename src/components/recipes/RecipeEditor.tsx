@@ -149,14 +149,15 @@ export function RecipeEditor({
   const [showOverwriteConfirm, setShowOverwriteConfirm] = useState(false);
   const [pendingParsedData, setPendingParsedData] = useState<ParsedRecipeResult | null>(null);
 
-  // トースト表示タイマー
+  // トースト表示タイマー（メッセージ長に応じた十分な表示時間を確保）
   const toastTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const showToast = (msg: string) => {
     if (toastTimerRef.current) clearTimeout(toastTimerRef.current);
     setToastMessage(msg);
+    const duration = Math.max(3500, Math.min(6000, msg.length * 80));
     toastTimerRef.current = setTimeout(() => {
       setToastMessage(null);
-    }, 3200);
+    }, duration);
   };
 
   // ── 画像アップロード ──
@@ -355,8 +356,8 @@ export function RecipeEditor({
     setIsParsingRecipe(true);
     try {
       const result = await parseRecipeWithGemini(targetInput);
-      if (!result) {
-        showToast("解析できませんでした。レシピテキストを貼り付けてお試しください");
+      if (!result || (result.ingredients.length === 0 && result.steps.length === 0)) {
+        showToast("レシピ情報を自動抽出できませんでした。材料と手順のテキストを直接貼り付けてお試しください");
         setShowAiInputModal(true);
         return;
       }
@@ -1473,21 +1474,26 @@ export function RecipeEditor({
             bottom: "2.5rem",
             left: "50%",
             transform: "translateX(-50%)",
-            background: "rgba(44, 44, 46, 0.92)",
-            backdropFilter: "blur(12px)",
-            WebkitBackdropFilter: "blur(12px)",
+            background: "rgba(36, 36, 38, 0.95)",
+            backdropFilter: "blur(14px)",
+            WebkitBackdropFilter: "blur(14px)",
             color: "#FDFCFA",
-            padding: "0.75rem 1.35rem",
-            borderRadius: "9999px",
-            fontSize: "0.84rem",
+            padding: "0.75rem 1.4rem",
+            borderRadius: "16px",
+            fontSize: "0.82rem",
             fontWeight: 550,
-            boxShadow: "0 8px 32px rgba(0, 0, 0, 0.18)",
+            lineHeight: 1.5,
+            textAlign: "center",
+            maxWidth: "min(90vw, 560px)",
+            boxShadow: "0 8px 32px rgba(0, 0, 0, 0.22)",
             zIndex: 1300,
             display: "flex",
             alignItems: "center",
+            justifyContent: "center",
             gap: "0.6rem",
             pointerEvents: "none",
-            letterSpacing: "0.02em",
+            letterSpacing: "0.01em",
+            animation: "arca-toast-in 0.2s cubic-bezier(0.16, 1, 0.3, 1)",
           }}
         >
           <span>{toastMessage}</span>
