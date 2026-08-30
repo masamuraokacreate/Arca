@@ -129,6 +129,12 @@ export interface ExtractedActionableItems {
 // Notes / Knowledge モジュール
 // ─────────────────────────────────────────
 
+/** パンくずトラバース用 */
+export interface NoteBreadcrumb {
+  id: string | null; // null はトップ「Notes」を表す
+  title: string;
+}
+
 /** メモ1件（Step 1: ローカルステート用。Step 2でFirestore Timestampに移行予定） */
 export interface NoteItem {
   id: string;
@@ -143,6 +149,12 @@ export interface NoteItem {
   updatedAt: string;
   /** 論理削除フラグ */
   isDeleted?: boolean;
+  /** 親ノートのID（トップ階層は null または undefined） */
+  parentId?: string | null;
+  /** ピン留め/お気に入り */
+  pinned?: boolean;
+  /** 添付ファイルマップ（attachmentId -> DataURL / URL） */
+  attachments?: Record<string, string>;
 }
 
 // ─────────────────────────────────────────

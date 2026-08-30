@@ -23,20 +23,6 @@ const ChevronLeftIcon = () => (
   </svg>
 );
 
-const EyeIcon = () => (
-  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0 }}>
-    <path d="M2.062 12.348a1 1 0 0 1 0-.696 10.75 10.75 0 0 1 19.876 0 1 1 0 0 1 0 .696 10.75 10.75 0 0 1-19.876 0" />
-    <circle cx="12" cy="12" r="3" />
-  </svg>
-);
-
-const EditIcon = () => (
-  <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0 }}>
-    <path d="M21.174 6.812a1 1 0 0 0-3.986-3.987L3.842 16.174a2 2 0 0 0-.5.83l-1.321 4.352a.5.5 0 0 0 .623.622l4.353-1.32a2 2 0 0 0 .83-.497z" />
-    <path d="m15 5 4 4" />
-  </svg>
-);
-
 // エクスポート（↑ 上向き矢印）
 const ExportIcon = () => (
   <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0 }}>
@@ -107,10 +93,33 @@ const SparklesIcon = () => (
   </svg>
 );
 
+const FolderMoveIcon = () => (
+  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0 }}>
+    <path d="M20 20a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.9a2 2 0 0 1-1.69-.9L9.6 3.9A2 2 0 0 0 7.93 3H4a2 2 0 0 0-2 2v13a2 2 0 0 0 2 2Z" />
+    <path d="m14 15 3-3-3-3" />
+    <path d="M10 12h7" />
+  </svg>
+);
+
+const ImageIcon = () => (
+  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0 }}>
+    <rect width="18" height="18" x="3" y="3" rx="2" ry="2" />
+    <circle cx="9" cy="9" r="2" />
+    <path d="m21 15-3.086-3.086a2 2 0 0 0-2.828 0L6 21" />
+  </svg>
+);
+
+const CodeIcon = () => (
+  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0 }}>
+    <polyline points="16 18 22 12 16 6" />
+    <polyline points="8 6 2 12 8 18" />
+  </svg>
+);
+
 export interface NoteToolbarProps {
-  mode: "read" | "edit";
-  onModeChange: (mode: "read" | "edit") => void;
   onBack: () => void;
+  onMoveNote?: () => void;
+  onInsertImage?: () => void;
   onExtract: () => void;
   isExtracting: boolean;
   canExtract: boolean;
@@ -122,12 +131,14 @@ export interface NoteToolbarProps {
   showToc: boolean;
   onToggleToc: () => void;
   onDelete: () => void;
+  isSourceMode?: boolean;
+  onToggleSourceMode?: () => void;
 }
 
 export function NoteToolbar({
-  mode,
-  onModeChange,
   onBack,
+  onMoveNote,
+  onInsertImage,
   onExtract,
   isExtracting,
   canExtract,
@@ -139,6 +150,8 @@ export function NoteToolbar({
   showToc,
   onToggleToc,
   onDelete,
+  isSourceMode,
+  onToggleSourceMode,
 }: NoteToolbarProps) {
   return (
     <header className="arca-toolbar">
@@ -158,28 +171,6 @@ export function NoteToolbar({
 
       {/* ── 右側: コントロール群 ── */}
       <div style={{ display: "flex", alignItems: "center", gap: "0.35rem", flexShrink: 0 }}>
-        {/* 表示モードセグメントコントロール */}
-        <div className="arca-segment-control">
-          <button
-            onClick={() => onModeChange("read")}
-            className={`arca-segment-btn ${mode === "read" ? "active" : ""}`}
-            title="閲覧モード"
-          >
-            <EyeIcon />
-            <span>閲覧</span>
-          </button>
-          <button
-            onClick={() => onModeChange("edit")}
-            className={`arca-segment-btn ${mode === "edit" ? "active" : ""}`}
-            title="編集モード"
-          >
-            <EditIcon />
-            <span>編集</span>
-          </button>
-        </div>
-
-        <div className="arca-tb-divider" />
-
         {/* ✦ Aether 抽出ボタン */}
         <button
           onClick={onExtract}
@@ -217,6 +208,30 @@ export function NoteToolbar({
           <span className="arca-btn-label-mobile">✦ 抽出</span>
         </button>
 
+        {/* 画像挿入（🖼）ボタン（常時利用可能） */}
+        {onInsertImage && (
+          <button
+            onClick={onInsertImage}
+            className="arca-tb-btn"
+            title="画像を挿入（貼り付け・ファイル選択）"
+          >
+            <ImageIcon />
+            <span className="arca-btn-label-desktop">画像</span>
+          </button>
+        )}
+
+        {/* 親ノート移動（📁）ボタン */}
+        {onMoveNote && (
+          <button
+            onClick={onMoveNote}
+            className="arca-tb-btn"
+            title="親ノートを変更・移動する"
+          >
+            <FolderMoveIcon />
+            <span className="arca-btn-label-desktop">移動</span>
+          </button>
+        )}
+
         {/* エクスポート（↑）ボタン */}
         <button
           onClick={onDownloadMarkdown}
@@ -249,6 +264,24 @@ export function NoteToolbar({
           <HelpCircleIcon />
           <span className="arca-btn-label-desktop">ガイド</span>
         </button>
+
+        {/* ソース（Markdownテキストモード）切替ボタン */}
+        {onToggleSourceMode && (
+          <button
+            onClick={onToggleSourceMode}
+            className={`arca-tb-btn ${isSourceMode ? "active" : ""}`}
+            title={isSourceMode ? "リッチエディタ（WYSIWYG）に切り替え" : "テキストモード（生Markdown）に切り替え"}
+            style={{
+              fontWeight: isSourceMode ? 600 : 400,
+              background: isSourceMode ? C.goldFaint : undefined,
+              color: isSourceMode ? C.goldDark : undefined,
+            }}
+          >
+            <CodeIcon />
+            <span className="arca-btn-label-desktop">{isSourceMode ? "WYSIWYG" : "ソース"}</span>
+            <span className="arca-btn-label-mobile">{isSourceMode ? "リッチ" : "生文"}</span>
+          </button>
+        )}
 
         <div className="arca-tb-divider" />
 

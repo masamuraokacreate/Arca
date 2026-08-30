@@ -19,6 +19,7 @@ import { C } from "../../lib/designSystem";
 
 export interface MarkdownViewerProps {
   content: string;
+  attachments?: Record<string, string>;
   onContentChange?: (newContent: string) => void;
 }
 
@@ -147,14 +148,255 @@ function CodeBlock({ children, className }: { children?: ReactNode; className?: 
 }
 
 // ─────────────────────────────────────────
+// 画像要素（Small / Medium / Full 切り替え & Lightbox）
+// ─────────────────────────────────────────
+
+type ImageSize = "small" | "medium" | "full";
+
+function NoteImage({
+  src,
+  alt,
+  content,
+  attachments,
+  onContentChange,
+}: {
+  src?: string;
+  alt?: string;
+  content?: string;
+  attachments?: Record<string, string>;
+  onContentChange?: (newContent: string) => void;
+}) {
+  const [lightboxOpen, setLightboxOpen] = useState(false);
+
+  // alt からタイトルとサイズ（small / medium / full）を抽出
+  const rawAlt = alt || "";
+  let initialSize: ImageSize = "medium";
+  let cleanAlt = rawAlt;
+
+  if (rawAlt.includes("|")) {
+    const parts = rawAlt.split("|");
+    cleanAlt = parts[0].trim();
+    const sizeCandidate = parts[1].trim().toLowerCase();
+    if (sizeCandidate === "small" || sizeCandidate === "full" || sizeCandidate === "medium") {
+      initialSize = sizeCandidate as ImageSize;
+    }
+  }
+
+  const [currentSize, setCurrentSize] = useState<ImageSize>(initialSize);
+
+  const handleSizeChange = (newSize: ImageSize) => {
+    setCurrentSize(newSize);
+    if (onContentChange && content && src) {
+      // 本文内の該当 Markdown 画像記法を更新
+      const targetAltPart = cleanAlt ? cleanAlt : "";
+      const regex = new RegExp(`!\\[${escapeRegex(cleanAlt)}(?:\\|[^\\]]*)?\\]\\(${escapeRegex(src)}\\)`, "g");
+      const newMarkdown = `![${targetAltPart}|${newSize}](${src})`;
+      const updated = content.replace(regex, newMarkdown);
+      if (updated !== content) {
+        onContentChange(updated);
+      }
+    }
+  };
+
+  if (!src) return null;
+
+  // attachment:img_id の解決
+  let resolvedSrc = src;
+  if (src.startsWith("attachment:")) {
+    const attachmentId = src.replace(/^attachment:/, "");
+    if (attachments && attachments[attachmentId]) {
+      resolvedSrc = attachments[attachmentId];
+    }
+  }
+
+  const sizeStyles = {
+    small: { maxWidth: "260px", margin: "1.2rem auto" },
+    medium: { maxWidth: "620px", margin: "1.6rem auto" },
+    full: { maxWidth: "100%", width: "100%", margin: "1.8rem 0" },
+  }[currentSize];
+
+  return (
+    <figure
+      style={{
+        ...sizeStyles,
+        position: "relative",
+        display: "flex",
+        flexDirection: "column",
+        alignItems: "center",
+        boxSizing: "border-box",
+      }}
+      className="arca-image-container group"
+    >
+      <div
+        style={{
+          position: "relative",
+          borderRadius: "16px",
+          overflow: "hidden",
+          boxShadow: "0 4px 20px rgba(0, 0, 0, 0.07), 0 1px 4px rgba(0, 0, 0, 0.04)",
+          background: C.ivory2,
+          width: "100%",
+          cursor: "zoom-in",
+          transition: "transform 0.18s ease, box-shadow 0.18s ease",
+        }}
+        onClick={() => setLightboxOpen(true)}
+      >
+        <img
+          src={resolvedSrc}
+          alt={cleanAlt}
+          loading="lazy"
+          style={{
+            display: "block",
+            width: "100%",
+            height: "auto",
+            objectFit: "contain",
+          }}
+        />
+      </div>
+
+      {/* キャプション & サイズ切り替えツールバー */}
+      <div
+        style={{
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "space-between",
+          width: "100%",
+          padding: "0.45rem 0.2rem 0",
+          gap: "0.6rem",
+          flexWrap: "wrap",
+        }}
+      >
+        {cleanAlt ? (
+          <figcaption
+            style={{
+              fontSize: "0.76rem",
+              color: C.charcoalLight,
+              textAlign: "left",
+              fontStyle: "italic",
+            }}
+          >
+            {cleanAlt}
+          </figcaption>
+        ) : (
+          <div />
+        )}
+
+        {/* サイズ切り替えピル */}
+        <div
+          style={{
+            display: "inline-flex",
+            alignItems: "center",
+            background: "rgba(0,0,0,0.04)",
+            borderRadius: "8px",
+            padding: "2px",
+            gap: "2px",
+          }}
+          onClick={(e) => e.stopPropagation()}
+        >
+          {(["small", "medium", "full"] as ImageSize[]).map((size) => {
+            const labels = { small: "小", medium: "中", full: "大" };
+            const isActive = currentSize === size;
+            return (
+              <button
+                key={size}
+                type="button"
+                onClick={() => handleSizeChange(size)}
+                style={{
+                  border: "none",
+                  borderRadius: "6px",
+                  padding: "0.15rem 0.45rem",
+                  fontSize: "0.68rem",
+                  fontWeight: isActive ? 650 : 500,
+                  color: isActive ? C.charcoal : C.charcoalLight,
+                  background: isActive ? C.white : "transparent",
+                  boxShadow: isActive ? "0 1px 3px rgba(0,0,0,0.08)" : "none",
+                  cursor: "pointer",
+                  transition: "all 0.12s",
+                }}
+              >
+                {labels[size]}
+              </button>
+            );
+          })}
+        </div>
+      </div>
+
+      {/* Lightbox 全画面モーダル */}
+      {lightboxOpen && (
+        <div
+          role="dialog"
+          aria-label="画像拡大プレビュー"
+          style={{
+            position: "fixed",
+            inset: 0,
+            background: "rgba(0, 0, 0, 0.82)",
+            backdropFilter: "blur(8px)",
+            WebkitBackdropFilter: "blur(8px)",
+            zIndex: 1000,
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            padding: "1.5rem",
+            cursor: "zoom-out",
+          }}
+          onClick={() => setLightboxOpen(false)}
+        >
+          <button
+            type="button"
+            aria-label="閉じる"
+            onClick={(e) => {
+              e.stopPropagation();
+              setLightboxOpen(false);
+            }}
+            style={{
+              position: "absolute",
+              top: "1.5rem",
+              right: "1.5rem",
+              background: "rgba(255, 255, 255, 0.15)",
+              border: "none",
+              borderRadius: "50%",
+              width: "36px",
+              height: "36px",
+              color: "#fff",
+              fontSize: "1.1rem",
+              cursor: "pointer",
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+              backdropFilter: "blur(4px)",
+            }}
+          >
+            ✕
+          </button>
+          <img
+            src={src}
+            alt={cleanAlt}
+            style={{
+              maxWidth: "92vw",
+              maxHeight: "90vh",
+              borderRadius: "12px",
+              boxShadow: "0 20px 60px rgba(0,0,0,0.4)",
+              objectFit: "contain",
+            }}
+          />
+        </div>
+      )}
+    </figure>
+  );
+}
+
+function escapeRegex(str: string): string {
+  return str.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+// ─────────────────────────────────────────
 // メイン MarkdownViewer コンポーネント
 // ─────────────────────────────────────────
 
-export function MarkdownViewer({ content, onContentChange }: MarkdownViewerProps) {
+export function MarkdownViewer({ content, attachments, onContentChange }: MarkdownViewerProps) {
   if (!content.trim()) {
     return (
       <p style={{ color: C.charcoalXLight, fontStyle: "italic", lineHeight: 1.9, fontSize: "0.95rem" }}>
-        このノートはまだ空です。鉛筆アイコンから編集を開始してください。
+        このノートはまだ空です。クリックして入力を開始できます。
       </p>
     );
   }
@@ -196,6 +438,7 @@ export function MarkdownViewer({ content, onContentChange }: MarkdownViewerProps
   return (
     <div className="arca-prose">
       <ReactMarkdown
+        urlTransform={(url) => url}
         remarkPlugins={[remarkGfm, remarkBreaks]}
         components={{
           h1: ({ children }) => renderHeading(1, children),
@@ -492,6 +735,17 @@ export function MarkdownViewer({ content, onContentChange }: MarkdownViewerProps
             >
               {children}
             </blockquote>
+          ),
+
+          // 画像（小 / 中 / 大 切り替え & 拡大）
+          img: ({ src, alt }) => (
+            <NoteImage
+              src={typeof src === "string" ? src : undefined}
+              alt={typeof alt === "string" ? alt : undefined}
+              content={content}
+              attachments={attachments}
+              onContentChange={onContentChange}
+            />
           ),
 
           // 水平線

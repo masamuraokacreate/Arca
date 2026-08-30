@@ -55,13 +55,6 @@ const GUIDE_CATEGORIES: GuideCategory[] = [
     title: "構造化 & 引用",
     items: [
       { id: "quote", name: "引用", syntax: "> ", example: "> 思考を妨げない空間", description: "引用文・メモ" },
-      {
-        id: "table",
-        name: "テーブル（表）",
-        syntax: "| 項目 | 内容 |\n| :--- | :--- |\n| A    | 詳細 |",
-        example: "| 項目 | 内容 |\n| :--- | :--- |\n| A    | 詳細 |",
-        description: "行と列による表組み",
-      },
       { id: "link", name: "リンク", syntax: "[リンク名](https://example.com)", example: "[Arca](https://example.com)", description: "Webリンク" },
       { id: "code-inline", name: "インラインコード", syntax: "`コード`", example: "`const a = 1;`", description: "文中のコード・キー" },
       { id: "code-block", name: "コードブロック", syntax: "```ts\n// ここにコード\n```", example: "```ts\nconsole.log('Arca');\n```", description: "複数行のプログラム" },
@@ -250,7 +243,7 @@ export function MarkdownGuideModal({
         >
           <input
             type="text"
-            placeholder="構文を検索（例: テーブル, リスト, 見出し）..."
+            placeholder="構文を検索（例: リスト, 見出し, 引用）..."
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
             style={{

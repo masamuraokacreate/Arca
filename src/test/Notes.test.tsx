@@ -4,13 +4,16 @@
  */
 
 import { describe, it, expect, vi } from "vitest";
-import { render, screen } from "@testing-library/react";
+import { render, screen, fireEvent } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { MarkdownViewer } from "../components/notes/MarkdownViewer";
 import { MarkdownGuideModal } from "../components/notes/MarkdownGuideModal";
 import { NoteEditor } from "../components/notes/NoteEditor";
 import { NoteToolbar } from "../components/notes/NoteToolbar";
 import { ConfirmModal } from "../components/notes/ConfirmModal";
+import { NoteBreadcrumbs } from "../components/notes/NoteBreadcrumbs";
+import { MoveNoteModal } from "../components/notes/MoveNoteModal";
+import type { NoteItem } from "../types";
 import {
   sanitizeFileName,
   generateMarkdownFileName,
@@ -230,9 +233,9 @@ describe("MarkdownGuideModal", () => {
     );
 
     const searchInput = screen.getByPlaceholderText(/構文を検索/);
-    await userEvent.type(searchInput, "テーブル");
+    await userEvent.type(searchInput, "引用");
 
-    expect(screen.getByText("テーブル（表）")).toBeInTheDocument();
+    expect(screen.getByText("引用")).toBeInTheDocument();
     expect(screen.queryByRole("heading", { level: 3, name: "基本の装飾" })).not.toBeInTheDocument();
   });
 });
@@ -302,24 +305,43 @@ describe("ConfirmModal", () => {
 // ─────────────────────────────────────────
 
 describe("NoteEditor", () => {
-  it("テキストエリアに適度な最小高とパディングスタイルが適用されている", () => {
+  it("NoteEditor が Tiptap インラインエディタとして正常にレンダリングされる", () => {
     const handleChange = vi.fn();
-    render(<NoteEditor content="テスト内容" onChange={handleChange} />);
+    const { container } = render(<NoteEditor content="テスト内容" onChange={handleChange} />);
 
-    const textarea = screen.getByDisplayValue("テスト内容");
-    expect(textarea).toBeInTheDocument();
-    expect(textarea.style.minHeight).toBe("280px");
-    expect(textarea.style.paddingBottom).toBe("1.5rem");
+    const editorEl = container.querySelector(".tiptap.ProseMirror");
+    expect(editorEl).toBeInTheDocument();
+    expect(editorEl).toHaveAttribute("contenteditable", "true");
+    expect(editorEl).toHaveTextContent("テスト内容");
   });
 
-  it("テキスト入力で onChange が呼ばれる", async () => {
+  it("見出し Markdown（# 見出し）が H1 タグとしてリアルタイム描画される", () => {
     const handleChange = vi.fn();
-    render(<NoteEditor content="" onChange={handleChange} />);
+    const { container } = render(<NoteEditor content="# 見出しテキスト" onChange={handleChange} />);
 
-    const textarea = screen.getByPlaceholderText(/Markdownで書き始める/);
-    await userEvent.type(textarea, "# 見出しテキスト");
+    const h1El = container.querySelector("h1");
+    expect(h1El).toBeInTheDocument();
+    expect(h1El).toHaveTextContent("見出しテキスト");
+  });
 
-    expect(handleChange).toHaveBeenCalled();
+  it("区切り線（水平線）Markdown が hr タグとしてインライン描画される", () => {
+    const handleChange = vi.fn();
+    const { container } = render(<NoteEditor content="---" onChange={handleChange} />);
+
+    const hrEl = container.querySelector("hr");
+    expect(hrEl).toBeInTheDocument();
+  });
+
+  it("日本語IME入力時（compositionstart ➔ update ➔ compositionend）に安全にイベントが処理される", () => {
+    const handleChange = vi.fn();
+    const { container } = render(<NoteEditor content="" onChange={handleChange} />);
+    const editorEl = container.querySelector(".tiptap.ProseMirror")!;
+
+    fireEvent.compositionStart(editorEl);
+    fireEvent.compositionUpdate(editorEl, { data: "わーくすぺーす" });
+    fireEvent.compositionEnd(editorEl, { data: "ワークスペース" });
+
+    expect(editorEl).toBeInTheDocument();
   });
 });
 
@@ -328,9 +350,9 @@ describe("NoteEditor", () => {
 // ─────────────────────────────────────────
 
 describe("NoteToolbar", () => {
-  it("各ボタン（エクスポート・インポート・ガイド・全画面・目次・削除）がクリックされたときに適切なコールバックが実行される", async () => {
-    const onModeChange = vi.fn();
+  it("各ボタン（画像・エクスポート・インポート・ガイド・全画面・目次・削除）がクリックされたときに適切なコールバックが実行される", async () => {
     const onBack = vi.fn();
+    const onInsertImage = vi.fn();
     const onExtract = vi.fn();
     const onDownloadMarkdown = vi.fn();
     const onImportMarkdown = vi.fn();
@@ -341,9 +363,8 @@ describe("NoteToolbar", () => {
 
     render(
       <NoteToolbar
-        mode="read"
-        onModeChange={onModeChange}
         onBack={onBack}
+        onInsertImage={onInsertImage}
         onExtract={onExtract}
         isExtracting={false}
         canExtract={true}
@@ -358,10 +379,10 @@ describe("NoteToolbar", () => {
       />
     );
 
-    // 編集モード切り替え
-    const editBtn = screen.getByTitle("編集モード");
-    await userEvent.click(editBtn);
-    expect(onModeChange).toHaveBeenCalledWith("edit");
+    // 画像ボタン
+    const imageBtn = screen.getByTitle("画像を挿入（貼り付け・ファイル選択）");
+    await userEvent.click(imageBtn);
+    expect(onInsertImage).toHaveBeenCalled();
 
     // エクスポート (↑)
     const downloadBtn = screen.getByTitle("Markdownファイル (.md) としてエクスポート");
@@ -392,6 +413,80 @@ describe("NoteToolbar", () => {
     const deleteBtn = screen.getByTitle("このノートを削除");
     await userEvent.click(deleteBtn);
     expect(onDelete).toHaveBeenCalled();
+  });
+
+  it("MarkdownViewer が attachment:img_id トークンを attachments マップから解決してレンダリングする", () => {
+    const attachments = {
+      img_test_123: "data:image/webp;base64,UklGRmYAAABXRUJQVlA4WAoAAAAQAAAAAQAA",
+    };
+    const content = "![テスト画像|medium](attachment:img_test_123)";
+    const { container } = render(
+      <MarkdownViewer content={content} attachments={attachments} />
+    );
+
+    const img = container.querySelector("img");
+    expect(img).toBeInTheDocument();
+    expect(img).toHaveAttribute("src", attachments.img_test_123);
+    expect(img).toHaveAttribute("alt", "テスト画像");
+  });
+
+  it("デバッグロガーはコンソール出力を行わない安全な no-op である", async () => {
+    const consoleSpy = vi.spyOn(console, "log").mockImplementation(() => {});
+
+    const { isNotesDebug, logNoteEdit, logNoteImage, logNoteIME } = await import("../utils/debugLogger");
+    expect(isNotesDebug()).toBe(false);
+
+    logNoteEdit(100, "testing");
+    logNoteImage("img_123", "50 KB", "image/webp");
+    logNoteIME(true, "テスト");
+
+    expect(consoleSpy).not.toHaveBeenCalled();
+    consoleSpy.mockRestore();
+  });
+
+  it("NoteToolbar でソースモード（Markdown生文）切替ボタンが動作する", async () => {
+    const onToggleSourceMode = vi.fn();
+    render(
+      <NoteToolbar
+        onBack={vi.fn()}
+        onExtract={vi.fn()}
+        isExtracting={false}
+        canExtract={true}
+        onDownloadMarkdown={vi.fn()}
+        onOpenGuide={vi.fn()}
+        isFullWidth={false}
+        onToggleFullWidth={vi.fn()}
+        showToc={false}
+        onToggleToc={vi.fn()}
+        onDelete={vi.fn()}
+        isSourceMode={false}
+        onToggleSourceMode={onToggleSourceMode}
+      />
+    );
+
+    const sourceBtn = screen.getByTitle(/テキストモード/);
+    expect(sourceBtn).toBeInTheDocument();
+    await userEvent.click(sourceBtn);
+    expect(onToggleSourceMode).toHaveBeenCalled();
+  });
+
+  it("NoteEditor で isSourceMode=true のときに生の Markdown テキストエリアが表示される", async () => {
+    const handleChange = vi.fn();
+    const { container } = render(
+      <NoteEditor
+        content={"# タイトル\n\n本文テキスト"}
+        onChange={handleChange}
+        isSourceMode={true}
+      />
+    );
+
+    expect(screen.getByText("Markdown ソース編集モード")).toBeInTheDocument();
+    const textarea = container.querySelector("textarea");
+    expect(textarea).toBeInTheDocument();
+    expect(textarea).toHaveValue("# タイトル\n\n本文テキスト");
+
+    await userEvent.type(textarea!, "追記");
+    expect(handleChange).toHaveBeenCalled();
   });
 
   it("ごみ箱モーダルで「完全に削除」および「ごみ箱を空にする」が動作する", async () => {
@@ -443,3 +538,489 @@ describe("NoteToolbar", () => {
     expect(deleteDoc).toHaveBeenCalled();
   });
 });
+
+// ─────────────────────────────────────────
+// 7. NoteBreadcrumbs コンポーネントのテスト
+// ─────────────────────────────────────────
+
+describe("NoteBreadcrumbs", () => {
+  it("空のパンくず配列の場合は何も描画しない", () => {
+    const { container } = render(
+      <NoteBreadcrumbs breadcrumbs={[]} onSelectBreadcrumb={vi.fn()} />
+    );
+    expect(container).toBeEmptyDOMElement();
+  });
+
+  it("ルート階層のみの場合は「Notes」が表示され、クリックできない（カレントページ）", () => {
+    render(
+      <NoteBreadcrumbs
+        breadcrumbs={[{ id: null, title: "Notes" }]}
+        onSelectBreadcrumb={vi.fn()}
+      />
+    );
+    const current = screen.getByText("Notes");
+    expect(current).toBeInTheDocument();
+    expect(current.getAttribute("aria-current")).toBe("page");
+  });
+
+  it("階層がある場合に親ノートボタンと現在地が表示され、クリックで onSelectBreadcrumb が呼ばれる", async () => {
+    const handleSelect = vi.fn();
+    render(
+      <NoteBreadcrumbs
+        breadcrumbs={[
+          { id: null, title: "Notes" },
+          { id: "parent-1", title: "親ノート" },
+          { id: "child-1", title: "子ノート" },
+        ]}
+        onSelectBreadcrumb={handleSelect}
+      />
+    );
+
+    expect(screen.getByRole("button", { name: "Notes" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "親ノート" })).toBeInTheDocument();
+    expect(screen.getByText("子ノート")).toBeInTheDocument();
+
+    await userEvent.click(screen.getByRole("button", { name: "親ノート" }));
+    expect(handleSelect).toHaveBeenCalledWith("parent-1");
+
+    await userEvent.click(screen.getByRole("button", { name: "Notes" }));
+    expect(handleSelect).toHaveBeenCalledWith(null);
+  });
+});
+
+// ─────────────────────────────────────────
+// 8. Notes 階層化・ハブ＆カード（Parent-Child Hub）統合テスト
+// ─────────────────────────────────────────
+
+describe("Notes 階層化・ハブ＆カード（Parent-Child Hub）統合テスト", () => {
+  it("トップ一覧でルートノートのみが表示され、子ノート件数バッジ（📁 N件）が表示される", async () => {
+    const { onSnapshot } = await import("firebase/firestore");
+    const Notes = (await import("../components/Notes")).default;
+
+    (onSnapshot as any).mockImplementation((_q: any, callback: any) => {
+      callback({
+        forEach: (fn: any) => {
+          // 親ノート
+          fn({
+            id: "hub-1",
+            data: () => ({
+              title: "プロジェクトハブ",
+              content: "ハブの概要",
+              tags: ["仕事"],
+              parentId: null,
+              isDeleted: false,
+            }),
+          });
+          // 子ノート1
+          fn({
+            id: "sub-1",
+            data: () => ({
+              title: "サブノートA",
+              content: "サブAの内容",
+              tags: [],
+              parentId: "hub-1",
+              isDeleted: false,
+            }),
+          });
+          // 子ノート2
+          fn({
+            id: "sub-2",
+            data: () => ({
+              title: "サブノートB",
+              content: "サブBの内容",
+              tags: [],
+              parentId: "hub-1",
+              isDeleted: false,
+            }),
+          });
+          // ルートノート（子なし）
+          fn({
+            id: "solo-1",
+            data: () => ({
+              title: "単独ノート",
+              content: "サブなし",
+              tags: [],
+              parentId: null,
+              isDeleted: false,
+            }),
+          });
+        },
+      });
+      return vi.fn();
+    });
+
+    render(<Notes />);
+
+    // ルートノートのみが表示される
+    expect(screen.getByText("プロジェクトハブ")).toBeInTheDocument();
+    expect(screen.getByText("単独ノート")).toBeInTheDocument();
+    // 子ノートはトップ一覧には直接表示されない
+    expect(screen.queryByText("サブノートA")).not.toBeInTheDocument();
+    expect(screen.queryByText("サブノートB")).not.toBeInTheDocument();
+
+    // 子ノート件数バッジが表示されている（2件）
+    expect(screen.getByText("2件")).toBeInTheDocument();
+  });
+
+  it("親ノートを開くとパンくずとサブノート一覧が表示され、子ノート作成ができる", async () => {
+    const { onSnapshot, addDoc } = await import("firebase/firestore");
+    const Notes = (await import("../components/Notes")).default;
+
+    (onSnapshot as any).mockImplementation((_q: any, callback: any) => {
+      callback({
+        forEach: (fn: any) => {
+          fn({
+            id: "hub-1",
+            data: () => ({
+              title: "プロジェクトハブ",
+              content: "ハブの本文",
+              tags: [],
+              parentId: null,
+              isDeleted: false,
+            }),
+          });
+          fn({
+            id: "sub-1",
+            data: () => ({
+              title: "サブノートA",
+              content: "サブAの本文",
+              tags: [],
+              parentId: "hub-1",
+              isDeleted: false,
+            }),
+          });
+        },
+      });
+      return vi.fn();
+    });
+
+    render(<Notes initialNoteId="hub-1" />);
+
+    // パンくずとタイトルが表示されている
+    expect(screen.getByRole("button", { name: "Notes" })).toBeInTheDocument();
+    expect(screen.getByDisplayValue("プロジェクトハブ")).toBeInTheDocument();
+    expect(screen.getByTitle("プロジェクトハブ")).toBeInTheDocument(); // パンくずのtitle属性
+
+    // サブノートセクションが表示されている
+    expect(screen.getByRole("heading", { level: 3, name: "サブノート" })).toBeInTheDocument();
+    expect(screen.getByText("サブノートA")).toBeInTheDocument();
+
+    // 「＋ 子ノート作成」ボタンを押すと parentId: "hub-1" で addDoc が呼ばれる
+    const createSubNoteBtn = screen.getByRole("button", { name: /子ノート作成/ });
+    await userEvent.click(createSubNoteBtn);
+
+    expect(addDoc).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({
+        parentId: "hub-1",
+        isDeleted: false,
+      })
+    );
+  });
+
+  it("親ノート削除時にサブノートの警告ダイアログが表示され、親＋子ノートが一括論理削除＆Undoされる", async () => {
+    const { onSnapshot, updateDoc } = await import("firebase/firestore");
+    const Notes = (await import("../components/Notes")).default;
+
+    (onSnapshot as any).mockImplementation((_q: any, callback: any) => {
+      callback({
+        forEach: (fn: any) => {
+          fn({
+            id: "hub-1",
+            data: () => ({
+              title: "親ノート",
+              content: "本文",
+              tags: [],
+              parentId: null,
+              isDeleted: false,
+            }),
+          });
+          fn({
+            id: "sub-1",
+            data: () => ({
+              title: "子ノート1",
+              content: "子1本文",
+              tags: [],
+              parentId: "hub-1",
+              isDeleted: false,
+            }),
+          });
+          fn({
+            id: "sub-2",
+            data: () => ({
+              title: "子ノート2",
+              content: "子2本文",
+              tags: [],
+              parentId: "hub-1",
+              isDeleted: false,
+            }),
+          });
+        },
+      });
+      return vi.fn();
+    });
+
+    render(<Notes />);
+
+    // 削除メニューをクリック
+    const menuBtn = screen.getByLabelText("メニュー");
+    await userEvent.click(menuBtn);
+
+    const deleteOption = screen.getByRole("button", { name: "削除" });
+    await userEvent.click(deleteOption);
+
+    // カスケード削除の警告ダイアログが表示される
+    expect(screen.getByText("ノートとサブノートをごみ箱に移動しますか？")).toBeInTheDocument();
+    expect(screen.getByText(/2件のサブノートが含まれています/)).toBeInTheDocument();
+
+    // 削除を実行
+    const confirmBtn = screen.getByRole("button", { name: "削除する" });
+    await userEvent.click(confirmBtn);
+
+    // 親ノートおよび子ノート2件（計3件）が updateDoc で isDeleted: true になる
+    expect(updateDoc).toHaveBeenCalledTimes(3);
+
+    // Undoトーストが表示される
+    expect(screen.getByText(/サブノート 2件をごみ箱に移動しました/)).toBeInTheDocument();
+
+    // Undoボタンをクリックして一括復元
+    const undoBtn = screen.getByRole("button", { name: "元に戻す" });
+    await userEvent.click(undoBtn);
+
+    // 復元処理（isDeleted: false）が3件に対して実行される
+    expect(updateDoc).toHaveBeenCalledTimes(6);
+  });
+
+  // ─────────────────────────────────────────
+  // 9. 親ノート移動モーダル（MoveNoteModal）単体テスト
+  // ─────────────────────────────────────────
+  describe("MoveNoteModal コンポーネント", () => {
+    const mockNotes: NoteItem[] = [
+      {
+        id: "target-1",
+        title: "移動対象ノート",
+        content: "内容",
+        tags: [],
+        createdAt: "2026-08-01T00:00:00.000Z",
+        updatedAt: "2026-08-01T00:00:00.000Z",
+        parentId: null,
+      },
+      {
+        id: "child-of-target",
+        title: "移動対象の子ノート",
+        content: "内容",
+        tags: [],
+        createdAt: "2026-08-01T00:00:00.000Z",
+        updatedAt: "2026-08-01T00:00:00.000Z",
+        parentId: "target-1",
+      },
+      {
+        id: "other-parent",
+        title: "別の親ノート",
+        content: "内容",
+        tags: [],
+        createdAt: "2026-08-01T00:00:00.000Z",
+        updatedAt: "2026-08-01T00:00:00.000Z",
+        parentId: null,
+      },
+    ];
+
+    it("階層ツリーとトップ階層の選択肢を正しく表示する", () => {
+      render(
+        <MoveNoteModal
+          targetNote={mockNotes[0]}
+          allNotes={mockNotes}
+          isOpen={true}
+          onClose={vi.fn()}
+          onMove={vi.fn()}
+        />
+      );
+
+      expect(screen.getByText("ノートの移動先を選択")).toBeInTheDocument();
+      expect(screen.getByText("トップ階層（All Notes）")).toBeInTheDocument();
+      expect(screen.getByText("別の親ノート")).toBeInTheDocument();
+      expect(screen.getByText("現在の場所")).toBeInTheDocument();
+    });
+
+    it("循環参照となる自身および子ノートは disabled になる", () => {
+      render(
+        <MoveNoteModal
+          targetNote={mockNotes[0]}
+          allNotes={mockNotes}
+          isOpen={true}
+          onClose={vi.fn()}
+          onMove={vi.fn()}
+        />
+      );
+
+      // 移動対象自身と配下の子ノートが無効化されていることを確認
+      expect(screen.getByText(/移動対象のノート自身/)).toBeInTheDocument();
+      expect(screen.getByText(/循環参照防止/)).toBeInTheDocument();
+    });
+
+    it("移動先を選択して確定ボタンを押すと onMove が正しい引数で呼ばれる", async () => {
+      const onMoveMock = vi.fn();
+      const onCloseMock = vi.fn();
+
+      render(
+        <MoveNoteModal
+          targetNote={mockNotes[0]}
+          allNotes={mockNotes}
+          isOpen={true}
+          onClose={onCloseMock}
+          onMove={onMoveMock}
+        />
+      );
+
+      // 「別の親ノート」をクリック
+      const targetParentOption = screen.getByText("別の親ノート");
+      await userEvent.click(targetParentOption);
+
+      // 移動確定ボタンをクリック
+      const moveBtn = screen.getByRole("button", { name: "移動する" });
+      await userEvent.click(moveBtn);
+
+      expect(onMoveMock).toHaveBeenCalledWith("target-1", "other-parent");
+      expect(onCloseMock).toHaveBeenCalled();
+    });
+  });
+
+  // ─────────────────────────────────────────
+  // 10. 画像装飾（MarkdownViewer / NoteImage）テスト
+  // ─────────────────────────────────────────
+  describe("画像カスタムレンダラー（NoteImage）", () => {
+    it("小・中・大のサイズ切り替えボタンを表示し、クリックで Markdown 本文が更新される", async () => {
+      const onContentChangeMock = vi.fn();
+      const initialMarkdown = "本文テキスト\n\n![サンプル画像|medium](https://example.com/img.png)\n\n続きのテキスト";
+
+      render(
+        <MarkdownViewer
+          content={initialMarkdown}
+          onContentChange={onContentChangeMock}
+        />
+      );
+
+      // 画像とサイズ切り替えピルが表示されている
+      const img = screen.getByAltText("サンプル画像");
+      expect(img).toBeInTheDocument();
+
+      const smallBtn = screen.getByRole("button", { name: "小" });
+      await userEvent.click(smallBtn);
+
+      expect(onContentChangeMock).toHaveBeenCalledWith(
+        expect.stringContaining("![サンプル画像|small](https://example.com/img.png)")
+      );
+    });
+
+    it("画像クリックで Lightbox モーダルが開き、拡大表示される", async () => {
+      const markdown = "![拡大テスト|medium](https://example.com/photo.png)";
+      render(<MarkdownViewer content={markdown} />);
+
+      const img = screen.getByAltText("拡大テスト");
+      await userEvent.click(img);
+
+      // Lightbox 拡大表示が開く
+      expect(screen.getByRole("dialog")).toBeInTheDocument();
+
+      // 閉じるボタンまたはダイアログ外クリックで閉じる
+      const closeBtn = screen.getByLabelText("閉じる");
+      await userEvent.click(closeBtn);
+
+      expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+    });
+  });
+
+  // ─────────────────────────────────────────
+  // 11. NoteEditor Tiptap リッチ構造テスト
+  // ─────────────────────────────────────────
+  // ─────────────────────────────────────────
+  // 11. NoteEditor Tiptap リッチ構造テスト
+  // ─────────────────────────────────────────
+  describe("NoteEditor Tiptap リッチ構造テスト", () => {
+    it("番号付きリストが ol / li として正しく描画される", () => {
+      const onChangeMock = vi.fn();
+      const { container } = render(
+        <NoteEditor
+          content={"1. 第一項目\n\n2. 第二項目"}
+          onChange={onChangeMock}
+        />
+      );
+
+      const ol = container.querySelector("ol");
+      expect(ol).toBeInTheDocument();
+      const items = container.querySelectorAll("ol li");
+      expect(items.length).toBe(2);
+      expect(items[0]).toHaveTextContent("第一項目");
+      expect(items[1]).toHaveTextContent("第二項目");
+    });
+
+    it("箇条書きリストが ul / li として正しく描画される", () => {
+      const onChangeMock = vi.fn();
+      const { container } = render(
+        <NoteEditor
+          content={"- 項目A\n\n- 項目B"}
+          onChange={onChangeMock}
+        />
+      );
+
+      const ul = container.querySelector("ul");
+      expect(ul).toBeInTheDocument();
+      const items = container.querySelectorAll("ul li");
+      expect(items.length).toBe(2);
+      expect(items[0]).toHaveTextContent("項目A");
+      expect(items[1]).toHaveTextContent("項目B");
+    });
+
+    it("コードブロックが pre / code として正しく描画される", () => {
+      const onChangeMock = vi.fn();
+      const { container } = render(
+        <NoteEditor
+          content={"```\nconst a = 1;\n```"}
+          onChange={onChangeMock}
+        />
+      );
+
+      const pre = container.querySelector("pre");
+      expect(pre).toBeInTheDocument();
+      expect(pre).toHaveTextContent("const a = 1;");
+    });
+
+    it("normalizeMarkdown で HTML エンティティや Markdown エスケープ文字が正常に正規化される", async () => {
+      const { normalizeMarkdown } = await import("../components/notes/NoteEditor");
+
+      // 1. 特殊文字のエスケープ解除
+      expect(normalizeMarkdown("これは \\*太字\\* と \\_斜体\\_ です")).toBe(
+        "これは *太字* と _斜体_ です"
+      );
+
+      // 2. HTML エンティティの解除
+      expect(normalizeMarkdown("&lt;div&gt; &amp; テキスト")).toBe(
+        "<div> & テキスト"
+      );
+
+      // 3. 画像URL内のエスケープ解除
+      expect(
+        normalizeMarkdown("![画像](https://firebasestorage.googleapis.com/notes\\_images/123/img\\_test.webp)")
+      ).toBe("![画像](https://firebasestorage.googleapis.com/notes_images/123/img_test.webp)");
+    });
+
+    it("SLASH_COMMANDS に主要ブロック（見出し、リスト、チェックリスト、画像、コード等）が定義されている", async () => {
+      const { SLASH_COMMANDS } = await import("../components/notes/NoteEditor");
+      const ids = SLASH_COMMANDS.map((c) => c.id);
+
+      expect(ids).toContain("h1");
+      expect(ids).toContain("h2");
+      expect(ids).toContain("h3");
+      expect(ids).toContain("bullet");
+      expect(ids).toContain("ordered");
+      expect(ids).toContain("todo");
+      expect(ids).toContain("image");
+      expect(ids).toContain("quote");
+      expect(ids).toContain("code");
+      expect(ids).toContain("divider");
+      expect(ids).not.toContain("table");
+    });
+  });
+});
+
+

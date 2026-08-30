@@ -192,6 +192,9 @@ describe("Dashboard コンポーネント", () => {
   });
 
   it("isShiftOnly な予定（出勤予定カレンダー由来）は今日の予定タイルに表示されないこと", () => {
+    const now = new Date();
+    const todayStr = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")}`;
+
     (onSnapshot as Mock).mockImplementation((q: any, callback: (snap: unknown) => void) => {
       const isEventsQuery = q?._query?.path?.segments?.includes("events") || JSON.stringify(q || {}).includes("events");
 
@@ -202,7 +205,7 @@ describe("Dashboard コンポーネント", () => {
               id: "event-regular",
               data: () => ({
                 title: "ミーティング",
-                date: new Date().toISOString().slice(0, 10),
+                date: todayStr,
                 startTime: "10:00",
                 isShiftOnly: false,
               }),
@@ -211,7 +214,7 @@ describe("Dashboard コンポーネント", () => {
               id: "event-shift-only",
               data: () => ({
                 title: "遅番(15時)",
-                date: new Date().toISOString().slice(0, 10),
+                date: todayStr,
                 startTime: "15:00",
                 isShiftOnly: true,
               }),

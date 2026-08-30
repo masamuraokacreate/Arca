@@ -1,66 +1,187 @@
 /**
  * src/components/notes/NoteEditor.tsx
- * Arca — Notes エディタコンポーネント (Apple HIG × Arca デザインシステム準拠)
+ * Arca — Tiptap リッチテキスト & Markdown ソース統合エディタ (Apple HIG × Arca デザインシステム準拠)
  *
- * 入力体験の向上:
- * 1. 最下部に 40vh の十分なタイピング余白を確保（最後の行でも画面中央〜上部で快適に入力可能）
- * 2. ガタつきのない安定した Auto-resize Textarea (スクロール位置の勝手なジャンプを防止)
- * 3. 入力時のキャレット可視性確保（カーソル追従）
- * 4. スラッシュコマンド (/h1, /bullet, /todo, /table 等) による高速入力
- * 5. iOS Safari ソフトウェアキーボードとセーフエリアへの適応
+ * 特長:
+ * 1. HTML/Markdown エスケープ文字（\*, \_, &lt; 等）の自動正規化 & クレンジング
+ * 2. テキスト選択ショートカット (Ctrl+B, Ctrl+I, Ctrl+U, Ctrl+Shift+X) & 手打ちアスタリスク誤変換防止
+ * 3. Notion風カーソル追従スラッシュコマンド（/）ガイドメニュー (Apple HIG準拠)
+ * 4. Firebase Storage 画像アップロード ＆ URL参照（Notion同等の軽快な画像管理）
+ * 5. テキストモード（生Markdownソース）と WYSIWYG ビューのシームレスな切替
+ * 6. 太字・斜体・取り消し線の改行時自動解除 (ClearMarksOnEnter)
+ * 7. チェックリスト (TaskItem) の安全なテキスト入力 (nested: false)
+ * 8. 最下部 35vh 余白 & Apple風タイポグラフィ
  */
 
-import React, {
+import {
   useState,
   useCallback,
   useRef,
   useEffect,
-  useLayoutEffect,
   useImperativeHandle,
   forwardRef,
-  type KeyboardEvent,
 } from "react";
+import { useEditor, EditorContent } from "@tiptap/react";
+import StarterKit from "@tiptap/starter-kit";
+import Placeholder from "@tiptap/extension-placeholder";
+import { Image } from "@tiptap/extension-image";
+import { TaskList } from "@tiptap/extension-task-list";
+import { TaskItem } from "@tiptap/extension-task-item";
+import Link from "@tiptap/extension-link";
+import Underline from "@tiptap/extension-underline";
+import { Markdown } from "tiptap-markdown";
+import { Extension } from "@tiptap/core";
 import { C } from "../../lib/designSystem";
+import { uploadNoteImage } from "../../services/imageUploadService";
+
+/**
+ * Markdown 出力時の不要な過剰エスケープ（\*, \_, &lt;, &gt; 等）を正規化・クレンジングする
+ */
+export function normalizeMarkdown(md: string): string {
+  if (!md) return "";
+  return md
+    // 画像URL内のエスケープを復元: ![alt](url)
+    .replace(/!\[(.*?)\]\((.*?)\)/g, (_match, alt, url) => {
+      const cleanUrl = url.replace(/\\([_*\\])/g, "$1");
+      return `![${alt}](${cleanUrl})`;
+    })
+    // HTML エンティティの不要な露出を復元
+    .replace(/&lt;/g, "<")
+    .replace(/&gt;/g, ">")
+    .replace(/&amp;/g, "&")
+    // 単独のバックスラッシュエスケープ（\* や \_）を復元
+    .replace(/\\([*_~`])/g, "$1");
+}
+
+/**
+ * 改行時に太字・斜体・打ち消し線・下線・インラインコードを自動解除する拡張
+ */
+const ClearMarksOnEnter = Extension.create({
+  name: "clearMarksOnEnter",
+  addKeyboardShortcuts() {
+    return {
+      Enter: ({ editor }) => {
+        if (
+          editor.isActive("bold") ||
+          editor.isActive("italic") ||
+          editor.isActive("strike") ||
+          editor.isActive("underline") ||
+          editor.isActive("code")
+        ) {
+          editor.commands.splitBlock();
+          editor.commands.unsetBold();
+          editor.commands.unsetItalic();
+          editor.commands.unsetStrike();
+          editor.commands.unsetUnderline();
+          editor.commands.unsetCode();
+          return true;
+        }
+        return false;
+      },
+    };
+  },
+});
 
 export interface SlashCommand {
   id: string;
   label: string;
   description: string;
   icon: string;
-  syntax: string;
+  action: (editor: any, triggers?: { openImageDialog?: () => void }) => void;
 }
 
-const SLASH_COMMANDS: SlashCommand[] = [
-  { id: "h1", label: "見出し 1", description: "大見出し", icon: "H₁", syntax: "# " },
-  { id: "h2", label: "見出し 2", description: "中見出し", icon: "H₂", syntax: "## " },
-  { id: "h3", label: "見出し 3", description: "小見出し", icon: "H₃", syntax: "### " },
-  { id: "bullet", label: "箇条書き", description: "箇条書きリスト", icon: "•", syntax: "- " },
-  { id: "numbered", label: "番号付きリスト", description: "番号順リスト", icon: "1.", syntax: "1. " },
-  { id: "todo", label: "チェックリスト", description: "タスク項目", icon: "☐", syntax: "- [ ] " },
-  { id: "quote", label: "引用", description: "ブロッククォート", icon: "❝", syntax: "> " },
-  { id: "table", label: "テーブル", description: "表の作成", icon: "⊞", syntax: "| 項目 | 内容 |\n| :--- | :--- |\n| A    | 詳細 |\n" },
-  { id: "code", label: "コードブロック", description: "プログラムコード", icon: "</>", syntax: "```\n\n```" },
-  { id: "hr", label: "区切り線", description: "水平線", icon: "─", syntax: "---\n" },
+export const SLASH_COMMANDS: SlashCommand[] = [
+  {
+    id: "h1",
+    label: "見出し 1",
+    description: "大見出しを挿入",
+    icon: "H₁",
+    action: (editor) => editor?.chain().focus().toggleHeading({ level: 1 }).run(),
+  },
+  {
+    id: "h2",
+    label: "見出し 2",
+    description: "中見出しを挿入",
+    icon: "H₂",
+    action: (editor) => editor?.chain().focus().toggleHeading({ level: 2 }).run(),
+  },
+  {
+    id: "h3",
+    label: "見出し 3",
+    description: "小見出しを挿入",
+    icon: "H₃",
+    action: (editor) => editor?.chain().focus().toggleHeading({ level: 3 }).run(),
+  },
+  {
+    id: "bullet",
+    label: "箇条書きリスト",
+    description: "箇条書きリストを作成",
+    icon: "•",
+    action: (editor) => editor?.chain().focus().toggleBulletList().run(),
+  },
+  {
+    id: "ordered",
+    label: "番号付きリスト",
+    description: "番号順リストを作成",
+    icon: "1.",
+    action: (editor) => editor?.chain().focus().toggleOrderedList().run(),
+  },
+  {
+    id: "todo",
+    label: "チェックリスト",
+    description: "タスクチェックボックスを作成",
+    icon: "☐",
+    action: (editor) => editor?.chain().focus().toggleTaskList().run(),
+  },
+  {
+    id: "image",
+    label: "画像のアップロード",
+    description: "画像ファイルを選択して挿入",
+    icon: "🖼",
+    action: (_editor, triggers) => {
+      triggers?.openImageDialog?.();
+    },
+  },
+  {
+    id: "quote",
+    label: "引用ブロック",
+    description: "目立たせる引用を作成",
+    icon: "❝",
+    action: (editor) => editor?.chain().focus().toggleBlockquote().run(),
+  },
+  {
+    id: "code",
+    label: "コードブロック",
+    description: "プログラムコードを入力",
+    icon: "</>",
+    action: (editor) => editor?.chain().focus().toggleCodeBlock().run(),
+  },
+  {
+    id: "divider",
+    label: "区切り線",
+    description: "水平線を挿入",
+    icon: "─",
+    action: (editor) => editor?.chain().focus().setHorizontalRule().run(),
+  },
 ];
 
 function SlashMenu({
   query,
+  coords,
   onSelect,
   onDismiss,
-  anchorRef,
-  lineIndex,
 }: {
   query: string;
+  coords: { top: number; left: number } | null;
   onSelect: (cmd: SlashCommand) => void;
   onDismiss: () => void;
-  anchorRef: React.RefObject<HTMLTextAreaElement | null>;
-  lineIndex: number;
 }) {
   const filtered = SLASH_COMMANDS.filter(
-    (c) => c.id.startsWith(query.toLowerCase()) || c.label.includes(query)
+    (c) =>
+      c.id.toLowerCase().startsWith(query.toLowerCase()) ||
+      c.label.toLowerCase().includes(query.toLowerCase())
   );
   const [focusIdx, setFocusIdx] = useState(0);
-  const menuRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     const handler = (e: globalThis.KeyboardEvent) => {
@@ -86,106 +207,111 @@ function SlashMenu({
     setFocusIdx(0);
   }, [query]);
 
-  const [pos, setPos] = useState({ top: 0, left: 0 });
-  useEffect(() => {
-    const el = anchorRef.current;
-    if (!el) return;
-    const rect = el.getBoundingClientRect();
-    const lineH = parseFloat(getComputedStyle(el).lineHeight) || 30;
-    const pt = parseFloat(getComputedStyle(el).paddingTop) || 0;
-    setPos({
-      top: rect.top + pt + lineIndex * lineH + lineH,
-      left: Math.max(16, rect.left + 16),
-    });
-  }, [anchorRef, lineIndex]);
-
   if (!filtered.length) return null;
+
+  const style: React.CSSProperties = coords
+    ? {
+        position: "fixed",
+        top: `${coords.top}px`,
+        left: `${coords.left}px`,
+      }
+    : {
+        position: "absolute",
+        top: "2.5rem",
+        left: "1rem",
+      };
 
   return (
     <div
-      ref={menuRef}
-      className="arca-slash-menu"
+      className="arca-slash-menu arca-scroll"
       style={{
-        position: "fixed",
-        top: Math.min(pos.top, window.innerHeight - 340),
-        left: Math.min(pos.left, window.innerWidth - 260),
-        zIndex: 600,
-        background: C.white,
-        borderRadius: "14px",
-        boxShadow: "0 8px 48px rgba(0,0,0,0.14), 0 2px 10px rgba(0,0,0,0.06)",
+        ...style,
+        zIndex: 100,
+        background: "rgba(255, 255, 255, 0.94)",
+        backdropFilter: "blur(24px) saturate(180%)",
+        WebkitBackdropFilter: "blur(24px) saturate(180%)",
+        borderRadius: "16px",
+        boxShadow: "0 10px 40px rgba(0,0,0,0.12), 0 2px 10px rgba(0,0,0,0.06)",
         padding: "0.45rem",
-        minWidth: "230px",
+        width: "250px",
         maxHeight: "320px",
         overflowY: "auto",
-        border: "1px solid rgba(0, 0, 0, 0.05)",
+        border: "1px solid rgba(255, 255, 255, 0.8)",
+        animation: "slash-in 0.12s cubic-bezier(0, 0, 0.2, 1)",
       }}
     >
-      <p
+      <div
         style={{
-          fontSize: "0.63rem",
+          fontSize: "0.68rem",
+          fontWeight: 700,
           color: C.charcoalXLight,
-          letterSpacing: "0.14em",
+          padding: "0.3rem 0.6rem 0.25rem",
+          letterSpacing: "0.06em",
           textTransform: "uppercase",
-          padding: "0.3rem 0.8rem 0.45rem",
-          margin: 0,
         }}
       >
-        {query ? `/${query} の候補` : "挿入するブロック"}
-      </p>
+        ブロックを挿入
+      </div>
       {filtered.map((cmd, i) => (
         <button
           key={cmd.id}
+          type="button"
           onClick={() => onSelect(cmd)}
-          onMouseEnter={() => setFocusIdx(i)}
           style={{
             display: "flex",
             alignItems: "center",
-            gap: "0.7rem",
+            gap: "0.65rem",
             width: "100%",
-            textAlign: "left",
-            background: i === focusIdx ? C.goldFaint2 : "transparent",
+            padding: "0.45rem 0.6rem",
+            borderRadius: "10px",
             border: "none",
-            borderRadius: "9px",
-            padding: "0.56rem 0.8rem",
+            background: i === focusIdx ? C.goldFaint : "transparent",
             cursor: "pointer",
-            transition: "background 0.1s",
+            textAlign: "left",
+            transition: "background 0.1s ease",
           }}
+          onMouseEnter={() => setFocusIdx(i)}
         >
           <span
             style={{
-              width: "30px",
-              height: "30px",
+              width: "26px",
+              height: "26px",
+              borderRadius: "7px",
+              background: i === focusIdx ? "rgba(181, 141, 61, 0.15)" : "rgba(0,0,0,0.04)",
               display: "flex",
               alignItems: "center",
               justifyContent: "center",
-              background: i === focusIdx ? C.goldFaint3 : C.ivory2,
-              borderRadius: "7px",
-              fontSize: "0.75rem",
+              fontSize: "0.85rem",
               fontWeight: 700,
-              color: i === focusIdx ? C.gold : C.charcoalMid,
+              color: i === focusIdx ? C.goldDark : C.charcoalMid,
               flexShrink: 0,
-              fontFamily: "monospace",
-              transition: "background 0.1s, color 0.1s",
+              transition: "all 0.1s ease",
             }}
           >
             {cmd.icon}
           </span>
-          <span>
-            <span
+          <div style={{ flex: 1, minWidth: 0 }}>
+            <div
               style={{
-                display: "block",
-                fontSize: "0.83rem",
-                fontWeight: 500,
-                color: i === focusIdx ? C.charcoal : C.charcoalMid,
-                lineHeight: 1.3,
+                fontSize: "0.82rem",
+                fontWeight: 600,
+                color: i === focusIdx ? C.goldDark : C.charcoal,
               }}
             >
               {cmd.label}
-            </span>
-            <span style={{ display: "block", fontSize: "0.7rem", color: C.charcoalXLight, lineHeight: 1.3 }}>
+            </div>
+            <div
+              style={{
+                fontSize: "0.69rem",
+                color: C.charcoalLight,
+                whiteSpace: "nowrap",
+                overflow: "hidden",
+                textOverflow: "ellipsis",
+              }}
+            >
               {cmd.description}
-            </span>
-          </span>
+            </div>
+          </div>
         </button>
       ))}
     </div>
@@ -194,260 +320,510 @@ function SlashMenu({
 
 export interface NoteEditorHandles {
   insertSyntax: (syntax: string) => void;
+  insertImage: (file: File) => Promise<void>;
   focus: () => void;
 }
 
 export interface NoteEditorProps {
   content: string;
   onChange: (val: string) => void;
+  attachments?: Record<string, string>;
+  onAttachmentsChange?: (attachments: Record<string, string>) => void;
   placeholder?: string;
+  isSourceMode?: boolean;
 }
 
 export const NoteEditor = forwardRef<NoteEditorHandles, NoteEditorProps>(function NoteEditor(
-  { content, onChange, placeholder },
+  { content, onChange, placeholder, isSourceMode = false },
   ref
 ) {
-  const textareaRef = useRef<HTMLTextAreaElement>(null);
-  const isComposingRef = useRef(false);
-  const cursorPositionRef = useRef<number | null>(null);
-
   const [slashActive, setSlashActive] = useState(false);
   const [slashQuery, setSlashQuery] = useState("");
-  const [slashLineIdx, setSlashLineIdx] = useState(0);
+  const [slashCoords, setSlashCoords] = useState<{ top: number; left: number } | null>(null);
+  const [isUploading, setIsUploading] = useState(false);
+  const isComposingRef = useRef(false);
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
-  // スクロール位置とキャレット位置を維持する安全な Auto-resize
-  const autoResize = useCallback(() => {
-    const el = textareaRef.current;
-    if (!el) return;
+  // Tiptap エディタ初期化
+  const editor = useEditor({
+    extensions: [
+      StarterKit.configure({
+        heading: { levels: [1, 2, 3] },
+        codeBlock: { HTMLAttributes: { class: "arca-tiptap-code-block" } },
+        blockquote: { HTMLAttributes: { class: "arca-tiptap-blockquote" } },
+        bulletList: { HTMLAttributes: { class: "arca-tiptap-bullet-list" } },
+        orderedList: { HTMLAttributes: { class: "arca-tiptap-ordered-list" } },
+        horizontalRule: { HTMLAttributes: { class: "arca-tiptap-hr" } },
+      }),
+      Underline,
+      ClearMarksOnEnter,
+      Placeholder.configure({
+        placeholder:
+          placeholder ||
+          "Markdownで書き始める…\n\n行頭で # や - または / を入力するとスタイルが適用されます",
+      }),
+      Link.configure({
+        autolink: true,
+        openOnClick: false,
+        HTMLAttributes: {
+          class: "arca-tiptap-link",
+        },
+      }),
+      TaskList.configure({
+        HTMLAttributes: { class: "arca-tiptap-task-list" },
+      }),
+      TaskItem.configure({
+        nested: false,
+        HTMLAttributes: { class: "arca-tiptap-task-item" },
+      }),
+      Image.configure({
+        inline: true,
+        allowBase64: true,
+        HTMLAttributes: {
+          class: "arca-tiptap-image rounded-2xl",
+        },
+      }),
+      Markdown.configure({
+        html: false,
+        tightLists: true,
+        bulletListMarker: "-",
+        linkify: false,
+      }),
+    ],
+    content: content || "",
+    editorProps: {
+      attributes: {
+        class: "arca-tiptap-prose arca-scroll",
+      },
+      handleDOMEvents: {
+        compositionstart: () => {
+          isComposingRef.current = true;
+          return false;
+        },
+        compositionupdate: () => {
+          isComposingRef.current = true;
+          return false;
+        },
+        compositionend: () => {
+          isComposingRef.current = false;
+          return false;
+        },
+        paste: (_view, event) => {
+          const items = event.clipboardData?.items;
+          if (items) {
+            for (let i = 0; i < items.length; i++) {
+              if (items[i].type.startsWith("image/")) {
+                const file = items[i].getAsFile();
+                if (file) {
+                  event.preventDefault();
+                  handleUploadAndInsert(file);
+                  return true;
+                }
+              }
+            }
+          }
+          return false;
+        },
+        drop: (_view, event) => {
+          const files = event.dataTransfer?.files;
+          if (files) {
+            for (let i = 0; i < files.length; i++) {
+              if (files[i].type.startsWith("image/")) {
+                event.preventDefault();
+                handleUploadAndInsert(files[i]);
+                return true;
+              }
+            }
+          }
+          return false;
+        },
+      },
+    },
+    onUpdate: ({ editor: ed }) => {
+      try {
+        const rawMd = (ed.storage as any).markdown?.getMarkdown?.() ?? ed.getHTML();
+        const cleanMd = normalizeMarkdown(rawMd);
+        onChange(cleanMd);
 
-    // 日本語IME変換中は高さの再計算によるリフローを抑制
-    if (isComposingRef.current) return;
+        // スラッシュコマンド判定（IME変換中は誤発火しない）
+        if (!isComposingRef.current) {
+          const { from } = ed.state.selection;
+          const textBefore = ed.state.doc.textBetween(Math.max(0, from - 20), from, "\n", " ");
+          const match = textBefore.match(/(?:^|\s)\/([\w\u3040-\u30ff\u3400-\u4dbf\u4e00-\u9fff]*)$/);
+          if (match) {
+            setSlashActive(true);
+            setSlashQuery(match[1]);
 
-    const prevScrollY = window.scrollY || document.documentElement.scrollTop;
-    const minHeight = 280;
-
-    // 行が増えた（scrollHeight > clientHeight）場合は auto を経由せず即座に拡張（スクロール跳ねを完全防止）
-    if (el.scrollHeight > el.clientHeight) {
-      el.style.height = `${Math.max(el.scrollHeight, minHeight)}px`;
-    } else {
-      // 縮小時のみ一時的に auto にして正確な scrollHeight を取得
-      el.style.height = "auto";
-      const targetHeight = Math.max(el.scrollHeight, minHeight);
-      el.style.height = `${targetHeight}px`;
-    }
-
-    // スクロール位置が跳ねた場合は即時復元
-    if (window.scrollY !== prevScrollY) {
-      window.scrollTo(0, prevScrollY);
-    }
-  }, []);
-
-  // DOM反映後にキャレット位置の保護とオートリサイズを実行
-  useLayoutEffect(() => {
-    const el = textareaRef.current;
-    if (!el) return;
-
-    if (!isComposingRef.current && document.activeElement === el && cursorPositionRef.current !== null) {
-      if (el.selectionStart !== cursorPositionRef.current) {
-        el.setSelectionRange(cursorPositionRef.current, cursorPositionRef.current);
-      }
-    }
-    autoResize();
-  }, [content, autoResize]);
-
-  // スラッシュコマンド検出
-  const detectSlash = useCallback((text: string, cursorPos: number) => {
-    if (isComposingRef.current) return;
-    const before = text.slice(0, cursorPos);
-    const lines = before.split("\n");
-    const cur = lines[lines.length - 1];
-    const match = cur.match(/^\/(\w*)$/);
-    if (match) {
-      setSlashActive(true);
-      setSlashQuery(match[1]);
-      setSlashLineIdx(lines.length - 1);
-    } else {
-      setSlashActive(false);
-      setSlashQuery("");
-    }
-  }, []);
-
-  const handleContentChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
-    const val = e.target.value;
-    const pos = e.target.selectionStart;
-    cursorPositionRef.current = pos;
-    onChange(val);
-
-    if (!isComposingRef.current) {
-      detectSlash(val, pos);
-    }
-  };
-
-  const handleCompositionStart = () => {
-    isComposingRef.current = true;
-  };
-
-  const handleCompositionEnd = (e: React.CompositionEvent<HTMLTextAreaElement>) => {
-    isComposingRef.current = false;
-    const target = e.currentTarget;
-    cursorPositionRef.current = target.selectionStart;
-    autoResize();
-    detectSlash(target.value, target.selectionStart);
-  };
-
-  const handleKeyUp = (e: KeyboardEvent<HTMLTextAreaElement>) => {
-    if (isComposingRef.current) return;
-    if (e.key === "Escape" && slashActive) {
-      setSlashActive(false);
-      return;
-    }
-    const el = textareaRef.current;
-    if (el) {
-      cursorPositionRef.current = el.selectionStart;
-      detectSlash(el.value, el.selectionStart);
-    }
-  };
-
-  const handleSlashSelect = useCallback(
-    (cmd: SlashCommand) => {
-      const el = textareaRef.current;
-      if (!el) return;
-      const pos = el.selectionStart;
-      const text = el.value;
-      const textBefore = text.slice(0, pos);
-      const lineStart = textBefore.lastIndexOf("\n") + 1;
-      const lineContent = textBefore.slice(lineStart);
-      const isSlashLine = /^\/\w*$/.test(lineContent);
-      let newText: string;
-      let newCursor: number;
-
-      if (isSlashLine) {
-        const before = text.slice(0, lineStart);
-        const after = text.slice(pos);
-        if (cmd.syntax.includes("\n")) {
-          const parts = cmd.syntax.split("\n");
-          newText = before + cmd.syntax + after;
-          newCursor = before.length + parts[0].length + 1;
-        } else {
-          newText = before + cmd.syntax + after;
-          newCursor = before.length + cmd.syntax.length;
+            try {
+              const coords = ed.view.coordsAtPos(from);
+              const top = coords.bottom + 8;
+              const left = Math.max(16, Math.min(coords.left, window.innerWidth - 260));
+              setSlashCoords({ top, left });
+            } catch {
+              setSlashCoords(null);
+            }
+          } else {
+            setSlashActive(false);
+            setSlashCoords(null);
+          }
         }
-      } else {
-        newText = text.slice(0, pos) + cmd.syntax + text.slice(pos);
-        newCursor = pos + cmd.syntax.length;
+      } catch (err) {
+        console.error("Markdown serialization error", err);
       }
-
-      cursorPositionRef.current = newCursor;
-      onChange(newText);
-      setSlashActive(false);
-      setSlashQuery("");
-
-      requestAnimationFrame(() => {
-        if (!textareaRef.current) return;
-        textareaRef.current.value = newText;
-        textareaRef.current.selectionStart = newCursor;
-        textareaRef.current.selectionEnd = newCursor;
-        textareaRef.current.focus();
-        autoResize();
-      });
     },
-    [onChange, autoResize]
+  });
+
+  // 外部からの content 変更（別ノートを開いた時やソース切替時）を同期
+  useEffect(() => {
+    if (!editor || isComposingRef.current) return;
+    const currentMd = (editor.storage as any).markdown?.getMarkdown?.();
+    const cleanCurrent = normalizeMarkdown(currentMd);
+    const cleanProp = normalizeMarkdown(content);
+    if (cleanProp !== cleanCurrent && !editor.isFocused) {
+      editor.commands.setContent(content || "");
+    }
+  }, [content, editor]);
+
+  // Firebase Storage へのアップロード ＆ URL 挿入
+  const handleUploadAndInsert = useCallback(
+    async (file: File) => {
+      if (!editor) return;
+      setIsUploading(true);
+      try {
+        const result = await uploadNoteImage(file);
+        editor
+          .chain()
+          .focus()
+          .setImage({
+            src: result.url,
+            alt: result.name,
+          })
+          .run();
+      } catch (err) {
+        console.error("画像アップロードに失敗しました:", err);
+      } finally {
+        setIsUploading(false);
+      }
+    },
+    [editor]
   );
 
-  const insertSyntax = useCallback(
-    (syntax: string) => {
-      const el = textareaRef.current;
-      if (!el) return;
-      el.focus();
+  // 隠しファイル選択 input からの画像挿入
+  const handleFileInputChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (file) {
+      await handleUploadAndInsert(file);
+    }
+    if (fileInputRef.current) {
+      fileInputRef.current.value = "";
+    }
+  };
 
-      const start = el.selectionStart;
-      const end = el.selectionEnd;
-      const val = el.value;
-
-      let newText: string;
-      let newCursor: number;
-
-      // 選択範囲がある場合の囲み処理（太字や斜体、コードなど）
-      if (start !== end && (syntax.startsWith("**") || syntax.startsWith("*") || syntax.startsWith("~~") || syntax.startsWith("`"))) {
-        const selected = val.slice(start, end);
-        const wrapper = syntax.slice(0, syntax.indexOf("テキスト") !== -1 ? syntax.indexOf("テキスト") : syntax.length / 2);
-        newText = val.slice(0, start) + wrapper + selected + wrapper + val.slice(end);
-        newCursor = start + wrapper.length + selected.length + wrapper.length;
-      } else {
-        newText = val.slice(0, start) + syntax + val.slice(end);
-        newCursor = start + syntax.length;
-      }
-
-      cursorPositionRef.current = newCursor;
-      onChange(newText);
-      requestAnimationFrame(() => {
-        if (!textareaRef.current) return;
-        textareaRef.current.value = newText;
-        textareaRef.current.selectionStart = newCursor;
-        textareaRef.current.selectionEnd = newCursor;
-        textareaRef.current.focus();
-        autoResize();
-      });
-    },
-    [onChange, autoResize]
-  );
-
+  // 外部から呼ばれるハンドル
   useImperativeHandle(
     ref,
     () => ({
-      insertSyntax,
-      focus: () => textareaRef.current?.focus(),
+      insertSyntax: (syntax: string) => {
+        if (!editor) return;
+        if (syntax.startsWith("# ")) editor.chain().focus().toggleHeading({ level: 1 }).run();
+        else if (syntax.startsWith("## ")) editor.chain().focus().toggleHeading({ level: 2 }).run();
+        else if (syntax.startsWith("### ")) editor.chain().focus().toggleHeading({ level: 3 }).run();
+        else if (syntax.startsWith("- [ ] ")) editor.chain().focus().toggleTaskList().run();
+        else if (syntax.startsWith("- ")) editor.chain().focus().toggleBulletList().run();
+        else if (syntax.startsWith("1. ")) editor.chain().focus().toggleOrderedList().run();
+        else if (syntax.startsWith("> ")) editor.chain().focus().toggleBlockquote().run();
+        else if (syntax.startsWith("```")) editor.chain().focus().toggleCodeBlock().run();
+        else if (syntax.startsWith("---")) editor.chain().focus().setHorizontalRule().run();
+        else editor.chain().focus().insertContent(syntax).run();
+      },
+      insertImage: async (file: File) => {
+        await handleUploadAndInsert(file);
+      },
+      focus: () => {
+        editor?.commands.focus();
+      },
     }),
-    [insertSyntax]
+    [editor, handleUploadAndInsert]
   );
 
-  return (
-    <div style={{ position: "relative", width: "100%" }}>
-      <textarea
-        ref={textareaRef}
-        className="arca-editor-ta arca-scroll"
-        value={content}
-        onChange={handleContentChange}
-        onCompositionStart={handleCompositionStart}
-        onCompositionEnd={handleCompositionEnd}
-        onKeyUp={handleKeyUp}
-        onClick={() => {
-          const el = textareaRef.current;
-          if (el) {
-            cursorPositionRef.current = el.selectionStart;
-            detectSlash(el.value, el.selectionStart);
-          }
-        }}
-        placeholder={placeholder || "Markdownで書き始める…\n\n行頭で / と入力するとブロックメニューが開きます"}
+  const handleSlashSelect = (cmd: SlashCommand) => {
+    if (!editor) return;
+    setSlashActive(false);
+    setSlashCoords(null);
+    const { from } = editor.state.selection;
+    const textBefore = editor.state.doc.textBetween(Math.max(0, from - 20), from, "\n", " ");
+    const match = textBefore.match(/(?:^|\s)\/([\w\u3040-\u30ff\u3400-\u4dbf\u4e00-\u9fff]*)$/);
+    if (match) {
+      const deleteLen = match[0].length;
+      editor.chain().focus().deleteRange({ from: from - deleteLen, to: from }).run();
+    }
+    cmd.action(editor, {
+      openImageDialog: () => {
+        fileInputRef.current?.click();
+      },
+    });
+  };
+
+  // ソースモード（生Markdownテキストエリア）
+  if (isSourceMode) {
+    return (
+      <div
         style={{
-          display: "block",
+          position: "relative",
           width: "100%",
-          minHeight: "280px",
-          background: "transparent",
-          border: "none",
-          outline: "none",
-          resize: "none",
-          fontSize: "1.02rem",
-          lineHeight: 1.95,
-          color: C.charcoal,
-          letterSpacing: "0.005em",
-          padding: 0,
-          paddingBottom: "1.5rem",
-          boxSizing: "border-box",
-          overflowY: "hidden",
-          fontFamily: `-apple-system, BlinkMacSystemFont, "SF Pro Text", "Hiragino Sans", "Segoe UI", sans-serif`,
+          minHeight: "350px",
+          paddingBottom: "35vh",
         }}
+      >
+        <div
+          style={{
+            fontSize: "0.75rem",
+            fontWeight: 600,
+            color: C.goldDark,
+            background: C.goldFaint,
+            padding: "0.3rem 0.8rem",
+            borderRadius: "6px",
+            display: "inline-block",
+            marginBottom: "0.8rem",
+          }}
+        >
+          Markdown ソース編集モード
+        </div>
+        <textarea
+          value={content}
+          onChange={(e) => onChange(normalizeMarkdown(e.target.value))}
+          placeholder={placeholder || "Markdownで書き始める…"}
+          className="arca-scroll"
+          style={{
+            display: "block",
+            width: "100%",
+            minHeight: "380px",
+            background: "transparent",
+            border: "none",
+            outline: "none",
+            resize: "none",
+            fontSize: "0.95rem",
+            lineHeight: 1.85,
+            color: C.charcoal,
+            fontFamily: `"SF Mono", Menlo, Monaco, Consolas, monospace`,
+            padding: 0,
+            boxSizing: "border-box",
+          }}
+        />
+      </div>
+    );
+  }
+
+  return (
+    <div
+      style={{
+        position: "relative",
+        width: "100%",
+        minHeight: "350px",
+        paddingBottom: "35vh",
+      }}
+      onClick={() => {
+        if (editor && !editor.isFocused) {
+          editor.commands.focus();
+        }
+      }}
+    >
+      <input
+        ref={fileInputRef}
+        type="file"
+        accept="image/*"
+        onChange={handleFileInputChange}
+        style={{ display: "none" }}
       />
+
+      {isUploading && (
+        <div
+          style={{
+            position: "absolute",
+            top: "-1.5rem",
+            right: 0,
+            zIndex: 10,
+            fontSize: "0.75rem",
+            fontWeight: 600,
+            color: C.goldDark,
+            background: C.goldFaint,
+            padding: "0.25rem 0.65rem",
+            borderRadius: "9999px",
+            boxShadow: "0 2px 8px rgba(0,0,0,0.05)",
+            animation: "pulse 1.5s infinite",
+          }}
+        >
+          画像をアップロード中...
+        </div>
+      )}
+
+      <EditorContent editor={editor} />
 
       {slashActive && (
         <SlashMenu
           query={slashQuery}
+          coords={slashCoords}
           onSelect={handleSlashSelect}
-          onDismiss={() => setSlashActive(false)}
-          anchorRef={textareaRef}
-          lineIndex={slashLineIdx}
+          onDismiss={() => {
+            setSlashActive(false);
+            setSlashCoords(null);
+          }}
         />
       )}
+
+      {/* Tiptap / Apple HIG スタイル定義 */}
+      <style>{`
+        .arca-tiptap-prose {
+          outline: none;
+          min-height: 280px;
+          font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Hiragino Sans", "Segoe UI", sans-serif;
+          font-size: 1.02rem;
+          line-height: 1.9;
+          color: ${C.charcoal};
+          letter-spacing: 0.005em;
+        }
+
+        /* プレースホルダー */
+        .arca-tiptap-prose p.is-editor-empty:first-child::before {
+          content: attr(data-placeholder);
+          float: left;
+          color: ${C.charcoalXLight};
+          pointer-events: none;
+          height: 0;
+          white-space: pre-wrap;
+          line-height: 1.8;
+        }
+
+        /* 見出し（リアルタイム文字拡大） */
+        .arca-tiptap-prose h1 {
+          font-size: 1.95rem;
+          font-weight: 750;
+          color: ${C.charcoal};
+          letter-spacing: -0.03em;
+          line-height: 1.25;
+          margin: 1.6rem 0 0.8rem;
+        }
+        .arca-tiptap-prose h2 {
+          font-size: 1.45rem;
+          font-weight: 700;
+          color: ${C.charcoal};
+          letter-spacing: -0.02em;
+          line-height: 1.32;
+          margin: 1.35rem 0 0.65rem;
+        }
+        .arca-tiptap-prose h3 {
+          font-size: 1.15rem;
+          font-weight: 650;
+          color: ${C.charcoal};
+          letter-spacing: -0.015em;
+          line-height: 1.38;
+          margin: 1.1rem 0 0.5rem;
+        }
+
+        /* リスト */
+        .arca-tiptap-prose ul {
+          list-style-type: disc;
+          padding-left: 1.5rem;
+          margin: 0.6rem 0 1rem;
+        }
+        .arca-tiptap-prose ol {
+          list-style-type: decimal;
+          padding-left: 1.5rem;
+          margin: 0.6rem 0 1rem;
+        }
+        .arca-tiptap-prose li {
+          margin-bottom: 0.35rem;
+          line-height: 1.8;
+        }
+
+        /* タスクリスト（チェックボックス） */
+        .arca-tiptap-prose ul[data-type="taskList"] {
+          list-style: none;
+          padding-left: 0.2rem;
+        }
+        .arca-tiptap-prose li[data-type="taskItem"] {
+          display: flex;
+          align-items: flex-start;
+          gap: 0.6rem;
+          margin-bottom: 0.4rem;
+        }
+        .arca-tiptap-prose li[data-type="taskItem"] > label {
+          margin-top: 0.3rem;
+          user-select: none;
+        }
+        .arca-tiptap-prose li[data-type="taskItem"] > label input[type="checkbox"] {
+          cursor: pointer;
+          accent-color: ${C.gold};
+          width: 15px;
+          height: 15px;
+          border-radius: 4px;
+        }
+        .arca-tiptap-prose li[data-type="taskItem"][data-checked="true"] > div {
+          text-decoration: line-through;
+          color: ${C.charcoalLight};
+        }
+
+        /* 引用ブロック */
+        .arca-tiptap-blockquote {
+          border-left: 3px solid ${C.gold};
+          background: ${C.goldFaint};
+          padding: 0.75rem 1.25rem;
+          border-radius: 0 10px 10px 0;
+          font-style: italic;
+          color: ${C.charcoalMid};
+          margin: 1.2rem 0;
+        }
+
+        /* インラインコード */
+        .arca-tiptap-prose code:not(pre code) {
+          font-family: "SF Mono", Menlo, Monaco, Consolas, monospace;
+          font-size: 0.88em;
+          background: rgba(0, 0, 0, 0.05);
+          color: #b54a3d;
+          padding: 0.15em 0.35em;
+          border-radius: 5px;
+        }
+
+        /* コードブロック */
+        .arca-tiptap-code-block {
+          background: #242220;
+          color: #EDE8DF;
+          padding: 1rem 1.25rem;
+          border-radius: 12px;
+          font-family: "SF Mono", Menlo, Monaco, Consolas, monospace;
+          font-size: 0.88rem;
+          line-height: 1.7;
+          overflow-x: auto;
+          margin: 1.2rem 0;
+        }
+
+        /* リンク */
+        .arca-tiptap-link {
+          color: ${C.goldDark};
+          text-decoration: underline;
+          text-underline-offset: 3px;
+          transition: color 0.15s;
+        }
+        .arca-tiptap-link:hover {
+          color: ${C.gold};
+        }
+
+        /* 水平線 */
+        .arca-tiptap-hr {
+          border: none;
+          border-top: 1px solid rgba(0, 0, 0, 0.08);
+          margin: 2rem 0;
+        }
+
+        /* 画像 */
+        .arca-tiptap-image {
+          max-width: 100%;
+          border-radius: 16px;
+          margin: 1.2rem auto;
+          display: block;
+          box-shadow: 0 4px 20px rgba(0, 0, 0, 0.06);
+        }
+      `}</style>
     </div>
   );
 });

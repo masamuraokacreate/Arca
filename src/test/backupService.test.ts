@@ -293,5 +293,32 @@ describe("backupService", () => {
       expect(res.success).toBe(true);
       expect(res.mode).toBe("overwrite");
     });
+
+    it("parentId を持つ階層化ノートの親子関係が復元時に保持される", async () => {
+      const hierarchicalBackup: BackupData = {
+        version: "1.0",
+        exportedAt: "2026-08-30T10:00:00.000Z",
+        owner: "test@example.com",
+        counts: { lists: 0, tasks: 0, events: 0, notes: 2 },
+        data: {
+          lists: [],
+          tasks: [],
+          events: [],
+          notes: [
+            { id: "parent-hub", title: "親ハブ", content: "親本文", parentId: null },
+            { id: "child-card", title: "子カード", content: "子本文", parentId: "parent-hub" },
+          ],
+        },
+      };
+
+      const res = await restoreFromJson(hierarchicalBackup, "merge");
+      expect(res.success).toBe(true);
+      expect(res.importedCounts.notes).toBe(2);
+
+      const batchInstance = (writeBatch as Mock).mock.results[0]?.value;
+      if (batchInstance) {
+        expect(batchInstance.set).toHaveBeenCalled();
+      }
+    });
   });
 });

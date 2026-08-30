@@ -39,17 +39,25 @@ import {
   serverTimestamp,
 } from "firebase/firestore";
 import { db } from "../lib/firebase";
-import type { NoteItem, ExtractedActionableItems } from "../types";
+import type { NoteItem, NoteBreadcrumb, ExtractedActionableItems } from "../types";
 import { C } from "../lib/designSystem";
 import { useUndoToast } from "../hooks/useUndoToast";
 import { UndoToast } from "./common/UndoToast";
 import { extractActionableItems } from "../lib/aetherCore";
 import { AetherExtractModal } from "./notes/AetherExtractModal";
-import { MarkdownViewer } from "./notes/MarkdownViewer";
 import { NoteEditor, type NoteEditorHandles } from "./notes/NoteEditor";
 import { NoteToolbar } from "./notes/NoteToolbar";
 import { MarkdownGuideModal } from "./notes/MarkdownGuideModal";
 import { ConfirmModal } from "./notes/ConfirmModal";
+import { NoteBreadcrumbs } from "./notes/NoteBreadcrumbs";
+import { MoveNoteModal } from "./notes/MoveNoteModal";
+import {
+  getBreadcrumbs,
+  getChildNotes,
+  getChildCount,
+  getDescendantNoteIds,
+  canMoveNoteTo,
+} from "../utils/noteHierarchy";
 import { downloadMarkdownFile, readMarkdownFile } from "../utils/markdownDownload";
 
 // ─────────────────────────────────────────
@@ -423,40 +431,59 @@ const GLOBAL_STYLES = `
 // ノートビューア（閲覧 ⇄ 編集 全画面）
 // ─────────────────────────────────────────
 
-type NoteViewMode = "read" | "edit";
-
 export function NoteViewer({
   note,
+  allNotes,
+  breadcrumbs,
+  onSelectBreadcrumb,
+  childNotes,
+  onSelectChildNote,
+  onNewChildNote,
+  onDeleteChildNote,
+  onDownloadChildNote,
+  onMoveChildNote,
   isFullWidth,
   saveStatus,
   onBack,
   onTitleChange,
   onContentChange,
   onTagsChange,
+  onAttachmentsChange,
   onDelete,
+  onMoveNote,
   onImportMarkdown,
   onToggleFullWidth,
   onToastMessage,
 }: {
   note: NoteItem;
+  allNotes: NoteItem[];
+  breadcrumbs: NoteBreadcrumb[];
+  onSelectBreadcrumb: (id: string | null) => void;
+  childNotes: NoteItem[];
+  onSelectChildNote: (id: string) => void;
+  onNewChildNote: () => void;
+  onDeleteChildNote: (note: NoteItem) => void;
+  onDownloadChildNote: (note: NoteItem) => void;
+  onMoveChildNote?: (note: NoteItem) => void;
   isFullWidth: boolean;
   saveStatus: "idle" | "saving" | "saved";
   onBack: () => void;
   onTitleChange: (val: string) => void;
   onContentChange: (val: string) => void;
   onTagsChange: (tags: string[]) => void;
+  onAttachmentsChange?: (attachments: Record<string, string>) => void;
   onDelete: () => void;
+  onMoveNote?: () => void;
   onImportMarkdown?: () => void;
   onToggleFullWidth: () => void;
   onToastMessage?: (msg: string) => void;
 }) {
-  const defaultMode: NoteViewMode =
-    !note.title && !note.content ? "edit" : "read";
-  const [mode, setMode] = useState<NoteViewMode>(defaultMode);
   const [showToc, setShowToc] = useState(false);
+  const [isSourceMode, setIsSourceMode] = useState(false);
   const [tagsInput, setTagsInput] = useState(note.tags.join(", "));
   const [showGuide, setShowGuide] = useState(false);
   const editorRef = useRef<NoteEditorHandles>(null);
+  const imageFileInputRef = useRef<HTMLInputElement>(null);
 
   // Aether Core 抽出ステート
   const [isExtracting, setIsExtracting] = useState(false);
@@ -480,6 +507,19 @@ export function NoteViewer({
     }
   };
 
+  // 画像ファイル選択後の処理
+  const handleImageFileSelected = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    if (editorRef.current) {
+      await editorRef.current.insertImage(file);
+      onToastMessage?.(`画像「${file.name}」を挿入しました`);
+    }
+    if (imageFileInputRef.current) {
+      imageFileInputRef.current.value = "";
+    }
+  };
+
   // Markdownダウンロード
   const handleDownloadMarkdown = useCallback(() => {
     try {
@@ -494,8 +534,6 @@ export function NoteViewer({
   // ノート切替時のリセット
   useEffect(() => {
     setTagsInput(note.tags.join(", "));
-    const m: NoteViewMode = !note.title && !note.content ? "edit" : "read";
-    setMode(m);
     setShowToc(false);
     setExtractedData(null);
   }, [note.id]);
@@ -506,13 +544,10 @@ export function NoteViewer({
   };
 
   const handleInsertSyntax = useCallback((syntax: string) => {
-    if (mode !== "edit") {
-      setMode("edit");
-    }
     setTimeout(() => {
       editorRef.current?.insertSyntax(syntax);
     }, 50);
-  }, [mode]);
+  }, []);
 
   const toc = extractToc(note.content);
 
@@ -527,11 +562,20 @@ export function NoteViewer({
         width: "100%",
       }}
     >
+      {/* 非表示の画像ファイル選択input */}
+      <input
+        ref={imageFileInputRef}
+        type="file"
+        accept="image/*"
+        onChange={handleImageFileSelected}
+        style={{ display: "none" }}
+      />
+
       {/* ────── ツールバー ────── */}
       <NoteToolbar
-        mode={mode}
-        onModeChange={setMode}
         onBack={onBack}
+        onMoveNote={onMoveNote}
+        onInsertImage={() => imageFileInputRef.current?.click()}
         onExtract={handleExtract}
         isExtracting={isExtracting}
         canExtract={!!note.content.trim()}
@@ -543,6 +587,8 @@ export function NoteViewer({
         showToc={showToc}
         onToggleToc={() => setShowToc((s) => !s)}
         onDelete={onDelete}
+        isSourceMode={isSourceMode}
+        onToggleSourceMode={() => setIsSourceMode((s) => !s)}
       />
 
       {/* ────── 本文コンテナ（広大なベージュ余白と浮遊するカードシート） ────── */}
@@ -576,111 +622,216 @@ export function NoteViewer({
             transition: "all 0.3s ease",
           }}
         >
-          {/* タイトル */}
-          {mode === "read" ? (
-            <h1
-              style={{
-                fontSize: "2rem",
-                fontWeight: 750,
-                color: C.charcoal,
-                letterSpacing: "-0.03em",
-                lineHeight: 1.2,
-                margin: "0 0 0.8rem",
-              }}
-            >
-              {note.title || <span style={{ color: C.charcoalXLight, fontWeight: 400 }}>（タイトルなし）</span>}
-            </h1>
-          ) : (
-            <input
-              type="text"
-              value={note.title}
-              onChange={(e) => onTitleChange(e.target.value)}
-              placeholder="タイトルを入力…"
-              style={{
-                display: "block",
-                width: "100%",
-                background: "transparent",
-                border: "none",
-                outline: "none",
-                fontSize: "2rem",
-                fontWeight: 750,
-                color: C.charcoal,
-                letterSpacing: "-0.03em",
-                lineHeight: 1.2,
-                marginBottom: "0.8rem",
-                boxSizing: "border-box",
-              }}
-            />
-          )}
+          {/* パンくずリスト（階層ナビゲーション） */}
+          <NoteBreadcrumbs
+            breadcrumbs={breadcrumbs}
+            onSelectBreadcrumb={onSelectBreadcrumb}
+          />
+
+          {/* タイトル入力（直接インライン編集） */}
+          <input
+            type="text"
+            value={note.title}
+            onChange={(e) => onTitleChange(e.target.value)}
+            placeholder="タイトルを入力…"
+            style={{
+              display: "block",
+              width: "100%",
+              background: "transparent",
+              border: "none",
+              outline: "none",
+              fontSize: "2rem",
+              fontWeight: 750,
+              color: C.charcoal,
+              letterSpacing: "-0.03em",
+              lineHeight: 1.2,
+              marginBottom: "0.8rem",
+              boxSizing: "border-box",
+            }}
+          />
 
           {/* メタ行（タグ・更新日） */}
           <div
             style={{
               display: "flex",
               alignItems: "center",
-              gap: "0.8rem",
-              marginBottom: "2.2rem",
-              paddingBottom: "1.4rem",
+              gap: "0.6rem",
+              marginBottom: "2rem",
+              paddingBottom: "1.2rem",
               borderBottom: "1px solid rgba(0,0,0,0.06)",
               flexWrap: "wrap",
             }}
           >
-            {mode === "read" ? (
-              <>
-                {note.tags.map((tag) => (
-                  <span
-                    key={tag}
-                    style={{
-                      fontSize: "0.7rem",
-                      color: C.gold,
-                      background: C.goldFaint,
-                      borderRadius: "6px",
-                      padding: "0.15rem 0.55rem",
-                      letterSpacing: "0.05em",
-                      fontWeight: 500,
-                    }}
-                  >
-                    {tag}
-                  </span>
-                ))}
-                {note.tags.length === 0 && (
-                  <span style={{ fontSize: "0.72rem", color: C.charcoalXLight }}>タグなし</span>
-                )}
-              </>
-            ) : (
+            <div style={{ display: "flex", alignItems: "center", gap: "0.4rem", flex: 1, flexWrap: "wrap" }}>
+              {note.tags.map((tag) => (
+                <span
+                  key={tag}
+                  style={{
+                    fontSize: "0.7rem",
+                    color: C.gold,
+                    background: C.goldFaint,
+                    borderRadius: "6px",
+                    padding: "0.15rem 0.55rem",
+                    letterSpacing: "0.05em",
+                    fontWeight: 500,
+                  }}
+                >
+                  {tag}
+                </span>
+              ))}
               <input
                 type="text"
                 value={tagsInput}
                 onChange={(e) => setTagsInput(e.target.value)}
                 onBlur={handleTagsBlur}
-                placeholder="タグを追加（カンマ区切り）"
+                placeholder={note.tags.length === 0 ? "タグを追加（カンマ区切り）" : "+ タグ追加"}
                 style={{
                   background: "transparent",
                   border: "none",
                   outline: "none",
-                  fontSize: "0.78rem",
+                  fontSize: "0.76rem",
                   color: C.gold,
-                  flex: 1,
                   letterSpacing: "0.04em",
-                  minWidth: "160px",
+                  minWidth: "120px",
+                  flex: "0 1 auto",
                 }}
               />
-            )}
+            </div>
             <span style={{ fontSize: "0.7rem", color: C.charcoalXLight, whiteSpace: "nowrap", marginLeft: "auto" }}>
               {formatDateRelative(note.updatedAt)} 更新
             </span>
           </div>
 
-          {/* 本文：閲覧 or 編集 */}
-          {mode === "read" ? (
-            <MarkdownViewer content={note.content} onContentChange={onContentChange} />
-          ) : (
-            <NoteEditor
-              ref={editorRef}
-              content={note.content}
-              onChange={onContentChange}
-            />
-          )}
+          {/* 本文（完全インライン統合エディタ） */}
+          <NoteEditor
+            ref={editorRef}
+            content={note.content}
+            attachments={note.attachments}
+            onAttachmentsChange={onAttachmentsChange}
+            onChange={onContentChange}
+            isSourceMode={isSourceMode}
+          />
+
+          {/* ────── サブノート（Sub-notes Hub）セクション ────── */}
+          <div
+            style={{
+              marginTop: "3.5rem",
+              paddingTop: "2rem",
+              borderTop: "1px solid rgba(0, 0, 0, 0.06)",
+            }}
+          >
+            <div
+              style={{
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "space-between",
+                marginBottom: "1.2rem",
+                flexWrap: "wrap",
+                gap: "0.8rem",
+              }}
+            >
+              <div style={{ display: "flex", alignItems: "center", gap: "0.6rem" }}>
+                <h3
+                  style={{
+                    fontSize: "1.08rem",
+                    fontWeight: 700,
+                    color: C.charcoal,
+                    margin: 0,
+                    letterSpacing: "-0.02em",
+                  }}
+                >
+                  サブノート
+                </h3>
+                {childNotes.length > 0 && (
+                  <span
+                    style={{
+                      fontSize: "0.72rem",
+                      color: C.charcoalMid,
+                      background: "rgba(0,0,0,0.04)",
+                      borderRadius: "12px",
+                      padding: "0.15rem 0.55rem",
+                      fontWeight: 600,
+                    }}
+                  >
+                    {childNotes.length}件
+                  </span>
+                )}
+              </div>
+
+              <button
+                type="button"
+                onClick={onNewChildNote}
+                style={{
+                  display: "inline-flex",
+                  alignItems: "center",
+                  gap: "0.35rem",
+                  background: C.goldFaint2,
+                  border: "none",
+                  borderRadius: "8px",
+                  padding: "0.4rem 0.85rem",
+                  fontSize: "0.78rem",
+                  fontWeight: 600,
+                  color: C.goldDark,
+                  cursor: "pointer",
+                  transition: "all 0.15s ease",
+                }}
+                onMouseEnter={(e) => {
+                  e.currentTarget.style.background = C.goldFaint3;
+                }}
+                onMouseLeave={(e) => {
+                  e.currentTarget.style.background = C.goldFaint2;
+                }}
+              >
+                <span style={{ fontSize: "0.95rem", lineHeight: 1 }}>＋</span>
+                <span>子ノート作成</span>
+              </button>
+            </div>
+
+            {childNotes.length === 0 ? (
+              <div
+                style={{
+                  background: "rgba(0, 0, 0, 0.015)",
+                  borderRadius: "14px",
+                  border: "1px dashed rgba(0, 0, 0, 0.07)",
+                  padding: "1.8rem 1.5rem",
+                  textAlign: "center",
+                }}
+              >
+                <p style={{ margin: 0, fontSize: "0.8rem", color: C.charcoalLight }}>
+                  サブノートはまだありません
+                </p>
+              </div>
+            ) : (
+              <div
+                style={{
+                  display: "grid",
+                  gridTemplateColumns: "repeat(auto-fill, minmax(260px, 1fr))",
+                  gap: "1rem",
+                }}
+              >
+                {childNotes.map((child) => (
+                  <NoteCard
+                    key={child.id}
+                    note={child}
+                    childCount={getChildCount(allNotes, child.id)}
+                    onClick={() => onSelectChildNote(child.id)}
+                    onMove={(e) => {
+                      e.stopPropagation();
+                      onMoveChildNote?.(child);
+                    }}
+                    onDelete={(e) => {
+                      e.stopPropagation();
+                      onDeleteChildNote(child);
+                    }}
+                    onDownload={(e) => {
+                      e.stopPropagation();
+                      onDownloadChildNote(child);
+                    }}
+                  />
+                ))}
+              </div>
+            )}
+          </div>
         </div>
 
         {/* TOC Sidebar */}
@@ -819,17 +970,48 @@ export function NoteViewer({
 }
 
 // ─────────────────────────────────────────
-// ノートカード（ダッシュボード用）
+// ノートカード（ダッシュボード・サブノート用）
 // ─────────────────────────────────────────
+
+const MenuFolderMoveIcon = () => (
+  <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0, opacity: 0.8 }}>
+    <path d="M20 20a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.9a2 2 0 0 1-1.69-.9L9.6 3.9A2 2 0 0 0 7.93 3H4a2 2 0 0 0-2 2v13a2 2 0 0 0 2 2Z" />
+    <path d="m14 15 3-3-3-3" />
+    <path d="M10 12h7" />
+  </svg>
+);
+
+const MenuFileDownloadIcon = () => (
+  <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0, opacity: 0.8 }}>
+    <path d="M14.5 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7.5L14.5 2z" />
+    <polyline points="14 2 14 8 20 8" />
+    <path d="M12 18v-6" />
+    <path d="m9 15 3 3 3-3" />
+  </svg>
+);
+
+const MenuTrashIcon = () => (
+  <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0, opacity: 0.9 }}>
+    <path d="M3 6h18" />
+    <path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6" />
+    <path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2" />
+    <line x1="10" y1="11" x2="10" y2="17" />
+    <line x1="14" y1="11" x2="14" y2="17" />
+  </svg>
+);
 
 function NoteCard({
   note,
+  childCount = 0,
   onClick,
+  onMove,
   onDelete,
   onDownload,
 }: {
   note: NoteItem;
+  childCount?: number;
   onClick: () => void;
+  onMove?: (e: React.MouseEvent) => void;
   onDelete: (e: React.MouseEvent) => void;
   onDownload: (e: React.MouseEvent) => void;
 }) {
@@ -920,12 +1102,44 @@ function NoteCard({
               borderRadius: "10px",
               boxShadow: "0 6px 32px rgba(0,0,0,0.12), 0 2px 8px rgba(0,0,0,0.06)",
               padding: "0.35rem",
-              minWidth: "140px",
+              minWidth: "135px",
               zIndex: 20,
               animation: "slash-in 0.12s ease",
               border: "1px solid rgba(0, 0, 0, 0.05)",
             }}
           >
+            {onMove && (
+              <button
+                onClick={(e) => {
+                  setMenuOpen(false);
+                  onMove(e);
+                }}
+                style={{
+                  display: "flex",
+                  alignItems: "center",
+                  gap: "0.55rem",
+                  width: "100%",
+                  textAlign: "left",
+                  background: "transparent",
+                  border: "none",
+                  borderRadius: "7px",
+                  padding: "0.5rem 0.75rem",
+                  cursor: "pointer",
+                  fontSize: "0.8rem",
+                  color: C.charcoal,
+                  transition: "background 0.12s",
+                }}
+                onMouseEnter={(e) => {
+                  (e.currentTarget as HTMLButtonElement).style.background = C.goldFaint;
+                }}
+                onMouseLeave={(e) => {
+                  (e.currentTarget as HTMLButtonElement).style.background = "transparent";
+                }}
+              >
+                <MenuFolderMoveIcon />
+                <span>移動</span>
+              </button>
+            )}
             <button
               onClick={(e) => {
                 setMenuOpen(false);
@@ -934,13 +1148,13 @@ function NoteCard({
               style={{
                 display: "flex",
                 alignItems: "center",
-                gap: "0.4rem",
+                gap: "0.55rem",
                 width: "100%",
                 textAlign: "left",
                 background: "transparent",
                 border: "none",
                 borderRadius: "7px",
-                padding: "0.5rem 0.8rem",
+                padding: "0.5rem 0.75rem",
                 cursor: "pointer",
                 fontSize: "0.8rem",
                 color: C.charcoal,
@@ -953,7 +1167,8 @@ function NoteCard({
                 (e.currentTarget as HTMLButtonElement).style.background = "transparent";
               }}
             >
-              <span>.md 保存</span>
+              <MenuFileDownloadIcon />
+              <span>md 保存</span>
             </button>
             <button
               onClick={(e) => {
@@ -961,13 +1176,15 @@ function NoteCard({
                 onDelete(e);
               }}
               style={{
-                display: "block",
+                display: "flex",
+                alignItems: "center",
+                gap: "0.55rem",
                 width: "100%",
                 textAlign: "left",
                 background: "transparent",
                 border: "none",
                 borderRadius: "7px",
-                padding: "0.5rem 0.8rem",
+                padding: "0.5rem 0.75rem",
                 cursor: "pointer",
                 fontSize: "0.8rem",
                 color: "#c0614a",
@@ -980,33 +1197,64 @@ function NoteCard({
                 (e.currentTarget as HTMLButtonElement).style.background = "transparent";
               }}
             >
-              削除
+              <MenuTrashIcon />
+              <span>削除</span>
             </button>
           </div>
         )}
       </div>
 
-      {/* タグ */}
-      {note.tags.length > 0 && (
-        <div style={{ display: "flex", gap: "0.35rem", flexWrap: "wrap", paddingRight: "2rem" }}>
-          {note.tags.slice(0, 3).map((tag) => (
-            <span
-              key={tag}
-              style={{
-                fontSize: "0.62rem",
-                color: C.gold,
-                background: C.goldFaint,
-                borderRadius: "5px",
-                padding: "0.12rem 0.5rem",
-                letterSpacing: "0.04em",
-                fontWeight: 500,
-              }}
+      {/* タグ & 子ノート件数バッジ */}
+      <div style={{ display: "flex", gap: "0.35rem", flexWrap: "wrap", alignItems: "center", paddingRight: "2rem" }}>
+        {childCount > 0 && (
+          <span
+            style={{
+              fontSize: "0.64rem",
+              color: C.charcoalMid,
+              background: "rgba(0,0,0,0.05)",
+              borderRadius: "5px",
+              padding: "0.12rem 0.45rem",
+              display: "inline-flex",
+              alignItems: "center",
+              gap: "0.25rem",
+              fontWeight: 600,
+              letterSpacing: "0.02em",
+            }}
+            title={`${childCount}件のサブノート`}
+          >
+            <svg
+              width="11"
+              height="11"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="2.2"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              style={{ opacity: 0.7 }}
             >
-              {tag}
-            </span>
-          ))}
-        </div>
-      )}
+              <path d="M4 20h16a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.93a2 2 0 0 1-1.66-.9l-.82-1.2A2 2 0 0 0 7.93 3H4a2 2 0 0 0-2 2v13c0 1.1.9 2 2 2Z" />
+            </svg>
+            <span>{childCount}件</span>
+          </span>
+        )}
+        {note.tags.slice(0, 3).map((tag) => (
+          <span
+            key={tag}
+            style={{
+              fontSize: "0.62rem",
+              color: C.gold,
+              background: C.goldFaint,
+              borderRadius: "5px",
+              padding: "0.12rem 0.5rem",
+              letterSpacing: "0.04em",
+              fontWeight: 500,
+            }}
+          >
+            {tag}
+          </span>
+        ))}
+      </div>
 
       {/* タイトル */}
       <h3
@@ -1163,18 +1411,22 @@ function TrashModal({
 
 function NoteDashboard({
   notes,
+  allNotes,
   onSelectNote,
   onNewNote,
   onDeleteNote,
   onDownloadNote,
+  onMoveNote,
   onTriggerImport,
   onOpenTrash,
 }: {
   notes: NoteItem[];
+  allNotes: NoteItem[];
   onSelectNote: (id: string) => void;
   onNewNote: () => void;
   onDeleteNote: (note: NoteItem) => void;
   onDownloadNote: (note: NoteItem) => void;
+  onMoveNote?: (note: NoteItem) => void;
   onTriggerImport: () => void;
   onOpenTrash: () => void;
 }) {
@@ -1487,7 +1739,12 @@ function NoteDashboard({
           <NoteCard
             key={note.id}
             note={note}
+            childCount={getChildCount(allNotes, note.id)}
             onClick={() => onSelectNote(note.id)}
+            onMove={(e) => {
+              e.stopPropagation();
+              onMoveNote?.(note);
+            }}
             onDelete={(e) => {
               e.stopPropagation();
               onDeleteNote(note);
@@ -1540,7 +1797,7 @@ function NoteDashboard({
                   color: C.gold,
                   fontSize: "0.85rem",
                   cursor: "pointer",
-                  fontWeight: 600,
+                  fontWeight: 650,
                 }}
               >
                 最初のノートを作成する
@@ -1645,6 +1902,7 @@ export default function Notes({
   const [saveStatus, setSaveStatus] = useState<"idle" | "saving" | "saved">("idle");
   const [showTrash, setShowTrash] = useState(false);
   const [noteToDelete, setNoteToDelete] = useState<NoteItem | null>(null);
+  const [movingNote, setMovingNote] = useState<NoteItem | null>(null);
   const saveTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
@@ -1663,6 +1921,9 @@ export default function Notes({
           createdAt: data.createdAt?.toDate?.()?.toISOString() || nowIso(),
           updatedAt: data.updatedAt?.toDate?.()?.toISOString() || nowIso(),
           isDeleted: !!data.isDeleted,
+          parentId: data.parentId ?? null,
+          pinned: !!data.pinned,
+          attachments: data.attachments || {},
         });
       });
       setNotes(fetched);
@@ -1671,33 +1932,108 @@ export default function Notes({
   }, []);
 
   const activeNotes = notes.filter((n) => !n.isDeleted);
+  const rootNotes = activeNotes.filter((n) => !n.parentId);
   const deletedNotes = notes.filter((n) => n.isDeleted);
 
   // 共通トースト
   const { toast, showUndoToast, showMessageToast, dismissToast, triggerUndo } = useUndoToast<NoteItem>();
 
-  // ノート削除処理（確認後実行）
+  const mutateNote = useCallback(
+    (id: string, patch: Partial<Omit<NoteItem, "id" | "createdAt" | "updatedAt">>) => {
+      setNotes((prev) =>
+        prev.map((n) => (n.id === id ? { ...n, ...patch, updatedAt: nowIso() } : n))
+      );
+
+      setSaveStatus("saving");
+      if (saveTimeoutRef.current) clearTimeout(saveTimeoutRef.current);
+      saveTimeoutRef.current = setTimeout(async () => {
+        try {
+          const docRef = doc(db, "notes", id);
+          await updateDoc(docRef, {
+            ...patch,
+            updatedAt: serverTimestamp(),
+          });
+          setSaveStatus("saved");
+          setTimeout(() => setSaveStatus("idle"), 2000);
+        } catch (error) {
+          console.error("Auto-save failed", error);
+        }
+      }, 800);
+    },
+    []
+  );
+
+  // 親ノート移動処理
+  const handleMoveNote = useCallback(
+    async (targetNoteId: string, newParentId: string | null) => {
+      const target = notes.find((n) => n.id === targetNoteId);
+      if (!target) return;
+
+      if (!canMoveNoteTo(notes, targetNoteId, newParentId)) {
+        showMessageToast("循環参照となるため、自身またはその配下ノートには移動できません");
+        return;
+      }
+
+      mutateNote(targetNoteId, { parentId: newParentId });
+
+      if (newParentId) {
+        const parentNote = notes.find((n) => n.id === newParentId);
+        showMessageToast(`「${parentNote?.title || "親ノート"}」の配下に移動しました`);
+      } else {
+        showMessageToast("トップ階層（All Notes）に移動しました");
+      }
+    },
+    [notes, mutateNote, showMessageToast]
+  );
+
+  // ノート削除処理（カスケード保護 ＆ 一括Undo）
   const handleExecuteDelete = useCallback(
     async (id: string) => {
       const target = notes.find((n) => n.id === id);
       if (!target) return;
 
-      if (view.type === "viewer" && view.noteId === id) {
-        setView({ type: "dashboard" });
+      // 対象ノート自身と配下の子孫ノートIDをすべて収集
+      const descendantIds = getDescendantNoteIds(notes, id);
+      const targetAndDescendants = notes.filter(
+        (n) => descendantIds.includes(n.id) && !n.isDeleted
+      );
+
+      // 現在開いているノートが削除対象（またはその子孫）なら親またはダッシュボードへ遷移
+      if (view.type === "viewer" && descendantIds.includes(view.noteId)) {
+        const parentId = target.parentId;
+        if (parentId && !descendantIds.includes(parentId)) {
+          setView({ type: "viewer", noteId: parentId });
+        } else {
+          setView({ type: "dashboard" });
+        }
       }
 
       try {
-        await updateDoc(doc(db, "notes", id), { isDeleted: true });
+        await Promise.all(
+          descendantIds.map((dId) =>
+            updateDoc(doc(db, "notes", dId), { isDeleted: true })
+          )
+        );
       } catch (e) {
         console.error("Delete failed", e);
       }
 
+      const subCount = targetAndDescendants.length - 1;
+      const message =
+        subCount > 0
+          ? `「${target.title || "（タイトルなし）"}」とサブノート ${subCount}件をごみ箱に移動しました`
+          : `ノート「${target.title || "（タイトルなし）"}」をごみ箱に移動しました`;
+
       showUndoToast({
-        message: `ノート「${target.title || "（タイトルなし）"}」を削除しました`,
+        message,
         item: target,
-        onUndo: async (restoredNote) => {
+        onUndo: async () => {
           try {
-            await updateDoc(doc(db, "notes", restoredNote.id), { isDeleted: false });
+            await Promise.all(
+              descendantIds.map((dId) =>
+                updateDoc(doc(db, "notes", dId), { isDeleted: false })
+              )
+            );
           } catch (e) {
             console.error("Undo failed", e);
           }
@@ -1734,6 +2070,7 @@ export default function Notes({
         createdAt: serverTimestamp(),
         updatedAt: serverTimestamp(),
         isDeleted: false,
+        parentId: null,
       });
       setView({ type: "viewer", noteId: docRef.id });
       showMessageToast(`「${file.name}」を取り込みました`);
@@ -1748,7 +2085,8 @@ export default function Notes({
   const activeNote =
     view.type === "viewer" ? (notes.find((n) => n.id === view.noteId) ?? null) : null;
 
-  const handleNewNote = useCallback(async () => {
+  // 新規ノート作成（親ノート指定可能）
+  const handleNewNote = useCallback(async (parentId: string | null = null) => {
     try {
       const docRef = await addDoc(collection(db, "notes"), {
         title: "",
@@ -1757,6 +2095,7 @@ export default function Notes({
         createdAt: serverTimestamp(),
         updatedAt: serverTimestamp(),
         isDeleted: false,
+        parentId: parentId || null,
       });
       setView({ type: "viewer", noteId: docRef.id });
     } catch (e) {
@@ -1767,6 +2106,15 @@ export default function Notes({
   const handleSelectNote = useCallback((id: string) => {
     setView({ type: "viewer", noteId: id });
   }, []);
+
+  const handleSelectBreadcrumb = useCallback((id: string | null) => {
+    if (id) {
+      setView({ type: "viewer", noteId: id });
+    } else {
+      setView({ type: "dashboard" });
+      onClearSelectedNote?.();
+    }
+  }, [onClearSelectedNote]);
 
   const handleBack = useCallback(async () => {
     if (view.type === "viewer" && view.noteId) {
@@ -1779,6 +2127,11 @@ export default function Notes({
           console.error("Failed to cleanup empty note", e);
         }
       }
+      // 親ノートがある場合は親ノートに戻る、なければダッシュボードへ
+      if (note?.parentId) {
+        setView({ type: "viewer", noteId: note.parentId });
+        return;
+      }
     }
     setView({ type: "dashboard" });
     onClearSelectedNote?.();
@@ -1787,15 +2140,16 @@ export default function Notes({
   const handlePermanentDelete = useCallback(
     async (id: string) => {
       try {
-        await deleteDoc(doc(db, "notes", id));
-        setNotes((prev) => prev.filter((n) => n.id !== id));
+        const descendantIds = getDescendantNoteIds(notes, id);
+        await Promise.all(descendantIds.map((dId) => deleteDoc(doc(db, "notes", dId))));
+        setNotes((prev) => prev.filter((n) => !descendantIds.includes(n.id)));
         showMessageToast("ノートを完全に削除しました");
       } catch (e) {
         console.error("Permanent delete failed", e);
         showMessageToast("削除中にエラーが発生しました");
       }
     },
-    [showMessageToast]
+    [notes, showMessageToast]
   );
 
   const handleEmptyTrash = useCallback(async () => {
@@ -1811,32 +2165,14 @@ export default function Notes({
     }
   }, [deletedNotes, showMessageToast]);
 
-  const mutateNote = useCallback(
-    (id: string, patch: Partial<Omit<NoteItem, "id" | "createdAt" | "updatedAt">>) => {
-      setNotes((prev) =>
-        prev.map((n) => (n.id === id ? { ...n, ...patch, updatedAt: nowIso() } : n))
-      );
-
-      setSaveStatus("saving");
-      if (saveTimeoutRef.current) clearTimeout(saveTimeoutRef.current);
-      saveTimeoutRef.current = setTimeout(async () => {
-        try {
-          const docRef = doc(db, "notes", id);
-          await updateDoc(docRef, {
-            ...patch,
-            updatedAt: serverTimestamp(),
-          });
-          setSaveStatus("saved");
-          setTimeout(() => setSaveStatus("idle"), 2000);
-        } catch (error) {
-          console.error("Auto-save failed", error);
-        }
-      }, 800);
-    },
-    []
-  );
-
   const currentId = view.type === "viewer" ? view.noteId : null;
+
+  // 削除対象のノート配下の子孫ノート件数を集計
+  const subNotesCountToDelete = noteToDelete
+    ? getDescendantNoteIds(notes, noteToDelete.id).filter(
+        (dId) => dId !== noteToDelete.id && !notes.find((n) => n.id === dId)?.isDeleted
+      ).length
+    : 0;
 
   return (
     <>
@@ -1866,9 +2202,11 @@ export default function Notes({
       {view.type === "dashboard" && (
         <NoteDashboard
           key="dashboard"
-          notes={activeNotes}
+          notes={rootNotes}
+          allNotes={activeNotes}
           onSelectNote={handleSelectNote}
-          onNewNote={handleNewNote}
+          onNewNote={() => handleNewNote(null)}
+          onMoveNote={(target) => setMovingNote(target)}
           onDeleteNote={(target) => setNoteToDelete(target)}
           onDownloadNote={handleDownloadNote}
           onTriggerImport={() => fileInputRef.current?.click()}
@@ -1881,12 +2219,23 @@ export default function Notes({
           <NoteViewer
             key={activeNote.id}
             note={activeNote}
+            allNotes={notes}
+            breadcrumbs={getBreadcrumbs(notes, activeNote.id)}
+            onSelectBreadcrumb={handleSelectBreadcrumb}
+            childNotes={getChildNotes(activeNotes, activeNote.id)}
+            onSelectChildNote={handleSelectNote}
+            onNewChildNote={() => handleNewNote(activeNote.id)}
+            onMoveChildNote={(target) => setMovingNote(target)}
+            onDeleteChildNote={(target) => setNoteToDelete(target)}
+            onDownloadChildNote={handleDownloadNote}
             isFullWidth={isFullWidth}
             saveStatus={saveStatus}
             onBack={handleBack}
             onTitleChange={(val) => currentId && mutateNote(currentId, { title: val })}
             onContentChange={(val) => currentId && mutateNote(currentId, { content: val })}
             onTagsChange={(tags) => currentId && mutateNote(currentId, { tags })}
+            onAttachmentsChange={(attachments) => currentId && mutateNote(currentId, { attachments })}
+            onMoveNote={() => setMovingNote(activeNote)}
             onDelete={() => setNoteToDelete(activeNote)}
             onImportMarkdown={() => fileInputRef.current?.click()}
             onToggleFullWidth={() => setIsFullWidth((v) => !v)}
@@ -1899,9 +2248,11 @@ export default function Notes({
       {view.type === "viewer" && !activeNote && (
         <NoteDashboard
           key="dashboard-fallback"
-          notes={activeNotes}
+          notes={rootNotes}
+          allNotes={activeNotes}
           onSelectNote={handleSelectNote}
-          onNewNote={handleNewNote}
+          onNewNote={() => handleNewNote(null)}
+          onMoveNote={(target) => setMovingNote(target)}
           onDeleteNote={(target) => setNoteToDelete(target)}
           onDownloadNote={handleDownloadNote}
           onTriggerImport={() => fileInputRef.current?.click()}
@@ -1922,11 +2273,30 @@ export default function Notes({
         />
       )}
 
-      {/* 削除確認モーダル */}
+      {/* 親ノート移動モーダル */}
+      {movingNote && (
+        <MoveNoteModal
+          targetNote={movingNote}
+          allNotes={notes}
+          isOpen={!!movingNote}
+          onClose={() => setMovingNote(null)}
+          onMove={handleMoveNote}
+        />
+      )}
+
+      {/* 削除確認モーダル（子ノートを含む場合はApple HIGに準拠して警告） */}
       <ConfirmModal
         isOpen={!!noteToDelete}
-        title="ノートをごみ箱に移動しますか？"
-        message={`「${noteToDelete?.title || "（タイトルなし）"}」をごみ箱に移動します。後から復元することも可能です。`}
+        title={
+          subNotesCountToDelete > 0
+            ? "ノートとサブノートをごみ箱に移動しますか？"
+            : "ノートをごみ箱に移動しますか？"
+        }
+        message={
+          subNotesCountToDelete > 0
+            ? `「${noteToDelete?.title || "（タイトルなし）"}」には ${subNotesCountToDelete}件のサブノートが含まれています。配下のサブノートも一緒にごみ箱に移動します。後から復元することも可能です。`
+            : `「${noteToDelete?.title || "（タイトルなし）"}」をごみ箱に移動します。後から復元することも可能です。`
+        }
         confirmLabel="削除する"
         cancelLabel="キャンセル"
         isDestructive={true}
