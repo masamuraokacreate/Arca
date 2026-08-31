@@ -602,7 +602,7 @@ export default function Dashboard({ onNavigate, onSelectNote }: DashboardProps =
                   position: "relative",
                   display: "inline-flex",
                   alignItems: "center",
-                  background: "rgba(0, 0, 0, 0.05)",
+                  background: "var(--bg-nav-track)",
                   padding: "2px",
                   borderRadius: "9999px",
                   gap: "2px",
@@ -620,7 +620,7 @@ export default function Dashboard({ onNavigate, onSelectNote }: DashboardProps =
                     transform: `translate3d(${pillStyle.left}px, 0, 0)`,
                     width: pillStyle.width,
                     height: pillStyle.height,
-                    background: C.white,
+                    background: "var(--bg-nav-pill)",
                     borderRadius: "9999px",
                     boxShadow: "0 1px 3px rgba(0, 0, 0, 0.08)",
                     transition: pillStyle.ready
@@ -666,29 +666,57 @@ export default function Dashboard({ onNavigate, onSelectNote }: DashboardProps =
                           background: "transparent",
                           fontSize: "0.78rem",
                           fontWeight: isActive ? 700 : 500,
-                          color: isActive ? C.charcoal : C.charcoalLight,
+                          color: isActive ? "var(--text-main)" : C.charcoalLight,
                           cursor: "pointer",
                           padding: 0,
                           display: "flex",
                           alignItems: "center",
                           minWidth: 0,
                           whiteSpace: "nowrap",
+                          transition: "color 0.18s ease",
                         }}
                       >
-                        {cat.id === "shopping" && <span style={{ marginRight: "3px", flexShrink: 0 }}>🛒</span>}
-                        {cat.id === "default" && <span style={{ marginRight: "3px", flexShrink: 0 }}>✦</span>}
+                        {cat.id === "shopping" && (
+                          <span style={{ marginRight: "3px", flexShrink: 0, opacity: isActive ? 1 : 0.65 }}>
+                            🛒
+                          </span>
+                        )}
+                        {cat.id === "default" && (
+                          <span
+                            style={{
+                              marginRight: "3px",
+                              flexShrink: 0,
+                              color: isActive ? "var(--text-main)" : C.charcoalLight,
+                              fontWeight: isActive ? 750 : 400,
+                              transition: "color 0.18s ease",
+                            }}
+                          >
+                            ✦
+                          </span>
+                        )}
                         <span
                           style={{
                             maxWidth: "160px",
                             overflow: "hidden",
                             textOverflow: "ellipsis",
                             whiteSpace: "nowrap",
+                            color: isActive ? "var(--text-main)" : C.charcoalLight,
+                            transition: "color 0.18s ease",
                           }}
                           title={cat.title}
                         >
                           {cat.title}
                         </span>
-                        <span style={{ fontSize: "0.7rem", opacity: 0.8, marginLeft: "4px", flexShrink: 0, fontWeight: 550 }}>
+                        <span
+                          style={{
+                            fontSize: "0.7rem",
+                            opacity: isActive ? 0.9 : 0.65,
+                            marginLeft: "4px",
+                            flexShrink: 0,
+                            fontWeight: 550,
+                            color: isActive ? "var(--text-main)" : C.charcoalLight,
+                          }}
+                        >
                           ({count})
                         </span>
                       </button>
@@ -1027,13 +1055,14 @@ export default function Dashboard({ onNavigate, onSelectNote }: DashboardProps =
             style={{
               width: "100%",
               maxWidth: "380px",
-              background: C.white,
+              background: "var(--bg-card-solid)",
               borderRadius: "18px",
+              border: "1px solid var(--border-subtle)",
               padding: "1.4rem",
               display: "flex",
               flexDirection: "column",
               gap: "0.85rem",
-              boxShadow: "0 16px 40px rgba(0,0,0,0.16)",
+              boxShadow: "var(--shadow-modal)",
             }}
             onClick={(e) => e.stopPropagation()}
           >
@@ -1059,8 +1088,8 @@ export default function Dashboard({ onNavigate, onSelectNote }: DashboardProps =
                 width: "100%",
                 padding: "0.65rem 0.85rem",
                 borderRadius: "12px",
-                border: "1px solid rgba(0, 0, 0, 0.08)",
-                background: C.ivory,
+                border: "1px solid var(--border-subtle)",
+                background: C.white,
                 fontSize: "0.9rem",
                 color: C.charcoal,
                 outline: "none",
@@ -1072,7 +1101,7 @@ export default function Dashboard({ onNavigate, onSelectNote }: DashboardProps =
                 type="button"
                 onClick={() => setShowAddListModal(false)}
                 style={{
-                  background: "rgba(0,0,0,0.05)",
+                  background: "var(--bg-nav-track)",
                   border: "none",
                   borderRadius: "8px",
                   padding: "0.5rem 0.9rem",

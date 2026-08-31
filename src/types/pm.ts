@@ -1,6 +1,6 @@
 /**
  * src/types/pm.ts
- * Arca — PM（Preventive Maintenance / 予防保全・勤務周期管理）モジュール型定義
+ * Arca — PM（PM作業・勤務周期管理）モジュール型定義
  *
  * Sprint 9: 勤務シフト・生活リズムに連動する個別タスク周期管理
  */

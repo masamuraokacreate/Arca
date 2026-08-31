@@ -122,14 +122,16 @@ export default function ThemeModal({ isOpen, onClose }: ThemeModalProps) {
       }}
     >
       <div
+        className="arca-card"
         style={{
           width: "100%",
           maxWidth: "520px",
           maxHeight: "90vh",
           overflowY: "auto",
-          background: C.white,
+          background: "var(--bg-card-solid)",
           borderRadius: "24px",
-          boxShadow: C.modalShadow,
+          border: "1px solid var(--border-subtle)",
+          boxShadow: "var(--shadow-modal)",
           padding: "1.6rem 1.8rem",
           display: "flex",
           flexDirection: "column",
@@ -143,13 +145,12 @@ export default function ThemeModal({ isOpen, onClose }: ThemeModalProps) {
         <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between" }}>
           <div>
             <div style={{ display: "flex", alignItems: "center", gap: "0.5rem" }}>
-              <span style={{ fontSize: "1.2rem" }}>🎨</span>
               <h2 style={{ fontSize: "1.15rem", fontWeight: 750, color: C.charcoal, margin: 0, letterSpacing: "-0.02em" }}>
                 外観・テーマ設定
               </h2>
             </div>
             <p style={{ fontSize: "0.76rem", color: C.charcoalLight, margin: "0.3rem 0 0" }}>
-              Arca のカラーパレットと表示モードをカスタマイズします
+              自動を選択した際、昼はアイボリー、夜はディープスペースが選択されます
             </p>
           </div>
 
@@ -158,7 +159,7 @@ export default function ThemeModal({ isOpen, onClose }: ThemeModalProps) {
             onClick={onClose}
             aria-label="閉じる"
             style={{
-              background: "rgba(0, 0, 0, 0.05)",
+              background: "var(--bg-nav-track)",
               border: "none",
               borderRadius: "50%",
               width: "32px",
@@ -176,7 +177,7 @@ export default function ThemeModal({ isOpen, onClose }: ThemeModalProps) {
               e.currentTarget.style.color = C.charcoal;
             }}
             onMouseLeave={(e) => {
-              e.currentTarget.style.background = "rgba(0, 0, 0, 0.05)";
+              e.currentTarget.style.background = "var(--bg-nav-track)";
               e.currentTarget.style.color = C.charcoalMid;
             }}
           >
@@ -195,17 +196,21 @@ export default function ThemeModal({ isOpen, onClose }: ThemeModalProps) {
           <div
             style={{
               display: "grid",
-              gridTemplateColumns: "repeat(3, 1fr)",
+              gridTemplateColumns: "repeat(2, 1fr)",
               gap: "0.35rem",
-              background: "rgba(0, 0, 0, 0.04)",
+              background: "var(--bg-nav-track)",
               padding: "4px",
               borderRadius: "12px",
             }}
           >
-            {/* ライトモード */}
+            {/* 手動 */}
             <button
               type="button"
-              onClick={() => setTheme("ivory")}
+              onClick={() => {
+                if (theme === "system") {
+                  setTheme(resolvedTheme);
+                }
+              }}
               style={{
                 display: "flex",
                 alignItems: "center",
@@ -218,41 +223,15 @@ export default function ThemeModal({ isOpen, onClose }: ThemeModalProps) {
                 fontWeight: 650,
                 cursor: "pointer",
                 transition: "all 0.18s ease",
-                background: theme === "ivory" || theme === "sand" ? C.white : "transparent",
-                color: theme === "ivory" || theme === "sand" ? C.charcoal : C.charcoalLight,
-                boxShadow: theme === "ivory" || theme === "sand" ? "0 1px 4px rgba(0,0,0,0.08)" : "none",
+                background: theme !== "system" ? "var(--bg-nav-pill)" : "transparent",
+                color: theme !== "system" ? "var(--text-main)" : C.charcoalLight,
+                boxShadow: theme !== "system" ? "0 1px 4px rgba(0,0,0,0.08)" : "none",
               }}
             >
-              <span>☀️</span>
-              <span>ライト</span>
+              <span>手動</span>
             </button>
 
-            {/* ダークモード */}
-            <button
-              type="button"
-              onClick={() => setTheme("dark")}
-              style={{
-                display: "flex",
-                alignItems: "center",
-                justifyContent: "center",
-                gap: "0.35rem",
-                padding: "0.55rem 0.5rem",
-                borderRadius: "9px",
-                border: "none",
-                fontSize: "0.78rem",
-                fontWeight: 650,
-                cursor: "pointer",
-                transition: "all 0.18s ease",
-                background: theme === "dark" || theme === "sage" ? C.white : "transparent",
-                color: theme === "dark" || theme === "sage" ? C.charcoal : C.charcoalLight,
-                boxShadow: theme === "dark" || theme === "sage" ? "0 1px 4px rgba(0,0,0,0.08)" : "none",
-              }}
-            >
-              <span>🌙</span>
-              <span>ダーク</span>
-            </button>
-
-            {/* システム自動 */}
+            {/* OS連動 */}
             <button
               type="button"
               onClick={() => setTheme("system")}
@@ -268,13 +247,12 @@ export default function ThemeModal({ isOpen, onClose }: ThemeModalProps) {
                 fontWeight: 650,
                 cursor: "pointer",
                 transition: "all 0.18s ease",
-                background: theme === "system" ? C.white : "transparent",
-                color: theme === "system" ? C.charcoal : C.charcoalLight,
+                background: theme === "system" ? "var(--bg-nav-pill)" : "transparent",
+                color: theme === "system" ? "var(--text-main)" : C.charcoalLight,
                 boxShadow: theme === "system" ? "0 1px 4px rgba(0,0,0,0.08)" : "none",
               }}
             >
-              <span>⚙️</span>
-              <span>自動 (OS連動)</span>
+              <span>OS連動</span>
             </button>
           </div>
         </div>
@@ -392,26 +370,6 @@ export default function ThemeModal({ isOpen, onClose }: ThemeModalProps) {
                         {pal.subname}
                       </span>
                     </div>
-
-                    {/* 選択チェックマーク */}
-                    {isSelected && (
-                      <div
-                        style={{
-                          width: "22px",
-                          height: "22px",
-                          borderRadius: "50%",
-                          background: C.gold,
-                          color: "#FFF",
-                          display: "flex",
-                          alignItems: "center",
-                          justifyContent: "center",
-                          fontSize: "0.75rem",
-                          boxShadow: "0 1px 4px rgba(0,0,0,0.2)",
-                        }}
-                      >
-                        ✓
-                      </div>
-                    )}
                   </div>
                 </div>
               );

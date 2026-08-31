@@ -82,7 +82,7 @@ export function ConfirmModal({
         style={{
           width: "100%",
           maxWidth: "400px",
-          background: "rgba(253, 252, 250, 0.96)",
+          background: "var(--bg-card-solid)",
           backdropFilter: "blur(24px) saturate(180%)",
           WebkitBackdropFilter: "blur(24px) saturate(180%)",
           borderRadius: "20px",
@@ -91,7 +91,7 @@ export function ConfirmModal({
           display: "flex",
           flexDirection: "column",
           gap: "1.2rem",
-          border: "1px solid rgba(255, 255, 255, 0.7)",
+          border: "1px solid var(--border-subtle)",
         }}
       >
         <div style={{ display: "flex", flexDirection: "column", gap: "0.4rem" }}>

@@ -280,10 +280,10 @@ const GLOBAL_STYLES = `
     top: calc(52px + env(safe-area-inset-top, 0px));
     z-index: 50;
     width: 100%;
-    background: rgba(253, 252, 250, 0.92);
+    background: var(--bg-surface-glass);
     backdrop-filter: blur(16px) saturate(180%);
     -webkit-backdrop-filter: blur(16px) saturate(180%);
-    box-shadow: 0 1px 0 rgba(0, 0, 0, 0.05);
+    box-shadow: 0 1px 0 var(--border-subtle);
     display: flex;
     align-items: center;
     justify-content: space-between;
@@ -405,7 +405,191 @@ const GLOBAL_STYLES = `
     white-space: nowrap;
   }
 
-  @media (max-width: 640px) {
+  /* ── ノートダッシュボード用ボタンスタイル ── */
+  .arca-notes-btn-primary {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 0.45rem;
+    background: ${C.gold};
+    color: #FDFCFA;
+    border: none;
+    border-radius: 12px;
+    padding: 0 1.25rem;
+    height: 42px;
+    font-size: 0.84rem;
+    font-weight: 650;
+    letter-spacing: 0.02em;
+    cursor: pointer;
+    white-space: nowrap;
+    flex-shrink: 0;
+    box-shadow: 0 2px 12px rgba(197, 160, 89, 0.32);
+    transition: all 0.18s cubic-bezier(0.16, 1, 0.3, 1);
+    user-select: none;
+  }
+  .arca-notes-btn-primary:hover {
+    box-shadow: 0 5px 20px rgba(197, 160, 89, 0.45);
+    transform: translateY(-1px);
+  }
+  .arca-notes-btn-primary:active {
+    transform: translateY(0);
+  }
+
+  .arca-notes-btn-sub {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 0.35rem;
+    background: rgba(0, 0, 0, 0.04);
+    color: ${C.charcoalMid};
+    border: none;
+    border-radius: 12px;
+    padding: 0 0.85rem;
+    height: 42px;
+    font-size: 0.82rem;
+    font-weight: 600;
+    cursor: pointer;
+    white-space: nowrap;
+    flex-shrink: 0;
+    transition: all 0.15s ease;
+    user-select: none;
+  }
+  .arca-notes-btn-sub:hover {
+    background: rgba(0, 0, 0, 0.07);
+    color: ${C.charcoal};
+  }
+  .arca-notes-btn-sub:active {
+    transform: scale(0.98);
+  }
+
+  /* 検索入力欄共通 */
+  .arca-notes-search-input {
+    width: 100%;
+    height: 42px;
+    background: ${C.white};
+    color: ${C.charcoal};
+    border: none;
+    border-radius: 12px;
+    padding: 0 0.75rem 0 2.35rem;
+    font-size: 0.85rem;
+    box-shadow: 0 1px 4px rgba(0,0,0,0.03);
+    box-sizing: border-box;
+    outline: none;
+    transition: box-shadow 0.15s ease;
+  }
+  .arca-notes-search-input:focus {
+    box-shadow: 0 2px 8px rgba(0,0,0,0.06);
+  }
+
+  /* ソートセレクタ共通 */
+  .arca-notes-sort-select {
+    height: 42px;
+    appearance: none;
+    background-color: ${C.white};
+    color: ${C.charcoalMid};
+    border: none;
+    border-radius: 12px;
+    padding: 0 2.2rem 0 0.85rem;
+    font-size: 0.82rem;
+    font-weight: 500;
+    cursor: pointer;
+    box-shadow: 0 1px 4px rgba(0,0,0,0.03);
+    outline: none;
+    white-space: nowrap;
+    background-image: url('data:image/svg+xml;utf8,<svg fill="%239A9A96" height="24" viewBox="0 0 24 24" width="24" xmlns="http://www.w3.org/2000/svg"><path d="M7 10l5 5 5-5z"/></svg>');
+    background-repeat: no-repeat;
+    background-position: right 0.4rem center;
+  }
+
+  /* PC・タブレット表示時（min-width: 640px） */
+  @media (min-width: 640px) {
+    .arca-notes-toolbar-grid {
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      gap: 0.75rem;
+    }
+    .arca-notes-search-box {
+      position: relative;
+      flex: 1 1 240px;
+      max-width: 380px;
+    }
+    .arca-notes-sort-box {
+      display: flex;
+      align-items: center;
+      gap: 0.4rem;
+    }
+    .arca-notes-sort-label {
+      display: none;
+    }
+    .arca-notes-btn-new {
+      margin-left: auto;
+      order: 10;
+    }
+    .arca-notes-btn-trash {
+      order: 8;
+    }
+    .arca-notes-btn-import {
+      order: 9;
+    }
+  }
+
+  /* モバイル表示時（max-width: 639px） */
+  @media (max-width: 639px) {
+    .arca-notes-toolbar-grid {
+      display: grid;
+      grid-template-columns: 1fr auto auto;
+      gap: 0.6rem 0.5rem;
+      align-items: center;
+    }
+    /* 【上段】検索バー + ごみ箱 + インポート */
+    .arca-notes-search-box {
+      position: relative;
+      grid-column: 1 / 2;
+      grid-row: 1;
+      min-width: 0;
+    }
+    .arca-notes-btn-trash {
+      grid-column: 2 / 3;
+      grid-row: 1;
+      height: 42px;
+      padding: 0 0.75rem;
+    }
+    .arca-notes-btn-import {
+      grid-column: 3 / 4;
+      grid-row: 1;
+      height: 42px;
+      padding: 0 0.75rem;
+    }
+    /* 【下段】「＋ 新規ノート」フル幅ボタン */
+    .arca-notes-btn-new {
+      grid-column: 1 / -1;
+      grid-row: 2;
+      width: 100%;
+      height: 44px;
+      font-size: 0.88rem;
+    }
+    /* 【下段下】ソートセレクタ */
+    .arca-notes-sort-box {
+      grid-column: 1 / -1;
+      grid-row: 3;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 0.5rem;
+    }
+    .arca-notes-sort-label {
+      display: inline;
+      font-size: 0.75rem;
+      color: ${C.charcoalLight};
+      font-weight: 600;
+      white-space: nowrap;
+    }
+    .arca-notes-sort-select {
+      flex: 1;
+      max-width: 240px;
+    }
+
     .arca-toolbar {
       padding: 0 0.75rem;
       gap: 0.35rem;
@@ -423,6 +607,11 @@ const GLOBAL_STYLES = `
     .arca-segment-btn {
       padding: 0 0.5rem;
       font-size: 0.72rem;
+    }
+    .arca-notes-btn-sub {
+      height: 42px;
+      padding: 0 0.75rem;
+      font-size: 0.8rem;
     }
   }
 `;
@@ -611,12 +800,12 @@ export function NoteViewer({
             maxWidth: isFullWidth ? "100%" : "880px",
             flex: 1,
             minWidth: 0,
-            background: "rgba(255, 255, 255, 0.92)",
+            background: "var(--bg-surface-glass)",
             backdropFilter: "blur(20px) saturate(180%)",
             WebkitBackdropFilter: "blur(20px) saturate(180%)",
             borderRadius: "22px",
-            boxShadow: "0 4px 28px rgba(0, 0, 0, 0.04), 0 1px 3px rgba(0, 0, 0, 0.02)",
-            border: "1px solid rgba(255, 255, 255, 0.8)",
+            boxShadow: "var(--shadow-modal)",
+            border: "1px solid var(--border-subtle)",
             padding: "2.5rem clamp(1.5rem, 4vw, 3.5rem) 2.5rem",
             boxSizing: "border-box",
             transition: "all 0.3s ease",
@@ -841,14 +1030,14 @@ export function NoteViewer({
               style={{
                 position: "sticky",
                 top: "7rem",
-                background: "rgba(253,252,250,0.75)",
+                background: "var(--bg-surface-glass)",
                 backdropFilter: "blur(16px)",
                 padding: "1rem",
                 borderRadius: "16px",
                 boxShadow: C.cardShadow,
                 maxHeight: "calc(100vh - 10rem)",
                 overflowY: "auto",
-                border: "1px solid rgba(0, 0, 0, 0.04)",
+                border: "1px solid var(--border-subtle)",
               }}
               className="arca-scroll"
             >
@@ -908,12 +1097,12 @@ export function NoteViewer({
           right: 0,
           padding: "0.45rem 2rem calc(0.45rem + env(safe-area-inset-bottom, 0px)) 2rem",
           textAlign: "right",
-          background: "rgba(253,252,250,0.78)",
+          background: "var(--bg-surface-glass)",
           backdropFilter: "blur(12px)",
           WebkitBackdropFilter: "blur(12px)",
           pointerEvents: "none",
           zIndex: 40,
-          borderTop: "1px solid rgba(0, 0, 0, 0.03)",
+          borderTop: "1px solid var(--border-subtle)",
         }}
       >
         <span
@@ -1000,6 +1189,26 @@ const MenuTrashIcon = () => (
   </svg>
 );
 
+const NotesGridIcon = () => (
+  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0 }}>
+    <rect x="3" y="3" width="7" height="7" rx="1.5" />
+    <rect x="14" y="3" width="7" height="7" rx="1.5" />
+    <rect x="14" y="14" width="7" height="7" rx="1.5" />
+    <rect x="3" y="14" width="7" height="7" rx="1.5" />
+  </svg>
+);
+
+const NotesListIcon = () => (
+  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0 }}>
+    <line x1="8" y1="6" x2="21" y2="6" />
+    <line x1="8" y1="12" x2="21" y2="12" />
+    <line x1="8" y1="18" x2="21" y2="18" />
+    <line x1="3" y1="6" x2="3.01" y2="6" />
+    <line x1="3" y1="12" x2="3.01" y2="12" />
+    <line x1="3" y1="18" x2="3.01" y2="18" />
+  </svg>
+);
+
 function NoteCard({
   note,
   childCount = 0,
@@ -1007,6 +1216,7 @@ function NoteCard({
   onMove,
   onDelete,
   onDownload,
+  viewMode = "grid",
 }: {
   note: NoteItem;
   childCount?: number;
@@ -1014,6 +1224,7 @@ function NoteCard({
   onMove?: (e: React.MouseEvent) => void;
   onDelete: (e: React.MouseEvent) => void;
   onDownload: (e: React.MouseEvent) => void;
+  viewMode?: "grid" | "list";
 }) {
   const [menuOpen, setMenuOpen] = useState(false);
   const excerpt = getExcerpt(note.content, 100);
@@ -1032,12 +1243,286 @@ function NoteCard({
     return () => document.removeEventListener("mousedown", handler);
   }, [menuOpen]);
 
+  // ── リスト表示（横並び: 1行コンパクト表示） ──
+  if (viewMode === "list") {
+    return (
+      <div
+        className="arca-card arca-note-card arca-note-card-list flex items-center justify-between cursor-pointer"
+        onClick={onClick}
+        style={{
+          background: "var(--bg-card-solid)",
+          borderRadius: "14px",
+          padding: "0.85rem 1.15rem",
+          boxShadow: C.cardShadow,
+          border: "1px solid var(--border-subtle)",
+          position: "relative",
+          gap: "0.75rem",
+          width: "100%",
+          maxWidth: "100%",
+          minWidth: 0,
+          boxSizing: "border-box",
+          overflow: "hidden",
+          transition: "transform 0.18s cubic-bezier(0.16, 1, 0.3, 1), box-shadow 0.18s cubic-bezier(0.16, 1, 0.3, 1)",
+        }}
+        onMouseEnter={(e) => {
+          e.currentTarget.style.transform = "translateY(-1px)";
+          e.currentTarget.style.boxShadow = C.cardShadowHover;
+        }}
+        onMouseLeave={(e) => {
+          e.currentTarget.style.transform = "translateY(0)";
+          e.currentTarget.style.boxShadow = C.cardShadow;
+        }}
+      >
+        {/* 左側: タイトル・タグ・抜粋 */}
+        <div style={{ flex: "1 1 0%", minWidth: 0, overflow: "hidden", display: "flex", flexDirection: "column", gap: "0.25rem" }}>
+          <div style={{ display: "flex", alignItems: "center", gap: "0.4rem", minWidth: 0, overflow: "hidden" }}>
+            <h3
+              style={{
+                fontSize: "0.94rem",
+                fontWeight: 650,
+                color: C.charcoal,
+                margin: 0,
+                lineHeight: 1.3,
+                letterSpacing: "-0.012em",
+                whiteSpace: "nowrap",
+                overflow: "hidden",
+                textOverflow: "ellipsis",
+                minWidth: 0,
+                flex: "0 1 auto",
+              }}
+            >
+              {note.title || "（タイトルなし）"}
+            </h3>
+
+            {childCount > 0 && (
+              <span
+                style={{
+                  fontSize: "0.62rem",
+                  color: C.charcoalMid,
+                  background: "rgba(0,0,0,0.05)",
+                  borderRadius: "5px",
+                  padding: "0.1rem 0.4rem",
+                  display: "inline-flex",
+                  alignItems: "center",
+                  gap: "0.2rem",
+                  fontWeight: 600,
+                  flexShrink: 0,
+                  whiteSpace: "nowrap",
+                }}
+                title={`${childCount}件のサブノート`}
+              >
+                📁 {childCount}件
+              </span>
+            )}
+
+            {note.tags && note.tags.length > 0 && (
+              <div style={{ display: "flex", gap: "0.25rem", flexShrink: 0 }}>
+                {note.tags.slice(0, 2).map((tag) => (
+                  <span
+                    key={tag}
+                    style={{
+                      fontSize: "0.62rem",
+                      color: C.gold,
+                      background: C.goldFaint,
+                      borderRadius: "5px",
+                      padding: "0.08rem 0.4rem",
+                      fontWeight: 500,
+                      whiteSpace: "nowrap",
+                    }}
+                  >
+                    #{tag}
+                  </span>
+                ))}
+                {note.tags.length > 2 && (
+                  <span style={{ fontSize: "0.6rem", color: C.charcoalLight, whiteSpace: "nowrap" }}>
+                    +{note.tags.length - 2}
+                  </span>
+                )}
+              </div>
+            )}
+          </div>
+
+          {/* 本文プレビュー（1行省略） */}
+          <p
+            style={{
+              fontSize: "0.78rem",
+              color: C.charcoalLight,
+              margin: 0,
+              lineHeight: 1.4,
+              whiteSpace: "nowrap",
+              overflow: "hidden",
+              textOverflow: "ellipsis",
+              minWidth: 0,
+            }}
+          >
+            {excerpt || "まだ内容がありません"}
+          </p>
+        </div>
+
+        {/* 右側: 更新日・文字数・メニュー */}
+        <div style={{ display: "flex", alignItems: "center", gap: "0.6rem", flexShrink: 0, minWidth: 0 }}>
+          <span style={{ fontSize: "0.68rem", color: C.charcoalXLight, whiteSpace: "nowrap" }}>
+            {formatDateRelative(note.updatedAt)}
+          </span>
+          {wordCount > 0 && (
+            <span className="hidden sm:inline" style={{ fontSize: "0.68rem", color: C.charcoalXLight, whiteSpace: "nowrap" }}>
+              {wordCount.toLocaleString()} 文字
+            </span>
+          )}
+
+          {/* 「…」メニュー */}
+          <div
+            ref={menuRef}
+            style={{ position: "relative" }}
+            onClick={(e) => e.stopPropagation()}
+          >
+            <button
+              onClick={(e) => {
+                e.stopPropagation();
+                setMenuOpen((o) => !o);
+              }}
+              aria-label="メニュー"
+              style={{
+                background: menuOpen ? C.goldFaint2 : "rgba(0,0,0,0.03)",
+                border: "none",
+                borderRadius: "7px",
+                width: "28px",
+                height: "28px",
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "center",
+                cursor: "pointer",
+                color: C.charcoalLight,
+                fontSize: "0.9rem",
+                lineHeight: 1,
+                transition: "background 0.15s",
+              }}
+            >
+              ···
+            </button>
+            {menuOpen && (
+              <div
+                style={{
+                  position: "absolute",
+                  top: "calc(100% + 4px)",
+                  right: 0,
+                  background: "var(--bg-card-solid)",
+                  borderRadius: "10px",
+                  boxShadow: "var(--shadow-modal)",
+                  padding: "0.35rem",
+                  minWidth: "135px",
+                  zIndex: 20,
+                  animation: "slash-in 0.12s ease",
+                  border: "1px solid var(--border-subtle)",
+                }}
+              >
+                {onMove && (
+                  <button
+                    onClick={(e) => {
+                      setMenuOpen(false);
+                      onMove(e);
+                    }}
+                    style={{
+                      display: "flex",
+                      alignItems: "center",
+                      gap: "0.55rem",
+                      width: "100%",
+                      textAlign: "left",
+                      background: "transparent",
+                      border: "none",
+                      borderRadius: "7px",
+                      padding: "0.5rem 0.75rem",
+                      cursor: "pointer",
+                      fontSize: "0.8rem",
+                      color: C.charcoal,
+                      transition: "background 0.12s",
+                    }}
+                    onMouseEnter={(e) => {
+                      (e.currentTarget as HTMLButtonElement).style.background = C.goldFaint;
+                    }}
+                    onMouseLeave={(e) => {
+                      (e.currentTarget as HTMLButtonElement).style.background = "transparent";
+                    }}
+                  >
+                    <MenuFolderMoveIcon />
+                    <span>移動</span>
+                  </button>
+                )}
+                <button
+                  onClick={(e) => {
+                    setMenuOpen(false);
+                    onDownload(e);
+                  }}
+                  style={{
+                    display: "flex",
+                    alignItems: "center",
+                    gap: "0.55rem",
+                    width: "100%",
+                    textAlign: "left",
+                    background: "transparent",
+                    border: "none",
+                    borderRadius: "7px",
+                    padding: "0.5rem 0.75rem",
+                    cursor: "pointer",
+                    fontSize: "0.8rem",
+                    color: C.charcoal,
+                    transition: "background 0.12s",
+                  }}
+                  onMouseEnter={(e) => {
+                    (e.currentTarget as HTMLButtonElement).style.background = C.goldFaint;
+                  }}
+                  onMouseLeave={(e) => {
+                    (e.currentTarget as HTMLButtonElement).style.background = "transparent";
+                  }}
+                >
+                  <MenuFileDownloadIcon />
+                  <span>md 保存</span>
+                </button>
+                <button
+                  onClick={(e) => {
+                    setMenuOpen(false);
+                    onDelete(e);
+                  }}
+                  style={{
+                    display: "flex",
+                    alignItems: "center",
+                    gap: "0.55rem",
+                    width: "100%",
+                    textAlign: "left",
+                    background: "transparent",
+                    border: "none",
+                    borderRadius: "7px",
+                    padding: "0.5rem 0.75rem",
+                    cursor: "pointer",
+                    fontSize: "0.8rem",
+                    color: "#c0614a",
+                    transition: "background 0.12s",
+                  }}
+                  onMouseEnter={(e) => {
+                    (e.currentTarget as HTMLButtonElement).style.background = "rgba(192,97,74,0.07)";
+                  }}
+                  onMouseLeave={(e) => {
+                    (e.currentTarget as HTMLButtonElement).style.background = "transparent";
+                  }}
+                >
+                  <MenuTrashIcon />
+                  <span>削除</span>
+                </button>
+              </div>
+            )}
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  // ── グリッド表示（縦並びカード） ──
   return (
     <div
-      className="arca-note-card"
+      className="arca-card arca-note-card arca-note-card-grid"
       onClick={onClick}
       style={{
-        background: C.white,
+        background: "var(--bg-card-solid)",
         borderRadius: "16px",
         padding: "1.5rem 1.5rem 1.25rem",
         boxShadow: C.cardShadow,
@@ -1047,7 +1532,7 @@ function NoteCard({
         minHeight: "170px",
         position: "relative",
         cursor: "pointer",
-        border: "1px solid rgba(0, 0, 0, 0.03)",
+        border: "1px solid var(--border-subtle)",
       }}
     >
       {/* 「…」メニューボタン */}
@@ -1098,14 +1583,14 @@ function NoteCard({
               position: "absolute",
               top: "calc(100% + 4px)",
               right: 0,
-              background: C.white,
+              background: "var(--bg-card-solid)",
               borderRadius: "10px",
-              boxShadow: "0 6px 32px rgba(0,0,0,0.12), 0 2px 8px rgba(0,0,0,0.06)",
+              boxShadow: "var(--shadow-modal)",
               padding: "0.35rem",
               minWidth: "135px",
               zIndex: 20,
               animation: "slash-in 0.12s ease",
-              border: "1px solid rgba(0, 0, 0, 0.05)",
+              border: "1px solid var(--border-subtle)",
             }}
           >
             {onMove && (
@@ -1347,8 +1832,9 @@ function TrashModal({
       }}
     >
       <div
+        className="arca-card"
         style={{
-          background: C.white,
+          background: "var(--bg-card-solid)",
           borderRadius: "20px",
           boxShadow: C.toastShadow,
           width: "100%",
@@ -1357,9 +1843,10 @@ function TrashModal({
           display: "flex",
           flexDirection: "column",
           overflow: "hidden",
+          border: "1px solid var(--border-subtle)",
         }}
       >
-        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "1.5rem 2rem", borderBottom: `1px solid ${C.ivory2}` }}>
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "1.5rem 2rem", borderBottom: "1px solid var(--border-subtle)" }}>
           <div style={{ display: "flex", alignItems: "center", gap: "1rem" }}>
             <h2 style={{ fontSize: "1.2rem", fontWeight: 700, margin: 0, color: C.charcoal }}>ごみ箱</h2>
             {deletedNotes.length > 0 && (
@@ -1389,11 +1876,11 @@ function TrashModal({
             <p style={{ gridColumn: "1 / -1", textAlign: "center", color: C.charcoalXLight, fontSize: "0.9rem", margin: "2rem 0" }}>ごみ箱は空です</p>
           ) : (
             deletedNotes.map((n) => (
-              <div key={n.id} style={{ background: C.ivory, borderRadius: "12px", padding: "1.2rem", display: "flex", flexDirection: "column", gap: "0.6rem" }}>
+              <div key={n.id} style={{ background: "var(--bg-nav-track)", border: "1px solid var(--border-subtle)", borderRadius: "12px", padding: "1.2rem", display: "flex", flexDirection: "column", gap: "0.6rem" }}>
                 <h3 style={{ fontSize: "0.95rem", margin: 0, color: C.charcoal, fontWeight: 650, display: "-webkit-box", WebkitLineClamp: 1, WebkitBoxOrient: "vertical", overflow: "hidden" }}>{n.title || "（タイトルなし）"}</h3>
                 <p style={{ fontSize: "0.75rem", color: C.charcoalMid, margin: 0, display: "-webkit-box", WebkitLineClamp: 2, WebkitBoxOrient: "vertical", overflow: "hidden", lineHeight: 1.5 }}>{getExcerpt(n.content, 60)}</p>
                 <div style={{ marginTop: "auto", display: "flex", alignItems: "center", gap: "0.5rem" }}>
-                  <button onClick={() => onRestore(n.id)} style={{ background: C.white, border: `1px solid ${C.ivory2}`, borderRadius: "6px", padding: "0.4rem 0.8rem", fontSize: "0.75rem", cursor: "pointer", color: C.charcoal, fontWeight: 600, transition: "background 0.15s" }}>復元する</button>
+                  <button onClick={() => onRestore(n.id)} style={{ background: "var(--bg-surface)", border: "1px solid var(--border-subtle)", borderRadius: "6px", padding: "0.4rem 0.8rem", fontSize: "0.75rem", cursor: "pointer", color: C.charcoal, fontWeight: 600, transition: "background 0.15s" }}>復元する</button>
                   <button onClick={() => onPermanentDelete(n.id)} style={{ background: "rgba(224, 86, 74, 0.08)", border: "none", borderRadius: "6px", padding: "0.4rem 0.8rem", fontSize: "0.75rem", cursor: "pointer", color: C.danger, fontWeight: 600, transition: "background 0.15s" }}>完全に削除</button>
                 </div>
               </div>
@@ -1433,6 +1920,22 @@ function NoteDashboard({
   const [searchQuery, setSearchQuery] = useState("");
   const [selectedTag, setSelectedTag] = useState<string>("all");
   const [sortBy, setSortBy] = useState<"updatedDesc" | "createdDesc" | "titleAsc">("updatedDesc");
+  const [layoutStyle, setLayoutStyle] = useState<"grid" | "list">(() => {
+    try {
+      return (localStorage.getItem("arca_notes_layout_style") as "grid" | "list") || "grid";
+    } catch {
+      return "grid";
+    }
+  });
+
+  const handleToggleLayoutStyle = (style: "grid" | "list") => {
+    setLayoutStyle(style);
+    try {
+      localStorage.setItem("arca_notes_layout_style", style);
+    } catch {
+      // ignore
+    }
+  };
 
   const allTags = Array.from(new Set(notes.flatMap((n) => n.tags))).sort();
 
@@ -1456,20 +1959,21 @@ function NoteDashboard({
       style={{
         minHeight: "100vh",
         width: "100%",
+        maxWidth: "100%",
+        overflowX: "hidden",
+        boxSizing: "border-box",
         padding: "3.2rem clamp(1.5rem, 5vw, 4rem) 6rem",
       }}
     >
-      {/* ── ヘッダー ── */}
+      {/* ── ヘッダー部（タイトル） ── */}
       <div
         style={{
           display: "flex",
           alignItems: "flex-end",
           justifyContent: "space-between",
-          marginBottom: "1.5rem",
+          marginBottom: "1.2rem",
           maxWidth: "1280px",
           marginInline: "auto",
-          flexWrap: "wrap",
-          gap: "1rem",
         }}
       >
         <div>
@@ -1501,238 +2005,216 @@ function NoteDashboard({
             {filteredNotes.length}件のノート
           </p>
         </div>
-
-        {/* コントロール群 */}
-        <div style={{ display: "flex", alignItems: "center", gap: "0.6rem" }}>
-          {/* ごみ箱ボタン */}
-          <button
-            onClick={onOpenTrash}
-            style={{
-              display: "flex",
-              alignItems: "center",
-              justifyContent: "center",
-              background: "transparent",
-              border: `1px solid rgba(0,0,0,0.06)`,
-              borderRadius: "11px",
-              padding: "0.62rem 0.85rem",
-              cursor: "pointer",
-              color: C.charcoalLight,
-              fontSize: "0.82rem",
-              fontWeight: 600,
-              transition: "background 0.2s, color 0.2s",
-            }}
-            onMouseEnter={(e) => {
-              (e.currentTarget as HTMLButtonElement).style.background = "rgba(0,0,0,0.02)";
-              (e.currentTarget as HTMLButtonElement).style.color = C.charcoalMid;
-            }}
-            onMouseLeave={(e) => {
-              (e.currentTarget as HTMLButtonElement).style.background = "transparent";
-              (e.currentTarget as HTMLButtonElement).style.color = C.charcoalLight;
-            }}
-          >
-            ごみ箱
-          </button>
-
-          {/* .md インポートボタン */}
-          <button
-            onClick={onTriggerImport}
-            style={{
-              display: "flex",
-              alignItems: "center",
-              gap: "0.35rem",
-              background: "rgba(0, 0, 0, 0.04)",
-              border: "none",
-              borderRadius: "11px",
-              padding: "0.62rem 0.95rem",
-              cursor: "pointer",
-              color: C.charcoalMid,
-              fontSize: "0.82rem",
-              fontWeight: 600,
-              transition: "background 0.15s, color 0.15s",
-            }}
-            onMouseEnter={(e) => {
-              (e.currentTarget as HTMLButtonElement).style.background = "rgba(0,0,0,0.07)";
-              (e.currentTarget as HTMLButtonElement).style.color = C.charcoal;
-            }}
-            onMouseLeave={(e) => {
-              (e.currentTarget as HTMLButtonElement).style.background = "rgba(0, 0, 0, 0.04)";
-              (e.currentTarget as HTMLButtonElement).style.color = C.charcoalMid;
-            }}
-            title="Markdownファイル (.md / .txt) をインポート"
-          >
-            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
-              <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
-              <polyline points="7 10 12 15 17 10" />
-              <line x1="12" y1="15" x2="12" y2="3" />
-            </svg>
-            <span>インポート</span>
-          </button>
-
-          {/* 新規ノートボタン */}
-          <button
-            onClick={onNewNote}
-            style={{
-              display: "flex",
-              alignItems: "center",
-              gap: "0.45rem",
-              background: C.gold,
-              border: "none",
-              borderRadius: "11px",
-              padding: "0.62rem 1.25rem",
-              cursor: "pointer",
-              color: "#FDFCFA",
-              fontSize: "0.82rem",
-              fontWeight: 650,
-              letterSpacing: "0.03em",
-              boxShadow: "0 2px 14px rgba(197,160,89,0.38)",
-              transition: "box-shadow 0.2s, transform 0.2s",
-            }}
-            onMouseEnter={(e) => {
-              const b = e.currentTarget as HTMLButtonElement;
-              b.style.boxShadow = "0 6px 24px rgba(197,160,89,0.48)";
-              b.style.transform = "translateY(-1px)";
-            }}
-            onMouseLeave={(e) => {
-              const b = e.currentTarget as HTMLButtonElement;
-              b.style.boxShadow = "0 2px 14px rgba(197,160,89,0.38)";
-              b.style.transform = "translateY(0)";
-            }}
-          >
-            <span style={{ fontSize: "1.1rem", lineHeight: 1 }}>＋</span>
-            新しいノート
-          </button>
-        </div>
       </div>
 
-      {/* コントロール（検索・フィルター・ソート） */}
+      {/* ── ツールバー ＆ コントロール（単一DOM・レスポンシブGrid） ── */}
       <div
+        className="arca-notes-toolbar-grid"
         style={{
           maxWidth: "1280px",
           marginInline: "auto",
-          marginBottom: "2.4rem",
-          display: "flex",
-          flexDirection: "column",
-          gap: "1rem",
+          marginBottom: "1.5rem",
         }}
       >
-        <div style={{ display: "flex", gap: "1rem", flexWrap: "wrap", alignItems: "center" }}>
-          {/* 検索 */}
-          <div style={{ position: "relative", flex: "1 1 250px", maxWidth: "400px" }}>
-            <span
-              style={{
-                position: "absolute",
-                left: "0.8rem",
-                top: "50%",
-                transform: "translateY(-50%)",
-                display: "flex",
-                alignItems: "center",
-                color: C.charcoalXLight,
-              }}
-            >
-              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                <circle cx="11" cy="11" r="8"></circle>
-                <line x1="21" y1="21" x2="16.65" y2="16.65"></line>
-              </svg>
-            </span>
-            <input
-              type="text"
-              placeholder="ノートを検索..."
-              value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
-              style={{
-                width: "100%",
-                background: C.white,
-                border: "none",
-                borderRadius: "10px",
-                padding: "0.6rem 0.6rem 0.6rem 2.2rem",
-                fontSize: "0.85rem",
-                color: C.charcoal,
-                boxShadow: "0 1px 4px rgba(0,0,0,0.03)",
-                outline: "none",
-                boxSizing: "border-box",
-                transition: "box-shadow 0.15s",
-              }}
-              onFocus={(e) => (e.currentTarget.style.boxShadow = "0 2px 8px rgba(0,0,0,0.06)")}
-              onBlur={(e) => (e.currentTarget.style.boxShadow = "0 1px 4px rgba(0,0,0,0.03)")}
-            />
-          </div>
+        {/* 検索入力欄 */}
+        <div className="arca-notes-search-box">
+          <span
+            style={{
+              position: "absolute",
+              left: "0.85rem",
+              top: "50%",
+              transform: "translateY(-50%)",
+              display: "flex",
+              alignItems: "center",
+              color: C.charcoalXLight,
+              pointerEvents: "none",
+            }}
+          >
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <circle cx="11" cy="11" r="8"></circle>
+              <line x1="21" y1="21" x2="16.65" y2="16.65"></line>
+            </svg>
+          </span>
+          <input
+            type="text"
+            placeholder="ノートを検索..."
+            value={searchQuery}
+            onChange={(e) => setSearchQuery(e.target.value)}
+            className="arca-notes-search-input"
+          />
+        </div>
 
-          {/* ソート */}
+        {/* ごみ箱ボタン */}
+        <button
+          onClick={onOpenTrash}
+          className="arca-notes-btn-sub arca-notes-btn-trash"
+          title="ごみ箱を確認"
+        >
+          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0 }}>
+            <path d="M3 6h18m-2 0v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6m3 0V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2" />
+          </svg>
+          <span style={{ whiteSpace: "nowrap" }}>ごみ箱</span>
+        </button>
+
+        {/* .md インポートボタン */}
+        <button
+          onClick={onTriggerImport}
+          className="arca-notes-btn-sub arca-notes-btn-import"
+          title="Markdownファイル (.md / .txt) をインポート"
+        >
+          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0 }}>
+            <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
+            <polyline points="7 10 12 15 17 10" />
+            <line x1="12" y1="15" x2="12" y2="3" />
+          </svg>
+          <span style={{ whiteSpace: "nowrap" }}>インポート</span>
+        </button>
+
+        {/* 新規ノートボタン */}
+        <button
+          onClick={onNewNote}
+          className="arca-notes-btn-primary arca-notes-btn-new"
+        >
+          <span style={{ fontSize: "1.1rem", lineHeight: 1 }}>＋</span>
+          <span style={{ whiteSpace: "nowrap" }}>新しいノート</span>
+        </button>
+
+        {/* ソートセレクタ ＆ グリッド/リスト切り替え */}
+        <div className="arca-notes-sort-box" style={{ display: "flex", alignItems: "center", gap: "0.5rem" }}>
+          <span className="arca-notes-sort-label">並び順:</span>
           <select
             value={sortBy}
             onChange={(e) => setSortBy(e.target.value as any)}
             aria-label="並び順"
-            style={{
-              appearance: "none",
-              background: C.white,
-              border: "none",
-              borderRadius: "8px",
-              padding: "0.6rem 2rem 0.6rem 0.8rem",
-              fontSize: "0.8rem",
-              color: C.charcoalMid,
-              cursor: "pointer",
-              boxShadow: "0 1px 4px rgba(0,0,0,0.03)",
-              outline: "none",
-              backgroundImage:
-                "url('data:image/svg+xml;utf8,<svg fill=\"%239A9A96\" height=\"24\" viewBox=\"0 0 24 24\" width=\"24\" xmlns=\"http://www.w3.org/2000/svg\"><path d=\"M7 10l5 5 5-5z\"/></svg>')",
-              backgroundRepeat: "no-repeat",
-              backgroundPosition: "right 0.2rem center",
-            }}
+            className="arca-notes-sort-select"
           >
             <option value="updatedDesc">更新日が新しい順</option>
             <option value="createdDesc">作成日が新しい順</option>
             <option value="titleAsc">タイトル順 (A-Z)</option>
           </select>
-        </div>
 
-        {/* タグフィルター */}
-        <div style={{ display: "flex", gap: "0.5rem", flexWrap: "wrap" }}>
-          <button
-            onClick={() => setSelectedTag("all")}
+          {/* グリッド / リスト切り替え */}
+          <div
             style={{
-              background: selectedTag === "all" ? C.charcoal : "transparent",
-              color: selectedTag === "all" ? C.white : C.charcoalMid,
-              border: "none",
-              borderRadius: "20px",
-              padding: "0.3rem 0.8rem",
-              fontSize: "0.75rem",
-              fontWeight: 500,
-              cursor: "pointer",
-              transition: "all 0.15s",
+              display: "flex",
+              background: "rgba(0, 0, 0, 0.04)",
+              borderRadius: "9px",
+              padding: "2px",
+              gap: "1px",
+              flexShrink: 0,
             }}
           >
-            すべて
-          </button>
-          {allTags.map((tag) => (
             <button
-              key={tag}
-              onClick={() => setSelectedTag(tag)}
+              onClick={() => handleToggleLayoutStyle("grid")}
+              aria-label="グリッド表示"
+              title="グリッド表示"
               style={{
-                background: selectedTag === tag ? C.gold : "transparent",
-                color: selectedTag === tag ? C.white : C.goldDark,
-                border: selectedTag === tag ? "1px solid transparent" : `1px solid ${C.goldFaint3}`,
-                borderRadius: "20px",
-                padding: "0.25rem 0.8rem",
-                fontSize: "0.75rem",
-                fontWeight: 500,
+                background: layoutStyle === "grid" ? C.white : "transparent",
+                color: layoutStyle === "grid" ? C.charcoal : C.charcoalLight,
+                border: "none",
+                borderRadius: "7px",
+                padding: "0.4rem 0.55rem",
                 cursor: "pointer",
-                transition: "all 0.15s",
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "center",
+                boxShadow: layoutStyle === "grid" ? "0 1px 3px rgba(0,0,0,0.06)" : "none",
+                transition: "all 0.15s ease",
               }}
             >
-              {tag}
+              <NotesGridIcon />
             </button>
-          ))}
+            <button
+              onClick={() => handleToggleLayoutStyle("list")}
+              aria-label="リスト表示"
+              title="リスト表示"
+              style={{
+                background: layoutStyle === "list" ? C.white : "transparent",
+                color: layoutStyle === "list" ? C.charcoal : C.charcoalLight,
+                border: "none",
+                borderRadius: "7px",
+                padding: "0.4rem 0.55rem",
+                cursor: "pointer",
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "center",
+                boxShadow: layoutStyle === "list" ? "0 1px 3px rgba(0,0,0,0.06)" : "none",
+                transition: "all 0.15s ease",
+              }}
+            >
+              <NotesListIcon />
+            </button>
+          </div>
         </div>
       </div>
 
-      {/* ── グリッド ── */}
+      {/* ── タグフィルター（共通） ── */}
       <div
         style={{
           maxWidth: "1280px",
           marginInline: "auto",
+          marginBottom: "2.2rem",
+          display: "flex",
+          gap: "0.5rem",
+          flexWrap: "wrap",
+          alignItems: "center",
+        }}
+      >
+        <button
+          onClick={() => setSelectedTag("all")}
+          style={{
+            background: selectedTag === "all" ? C.charcoal : "transparent",
+            color: selectedTag === "all" ? C.white : C.charcoalMid,
+            border: "none",
+            borderRadius: "20px",
+            padding: "0.38rem 0.95rem",
+            fontSize: "0.76rem",
+            fontWeight: 550,
+            cursor: "pointer",
+            whiteSpace: "nowrap",
+            flexShrink: 0,
+            transition: "all 0.15s",
+          }}
+        >
+          すべて
+        </button>
+        {allTags.map((tag) => (
+          <button
+            key={tag}
+            onClick={() => setSelectedTag(tag)}
+            style={{
+              background: selectedTag === tag ? C.gold : "transparent",
+              color: selectedTag === tag ? C.white : C.goldDark,
+              border: selectedTag === tag ? "1px solid transparent" : `1px solid ${C.goldFaint3}`,
+              borderRadius: "20px",
+              padding: "0.35rem 0.95rem",
+              fontSize: "0.76rem",
+              fontWeight: 550,
+              cursor: "pointer",
+              whiteSpace: "nowrap",
+              flexShrink: 0,
+              transition: "all 0.15s",
+            }}
+          >
+            #{tag}
+          </button>
+        ))}
+      </div>
+
+      {/* ── ノート一覧（グリッド or リスト） ── */}
+      <div
+        style={{
+          maxWidth: "1280px",
+          width: "100%",
+          minWidth: 0,
+          boxSizing: "border-box",
+          marginInline: "auto",
           display: "grid",
-          gridTemplateColumns: "repeat(auto-fill, minmax(290px, 1fr))",
-          gap: "1.15rem",
+          gridTemplateColumns:
+            layoutStyle === "grid"
+              ? "repeat(auto-fill, minmax(290px, 1fr))"
+              : "minmax(0, 1fr)",
+          gap: layoutStyle === "grid" ? "1.15rem" : "0.65rem",
         }}
       >
         {filteredNotes.map((note) => (
@@ -1740,6 +2222,7 @@ function NoteDashboard({
             key={note.id}
             note={note}
             childCount={getChildCount(allNotes, note.id)}
+            viewMode={layoutStyle}
             onClick={() => onSelectNote(note.id)}
             onMove={(e) => {
               e.stopPropagation();

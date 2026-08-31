@@ -70,6 +70,9 @@ export async function findDefaultTaskList(token: string): Promise<GTaskList | nu
 // Tasks（tasks コレクション / listId 指定）の双方向同期
 // ─────────────────────────────────────────
 
+// 同期多重実行防止用フラグ
+let isTasksSyncInProgress = false;
+
 /**
  * 指定の Google TaskList から Arca (tasks コレクション) への相互同期
  */
@@ -83,8 +86,10 @@ export async function syncGoogleTasksForList(
   let added = 0;
   let updated = 0;
 
-  let existingTasks = providedExistingTasks;
-  if (existingTasks === undefined) {
+  let existingTasks: TaskItem[] = [];
+  if (providedExistingTasks !== undefined) {
+    existingTasks = [...providedExistingTasks];
+  } else {
     try {
       const snap = await getDocs(query(collection(db, "tasks"), where("listId", "==", listId)));
       existingTasks = snap?.docs ? snap.docs.map((d) => {
@@ -124,15 +129,20 @@ export async function syncGoogleTasksForList(
           dueDate: parsedDue,
           googleListId,
         });
+        matchById.completed = isCompleted;
+        matchById.title = title;
+        matchById.dueDate = parsedDue;
+        matchById.googleListId = googleListId;
         updated++;
       }
       continue;
     }
 
-    // 2) 同一タイトル（かつ未紐付け）のアイテムが既に存在するか確認
+    // 2) 同一タイトル（かつ未紐付け）のアイテムが同一リスト内に既に存在するか確認
     const matchByTitle = existingTasks.find(
       (item) =>
         !item.googleTaskId &&
+        (item.listId || "default") === listId &&
         item.title.trim() === title
     );
 
@@ -143,12 +153,16 @@ export async function syncGoogleTasksForList(
         completed: isCompleted,
         dueDate: parsedDue || matchByTitle.dueDate || null,
       });
+      matchByTitle.googleTaskId = gTask.id;
+      matchByTitle.googleListId = googleListId;
+      matchByTitle.completed = isCompleted;
+      if (parsedDue) matchByTitle.dueDate = parsedDue;
       updated++;
       continue;
     }
 
     // 3) どちらにも該当しない場合のみ新規追加
-    await addDoc(collection(db, "tasks"), {
+    const docRef = await addDoc(collection(db, "tasks"), {
       title,
       dueDate: parsedDue,
       completed: isCompleted,
@@ -158,10 +172,67 @@ export async function syncGoogleTasksForList(
       subtasks: [],
       createdAt: serverTimestamp(),
     });
+    existingTasks.push({
+      id: docRef.id,
+      title,
+      dueDate: parsedDue,
+      completed: isCompleted,
+      listId,
+      googleTaskId: gTask.id,
+      googleListId,
+      subtasks: [],
+      createdAt: null,
+    });
     added++;
   }
 
   return { added, updated };
+}
+
+/**
+ * 全Google Tasksリスト（マイタスク、買い物リスト、カスタムリスト）を一括同期
+ */
+export async function syncAllGoogleTasks(
+  token: string
+): Promise<{ added: number; updated: number }> {
+  if (isTasksSyncInProgress) {
+    return { added: 0, updated: 0 };
+  }
+  isTasksSyncInProgress = true;
+
+  try {
+    const lists = await getTaskLists(token);
+    if (!lists || lists.length === 0) {
+      return { added: 0, updated: 0 };
+    }
+
+    let totalAdded = 0;
+    let totalUpdated = 0;
+
+    for (const gl of lists) {
+      const isMyTasks = gl.title === "My Tasks" || gl.title === "マイタスク" || gl.id === "@default";
+      const isShop = SHOPPING_LIST_NAMES.some((name) => gl.title.trim() === name);
+
+      let listId = gl.id;
+      if (isMyTasks) {
+        listId = "default";
+      } else if (isShop) {
+        listId = "shopping";
+      }
+
+      try {
+        const res = await syncGoogleTasksForList(token, gl.id, listId);
+        totalAdded += res.added;
+        totalUpdated += res.updated;
+      } catch (err) {
+        console.warn(`Failed to sync Google Tasks list ${gl.title} (${gl.id}):`, err);
+      }
+    }
+
+    return { added: totalAdded, updated: totalUpdated };
+  } finally {
+    isTasksSyncInProgress = false;
+  }
 }
 
 /**

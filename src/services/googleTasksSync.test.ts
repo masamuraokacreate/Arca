@@ -9,6 +9,7 @@ import {
   findDefaultTaskList,
   syncGoogleTasksToArca,
   syncGoogleTasksForList,
+  syncAllGoogleTasks,
   pushTaskToGoogleTasks,
   pushTaskStatusToGoogleTasks,
   pushTaskUpdateToGoogleTasks,
@@ -123,6 +124,23 @@ describe("googleTasksSync", () => {
       expect(callArg.title).toBe("新規プロジェクトタスク");
       expect(callArg.listId).toBe("custom-1");
       expect(callArg.googleTaskId).toBe("g20");
+    });
+
+    it("syncAllGoogleTasks が全タスクリストを順次同期する", async () => {
+      (getTaskLists as Mock).mockResolvedValue([
+        { id: "gl-my", title: "My Tasks" },
+        { id: "gl-shop", title: "買い物リスト" },
+      ]);
+      (getTasks as Mock).mockImplementation((_token, listId) => {
+        if (listId === "gl-my") {
+          return Promise.resolve([{ id: "t-1", title: "仕事タスク", status: "needsAction" }]);
+        }
+        return Promise.resolve([{ id: "t-2", title: "卵", status: "completed" }]);
+      });
+
+      const res = await syncAllGoogleTasks("token");
+      expect(res.added).toBe(2);
+      expect(addDoc).toHaveBeenCalledTimes(2);
     });
   });
 

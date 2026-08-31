@@ -71,6 +71,42 @@ describe("RecipeCard コンポーネント", () => {
     await userEvent.click(favButton);
     expect(handleToggleFavorite).toHaveBeenCalled();
   });
+
+  it("viewMode='list' のときに横並びメディアリスト（.arca-recipe-card-list）としてレンダリングされる", () => {
+    const { container } = render(
+      <RecipeCard
+        recipe={mockRecipe}
+        viewMode="list"
+        onClick={vi.fn()}
+        onEdit={vi.fn()}
+        onDelete={vi.fn()}
+        onToggleFavorite={vi.fn()}
+      />
+    );
+
+    const card = container.querySelector(".arca-recipe-card-list");
+    expect(card).toBeInTheDocument();
+    expect(screen.getByText("特製豚の生姜焼き")).toBeInTheDocument();
+    expect(screen.getByText("和食")).toBeInTheDocument();
+    expect(screen.getByText("2人前")).toBeInTheDocument();
+  });
+
+  it("viewMode='grid' のときに縦型カード（.arca-recipe-card-grid）としてレンダリングされる", () => {
+    const { container } = render(
+      <RecipeCard
+        recipe={mockRecipe}
+        viewMode="grid"
+        onClick={vi.fn()}
+        onEdit={vi.fn()}
+        onDelete={vi.fn()}
+        onToggleFavorite={vi.fn()}
+      />
+    );
+
+    const card = container.querySelector(".arca-recipe-card-grid");
+    expect(card).toBeInTheDocument();
+    expect(screen.getByText("特製豚の生姜焼き")).toBeInTheDocument();
+  });
 });
 
 describe("RecipeDetail コンポーネント", () => {

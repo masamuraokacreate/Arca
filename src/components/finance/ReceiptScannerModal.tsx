@@ -101,14 +101,15 @@ export function ReceiptScannerModal({
       onClick={isScanning ? undefined : onClose}
     >
       <div
+        className="arca-card"
         style={{
-          background: C.white,
+          background: "var(--bg-card-solid)",
           borderRadius: C.radiusModal,
-          boxShadow: C.modalShadow,
+          boxShadow: "var(--shadow-modal)",
           width: "100%",
           maxWidth: "480px",
           overflow: "hidden",
-          border: "1px solid rgba(0, 0, 0, 0.05)",
+          border: "1px solid var(--border-subtle)",
           display: "flex",
           flexDirection: "column",
           animation: "arca-modal-pop 0.22s cubic-bezier(0.16, 1, 0.3, 1)",
@@ -371,7 +372,7 @@ export function ReceiptScannerModal({
                   justifyContent: "flex-start",
                   gap: "1rem",
                   background: C.white,
-                  border: "1px solid rgba(0, 0, 0, 0.08)",
+                  border: "1px solid var(--border-subtle)",
                   borderRadius: "14px",
                   padding: "1rem 1.4rem",
                   cursor: "pointer",
@@ -381,7 +382,7 @@ export function ReceiptScannerModal({
                   textAlign: "left",
                 }}
                 onMouseEnter={(e) => {
-                  e.currentTarget.style.background = "rgba(0, 0, 0, 0.02)";
+                  e.currentTarget.style.background = "var(--bg-nav-track)";
                 }}
                 onMouseLeave={(e) => {
                   e.currentTarget.style.background = C.white;

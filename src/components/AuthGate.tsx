@@ -18,6 +18,7 @@ import {
 } from "firebase/auth";
 import { auth } from "../lib/firebase";
 import { C } from "../lib/designSystem";
+import { saveToken } from "../services/googleAuth";
 
 // ─── 管理者メールアドレス定義（コード内ホワイトリスト配列 ＆ 環境変数） ───
 export const DEFAULT_ALLOWED_EMAILS = [
@@ -49,6 +50,9 @@ export function isEmailAllowed(email: string | null | undefined): boolean {
 /** Google ログインプロバイダ */
 const googleProvider = new GoogleAuthProvider();
 googleProvider.setCustomParameters({ prompt: "select_account" });
+googleProvider.addScope("https://www.googleapis.com/auth/calendar");
+googleProvider.addScope("https://www.googleapis.com/auth/calendar.events");
+googleProvider.addScope("https://www.googleapis.com/auth/tasks");
 
 /** サインアウト関数（外部利用用） */
 export async function logoutUser() {
@@ -114,6 +118,10 @@ export default function AuthGate({ children }: { children: ReactNode }) {
     setErrorMsg(null);
     try {
       const result = await signInWithPopup(auth, googleProvider);
+      const credential = GoogleAuthProvider.credentialFromResult(result);
+      if (credential?.accessToken) {
+        saveToken(credential.accessToken, 3600);
+      }
       if (!isEmailAllowed(result?.user?.email)) {
         setErrorMsg(`このアカウント（${result?.user?.email || "未設定"}）にはアクセス権限がありません（Access Denied）。`);
         await signOut(auth);

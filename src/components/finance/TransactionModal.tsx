@@ -157,8 +157,9 @@ export function TransactionModal({
       onClick={onClose}
     >
       <div
+        className="arca-card"
         style={{
-          background: C.white,
+          background: "var(--bg-card-solid)",
           borderRadius: C.radiusModal,
           boxShadow: C.modalShadow,
           width: "100%",
@@ -167,7 +168,7 @@ export function TransactionModal({
           display: "flex",
           flexDirection: "column",
           overflow: "hidden",
-          border: "1px solid rgba(0, 0, 0, 0.05)",
+          border: "1px solid var(--border-subtle)",
           animation: "arca-modal-pop 0.22s cubic-bezier(0.16, 1, 0.3, 1)",
         }}
         onClick={(e) => e.stopPropagation()}
@@ -310,10 +311,10 @@ export function TransactionModal({
                     width: "100%",
                     padding: "0.55rem 0.75rem",
                     borderRadius: "8px",
-                    border: "1px solid rgba(0,0,0,0.12)",
+                    border: "1px solid var(--border-subtle)",
                     fontSize: "0.85rem",
                     color: C.charcoal,
-                    background: "#FFF",
+                    background: C.white,
                     outline: "none",
                     boxSizing: "border-box",
                   }}
@@ -331,10 +332,10 @@ export function TransactionModal({
                     width: "100%",
                     padding: "0.55rem 0.75rem",
                     borderRadius: "8px",
-                    border: "1px solid rgba(0,0,0,0.12)",
+                    border: "1px solid var(--border-subtle)",
                     fontSize: "0.85rem",
                     color: C.charcoal,
-                    background: "#FFF",
+                    background: C.white,
                     outline: "none",
                     boxSizing: "border-box",
                   }}
@@ -372,10 +373,10 @@ export function TransactionModal({
                     width: "100%",
                     padding: "0.55rem 0.75rem",
                     borderRadius: "8px",
-                    border: "1px solid rgba(0,0,0,0.12)",
+                    border: "1px solid var(--border-subtle)",
                     fontSize: "0.85rem",
                     color: C.charcoal,
-                    background: "#FFF",
+                    background: C.white,
                     outline: "none",
                     boxSizing: "border-box",
                   }}
@@ -393,10 +394,10 @@ export function TransactionModal({
                     width: "100%",
                     padding: "0.55rem 0.75rem",
                     borderRadius: "8px",
-                    border: "1px solid rgba(0,0,0,0.12)",
+                    border: "1px solid var(--border-subtle)",
                     fontSize: "0.85rem",
                     color: C.charcoal,
-                    background: "#FFF",
+                    background: C.white,
                     outline: "none",
                     boxSizing: "border-box",
                   }}
@@ -463,11 +464,11 @@ export function TransactionModal({
                     width: "100%",
                     padding: "0.6rem 0.75rem 0.6rem 1.8rem",
                     borderRadius: "8px",
-                    border: "1px solid rgba(0,0,0,0.12)",
+                    border: "1px solid var(--border-subtle)",
                     fontSize: "1.05rem",
                     fontWeight: 700,
                     color: C.charcoal,
-                    background: isAutoSum && items.length > 0 ? "rgba(0,0,0,0.03)" : "#FFF",
+                    background: isAutoSum && items.length > 0 ? "var(--bg-nav-track)" : C.white,
                     outline: "none",
                     boxSizing: "border-box",
                   }}
@@ -600,9 +601,10 @@ export function TransactionModal({
                           width: "100%",
                           padding: "0.45rem 0.65rem",
                           borderRadius: "6px",
-                          border: "1px solid rgba(0,0,0,0.1)",
+                          border: "1px solid var(--border-subtle)",
                           fontSize: "0.82rem",
-                          background: "#FFF",
+                          color: C.charcoal,
+                          background: C.white,
                           outline: "none",
                           boxSizing: "border-box",
                         }}
@@ -630,9 +632,10 @@ export function TransactionModal({
                             maxWidth: "140px",
                             padding: "0.42rem 0.35rem",
                             borderRadius: "6px",
-                            border: "1px solid rgba(0,0,0,0.1)",
+                            border: "1px solid var(--border-subtle)",
                             fontSize: "0.76rem",
-                            background: "#FFF",
+                            color: C.charcoal,
+                            background: C.white,
                             outline: "none",
                             boxSizing: "border-box",
                           }}
@@ -671,10 +674,11 @@ export function TransactionModal({
                               width: "100%",
                               padding: "0.42rem 0.35rem 0.42rem 1.15rem",
                               borderRadius: "6px",
-                              border: "1px solid rgba(0,0,0,0.1)",
+                              border: "1px solid var(--border-subtle)",
                               fontSize: "0.8rem",
                               fontWeight: 650,
-                              background: "#FFF",
+                              color: C.charcoal,
+                              background: C.white,
                               outline: "none",
                               boxSizing: "border-box",
                             }}
@@ -725,10 +729,10 @@ export function TransactionModal({
                   width: "100%",
                   padding: "0.55rem 0.75rem",
                   borderRadius: "8px",
-                  border: "1px solid rgba(0,0,0,0.12)",
+                  border: "1px solid var(--border-subtle)",
                   fontSize: "0.82rem",
                   color: C.charcoal,
-                  background: "#FFF",
+                  background: C.white,
                   outline: "none",
                   resize: "none",
                   boxSizing: "border-box",
@@ -741,25 +745,25 @@ export function TransactionModal({
           <div
             style={{
               padding: "0.9rem 1.5rem",
-              borderTop: "1px solid rgba(0, 0, 0, 0.05)",
+              borderTop: "1px solid var(--border-subtle)",
               display: "flex",
               alignItems: "center",
               justifyContent: "flex-end",
               gap: "0.6rem",
-              background: "rgba(253, 252, 250, 0.95)",
+              background: "var(--bg-card-solid)",
             }}
           >
             <button
               type="button"
               onClick={onClose}
               style={{
-                background: "transparent",
-                border: "1px solid rgba(0, 0, 0, 0.12)",
+                background: "var(--bg-nav-track)",
+                border: "1px solid var(--border-subtle)",
                 borderRadius: "8px",
                 padding: "0.55rem 1rem",
                 fontSize: "0.82rem",
                 fontWeight: 600,
-                color: C.charcoalMid,
+                color: C.charcoal,
                 cursor: "pointer",
               }}
             >

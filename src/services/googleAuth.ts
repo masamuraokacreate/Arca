@@ -57,3 +57,44 @@ export function clearSavedToken(): void {
     // localStorage エラー無視
   }
 }
+
+import { syncGoogleCalendarToArca } from "./googleCalendarSync";
+import { syncAllGoogleTasks } from "./googleTasksSync";
+
+// ─── 全Googleサービス（カレンダー ＆ Todoタスク）の一括自動同期 ───
+let isSyncAllInProgress = false;
+
+/**
+ * 有効なGoogleアクセストークンを用いて、カレンダーおよび全タスクリストを一度に同期する
+ */
+export async function syncAllGoogleData(token: string): Promise<{
+  calendar: { added: number; updated: number };
+  tasks: { added: number; updated: number };
+}> {
+  if (isSyncAllInProgress) {
+    return { calendar: { added: 0, updated: 0 }, tasks: { added: 0, updated: 0 } };
+  }
+  isSyncAllInProgress = true;
+
+  try {
+    const [calendarRes, tasksRes] = await Promise.allSettled([
+      syncGoogleCalendarToArca(token),
+      syncAllGoogleTasks(token),
+    ]);
+
+    const calendar = calendarRes.status === "fulfilled" ? calendarRes.value : { added: 0, updated: 0 };
+    const tasks = tasksRes.status === "fulfilled" ? tasksRes.value : { added: 0, updated: 0 };
+
+    if (calendarRes.status === "rejected") {
+      console.warn("[syncAllGoogleData] Calendar sync error:", calendarRes.reason);
+    }
+    if (tasksRes.status === "rejected") {
+      console.warn("[syncAllGoogleData] Tasks sync error:", tasksRes.reason);
+    }
+
+    return { calendar, tasks };
+  } finally {
+    isSyncAllInProgress = false;
+  }
+}
+

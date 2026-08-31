@@ -1021,6 +1021,89 @@ describe("Notes 階層化・ハブ＆カード（Parent-Child Hub）統合テス
       expect(ids).not.toContain("table");
     });
   });
+
+  // ─────────────────────────────────────────
+  // 17. モバイル表示・ツールバーボタン配置最適化テスト
+  // ─────────────────────────────────────────
+  describe("モバイル表示・ツールバーボタン配置最適化", () => {
+    it("ダッシュボードの全アクションボタンに white-space: nowrap と flex-shrink: 0 が適用されている", async () => {
+      const Notes = (await import("../components/Notes")).default;
+      const { container } = render(<Notes />);
+
+      const newBtn = screen.getByRole("button", { name: /新しいノート/ });
+      const trashBtn = screen.getByRole("button", { name: "ごみ箱" });
+      const importBtn = screen.getByRole("button", { name: "インポート" });
+
+      expect(newBtn).toBeInTheDocument();
+      expect(trashBtn).toBeInTheDocument();
+      expect(importBtn).toBeInTheDocument();
+
+      // 各ボタンまたはその中身が改行禁止（nowrap）になっていることを検証
+      expect(newBtn.classList.contains("arca-notes-btn-primary")).toBe(true);
+      expect(trashBtn.classList.contains("arca-notes-btn-sub")).toBe(true);
+      expect(importBtn.classList.contains("arca-notes-btn-sub")).toBe(true);
+
+      const toolbarGrid = container.querySelector(".arca-notes-toolbar-grid");
+      expect(toolbarGrid).toBeInTheDocument();
+    });
+  });
+
+  // ─────────────────────────────────────────
+  // 18. グリッド / リスト表示切り替えテスト
+  // ─────────────────────────────────────────
+  describe("グリッド / リスト表示切り替え機能", () => {
+    it("グリッド表示とリスト表示をトグル切り替えでき、各モードのカードクラスが適用される", async () => {
+      const { onSnapshot } = await import("firebase/firestore");
+      const Notes = (await import("../components/Notes")).default;
+
+      (onSnapshot as any).mockImplementation((_q: any, callback: any) => {
+        callback({
+          docs: [
+            {
+              id: "note-1",
+              data: () => ({
+                title: "テストノート1",
+                content: "テスト内容1",
+                tags: ["仕事"],
+                parentId: null,
+                createdAt: "2026-08-30T10:00:00Z",
+                updatedAt: "2026-08-30T10:00:00Z",
+                isDeleted: false,
+              }),
+            },
+          ],
+          forEach: function (fn: any) {
+            this.docs.forEach(fn);
+          },
+        });
+        return vi.fn();
+      });
+
+      const { container } = render(<Notes />);
+
+      // 初期状態: グリッド表示ボタンとリスト表示ボタンが存在する
+      const gridToggleBtn = screen.getByRole("button", { name: "グリッド表示" });
+      const listToggleBtn = screen.getByRole("button", { name: "リスト表示" });
+
+      expect(gridToggleBtn).toBeInTheDocument();
+      expect(listToggleBtn).toBeInTheDocument();
+
+      // 初期はグリッド表示カード
+      expect(container.querySelector(".arca-note-card-grid")).toBeInTheDocument();
+
+      // リスト表示ボタンをクリック
+      await userEvent.click(listToggleBtn);
+
+      // リスト表示カードに切り替わる
+      expect(container.querySelector(".arca-note-card-list")).toBeInTheDocument();
+      expect(screen.getByText("テストノート1")).toBeInTheDocument();
+
+      // 再びグリッド表示ボタンをクリック
+      await userEvent.click(gridToggleBtn);
+      expect(container.querySelector(".arca-note-card-grid")).toBeInTheDocument();
+    });
+  });
 });
+
 
 

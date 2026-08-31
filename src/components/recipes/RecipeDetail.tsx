@@ -109,11 +109,11 @@ function SourceLinkCard({ url }: { url: string }) {
         gap: "0.85rem",
         padding: "0.85rem 1.15rem",
         borderRadius: "14px",
-        background: "rgba(255, 255, 255, 0.85)",
+        background: "var(--bg-card)",
         backdropFilter: "blur(12px)",
         WebkitBackdropFilter: "blur(12px)",
-        border: "1px solid rgba(0, 0, 0, 0.06)",
-        boxShadow: "0 2px 8px rgba(0, 0, 0, 0.03)",
+        border: "1px solid var(--border-subtle)",
+        boxShadow: "var(--shadow-card)",
         textDecoration: "none",
         color: C.charcoal,
         transition: "all 0.18s ease",
@@ -389,12 +389,12 @@ export function RecipeDetail({
           style={{
             width: "100%",
             maxWidth: "840px",
-            background: "rgba(255, 255, 255, 0.88)",
+            background: "var(--bg-surface-glass)",
             backdropFilter: "blur(20px) saturate(180%)",
             WebkitBackdropFilter: "blur(20px) saturate(180%)",
             borderRadius: "24px",
-            boxShadow: "0 4px 28px rgba(0, 0, 0, 0.04), 0 1px 3px rgba(0, 0, 0, 0.02)",
-            border: "1px solid rgba(255, 255, 255, 0.8)",
+            boxShadow: "var(--shadow-modal)",
+            border: "1px solid var(--border-subtle)",
             padding: "3.2rem clamp(1.5rem, 5vw, 4rem) 4.5rem",
             boxSizing: "border-box",
             display: "flex",
@@ -798,12 +798,14 @@ export function RecipeDetail({
           onClick={() => setIsBatchModalOpen(false)}
         >
           <div
+            className="arca-card"
             style={{
               width: "100%",
               maxWidth: "480px",
-              background: "#FFFFFF",
+              background: "var(--bg-card-solid)",
               borderRadius: "20px",
-              boxShadow: "0 12px 40px rgba(0, 0, 0, 0.15)",
+              border: "1px solid var(--border-subtle)",
+              boxShadow: "var(--shadow-modal)",
               padding: "1.8rem",
               boxSizing: "border-box",
               display: "flex",

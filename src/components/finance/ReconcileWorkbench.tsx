@@ -126,12 +126,13 @@ export function ReconcileWorkbench({
     <div style={{ display: "flex", flexDirection: "column", gap: "1.6rem" }}>
       {/* ── CSV 取り込みパネル ── */}
       <div
+        className="arca-card"
         style={{
-          background: C.white,
+          background: "var(--bg-card-solid)",
           borderRadius: C.radiusCard,
           boxShadow: C.cardShadow,
           padding: "1.5rem",
-          border: "1px solid rgba(0, 0, 0, 0.03)",
+          border: "1px solid var(--border-subtle)",
         }}
       >
         <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: "0.8rem", flexWrap: "wrap", gap: "0.6rem" }}>
@@ -376,17 +377,18 @@ export function ReconcileWorkbench({
               return (
                 <div
                   key={csvRow.rowId || idx}
+                  className="arca-card"
                   style={{
-                    background: C.white,
+                    background: "var(--bg-card-solid)",
                     borderRadius: C.radiusCard,
                     boxShadow: C.cardShadow,
                     padding: "1rem 1.2rem",
                     border:
                       confidence === "exact"
-                        ? "1px solid rgba(46, 125, 50, 0.25)"
+                        ? "1px solid rgba(46, 125, 50, 0.35)"
                         : confidence === "none"
-                        ? "1px solid rgba(198, 40, 40, 0.15)"
-                        : "1px solid rgba(0, 0, 0, 0.04)",
+                        ? "1px solid rgba(198, 40, 40, 0.25)"
+                        : "1px solid var(--border-subtle)",
                     display: "flex",
                     flexDirection: "column",
                     gap: "0.8rem",
@@ -417,7 +419,7 @@ export function ReconcileWorkbench({
                       display: "grid",
                       gridTemplateColumns: "1fr 1fr",
                       gap: "0.8rem",
-                      background: "rgba(0, 0, 0, 0.015)",
+                      background: "var(--bg-nav-track)",
                       padding: "0.8rem 1rem",
                       borderRadius: "8px",
                     }}
@@ -561,21 +563,18 @@ export function ReconcileWorkbench({
                   {isManualOpen && (
                     <div
                       style={{
-                        background: "rgba(0,0,0,0.02)",
-                        border: "1px solid rgba(0,0,0,0.08)",
+                        marginTop: "0.4rem",
+                        padding: "0.6rem",
+                        background: "var(--bg-nav-track)",
                         borderRadius: "8px",
-                        padding: "0.8rem",
-                        marginTop: "0.3rem",
-                        display: "flex",
-                        flexDirection: "column",
-                        gap: "0.5rem",
+                        border: "1px solid var(--border-subtle)",
                       }}
                     >
-                      <div style={{ fontSize: "0.72rem", fontWeight: 700, color: C.charcoalMid }}>
-                        紐付けるArca支出を選択してください:
+                      <div style={{ fontSize: "0.72rem", fontWeight: 700, color: C.charcoalLight, marginBottom: "0.4rem" }}>
+                        突合する支出を選択:
                       </div>
                       {unreconciledTransactions.length === 0 ? (
-                        <div style={{ fontSize: "0.74rem", color: C.charcoalLight }}>
+                        <div style={{ fontSize: "0.74rem", color: C.charcoalLight, fontStyle: "italic", padding: "0.4rem 0" }}>
                           未突合の支出がありません
                         </div>
                       ) : (

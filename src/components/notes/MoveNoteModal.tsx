@@ -80,17 +80,18 @@ export function MoveNoteModal({
       onClick={onClose}
     >
       <div
+        className="arca-card"
         style={{
-          background: C.white,
+          background: "var(--bg-card-solid)",
           borderRadius: "20px",
-          boxShadow: "0 16px 48px rgba(0,0,0,0.16), 0 2px 8px rgba(0,0,0,0.06)",
+          boxShadow: "var(--shadow-modal)",
           width: "100%",
           maxWidth: "460px",
           maxHeight: "85vh",
           display: "flex",
           flexDirection: "column",
           overflow: "hidden",
-          border: "1px solid rgba(0,0,0,0.06)",
+          border: "1px solid var(--border-subtle)",
         }}
         onClick={(e) => e.stopPropagation()}
       >
@@ -332,8 +333,8 @@ export function MoveNoteModal({
             justifyContent: "flex-end",
             gap: "0.6rem",
             padding: "0.9rem 1.4rem",
-            background: C.ivory,
-            borderTop: `1px solid ${C.ivory2}`,
+            background: "var(--bg-nav-track)",
+            borderTop: "1px solid var(--border-subtle)",
           }}
         >
           <button
@@ -342,8 +343,8 @@ export function MoveNoteModal({
             style={{
               padding: "0.45rem 0.95rem",
               borderRadius: "8px",
-              border: "1px solid rgba(0,0,0,0.08)",
-              background: C.white,
+              border: "1px solid var(--border-subtle)",
+              background: "var(--bg-surface)",
               fontSize: "0.82rem",
               fontWeight: 500,
               color: C.charcoalMid,
@@ -363,7 +364,7 @@ export function MoveNoteModal({
               background: isCurrentSelection ? "rgba(0,0,0,0.08)" : C.gold,
               fontSize: "0.82rem",
               fontWeight: 650,
-              color: isCurrentSelection ? C.charcoalLight : C.white,
+              color: isCurrentSelection ? C.charcoalLight : "#FDFCFA",
               cursor: isCurrentSelection ? "default" : "pointer",
               boxShadow: isCurrentSelection ? "none" : "0 2px 8px rgba(197, 160, 89, 0.35)",
               transition: "all 0.15s ease",

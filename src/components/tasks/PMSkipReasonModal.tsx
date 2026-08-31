@@ -93,12 +93,13 @@ export function PMSkipReasonModal({
         style={{
           width: "100%",
           maxWidth: "540px",
-          background: C.bgGlass,
+          background: "var(--bg-card-solid)",
           backdropFilter: "blur(24px)",
           WebkitBackdropFilter: "blur(24px)",
           borderRadius: `${C.radiusCard} ${C.radiusCard} 0 0`,
           padding: "1.75rem 1.75rem 2.25rem",
           boxShadow: C.toastShadow,
+          border: "1px solid var(--border-subtle)",
           animation: "pm-sheet-up 0.28s cubic-bezier(0.16, 1, 0.3, 1)",
           boxSizing: "border-box",
         }}
@@ -149,7 +150,7 @@ export function PMSkipReasonModal({
                 type="button"
                 onClick={() => handleChipClick(chip)}
                 style={{
-                  background: isSelected ? C.goldFaint2 : "rgba(0, 0, 0, 0.04)",
+                  background: isSelected ? C.goldFaint2 : "var(--bg-nav-track)",
                   color: isSelected ? C.goldDark : C.charcoalMid,
                   border: "none",
                   borderRadius: "9999px",
@@ -182,8 +183,8 @@ export function PMSkipReasonModal({
           style={{
             width: "100%",
             boxSizing: "border-box",
-            background: "rgba(0, 0, 0, 0.025)",
-            border: "none",
+            background: C.white,
+            border: "1px solid var(--border-subtle)",
             borderRadius: "14px",
             outline: "none",
             resize: "none",
@@ -204,13 +205,13 @@ export function PMSkipReasonModal({
             onClick={handleClose}
             style={{
               flex: 1,
-              background: "rgba(0, 0, 0, 0.05)",
-              border: "none",
+              background: "var(--bg-nav-track)",
+              border: "1px solid var(--border-subtle)",
               borderRadius: C.radiusBtn,
               padding: "0.75rem",
               fontSize: "0.88rem",
               fontWeight: 500,
-              color: C.charcoalMid,
+              color: C.charcoal,
               cursor: "pointer",
               transition: "background 0.15s ease",
             }}

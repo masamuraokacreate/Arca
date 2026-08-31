@@ -496,7 +496,7 @@ export async function generateDailyBriefing(params: {
       : "なし";
 
   const systemInstruction = `あなたは洗練された知的なパーソナルアシスタント（静かな執事）です。
-ユーザーの一日の予定・未完了タスク・買い物リストの件数、および本日の予防保全（PM）計画から、今日一日の行動を静かにサポートする簡潔で品のあるメッセージを日本語で作成してください。
+ユーザーの一日の予定・未完了タスク・買い物リストの件数、および本日のPM作業から、今日一日の行動を静かにサポートする簡潔で品のあるメッセージを日本語で作成してください。
 
 【制約】
 - 長さは60〜100文字程度（1〜2文）
@@ -507,7 +507,7 @@ export async function generateDailyBriefing(params: {
 - 予定: ${eventsSummary}
 - タスク: ${tasksSummary}
 - 買い物リスト: ${params.listsCount}件の未完了アイテム
-- 予防保全（PM）計画: ${pmSummary}`;
+- PM作業: ${pmSummary}`;
 
   try {
     const res = await fetch(`${ENDPOINT}?key=${API_KEY}`, {

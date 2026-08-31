@@ -61,12 +61,13 @@ export function FinanceAnalytics({ transactions, selectedMonth }: FinanceAnalyti
       >
         {/* 支出合計 */}
         <div
+          className="arca-card"
           style={{
-            background: C.white,
+            background: "var(--bg-card-solid)",
             borderRadius: C.radiusCard,
             boxShadow: C.cardShadow,
             padding: "1.2rem 1.4rem",
-            border: "1px solid rgba(0, 0, 0, 0.03)",
+            border: "1px solid var(--border-subtle)",
           }}
         >
           <div style={{ fontSize: "0.72rem", fontWeight: 650, color: C.charcoalLight, marginBottom: "0.3rem" }}>
@@ -82,12 +83,13 @@ export function FinanceAnalytics({ transactions, selectedMonth }: FinanceAnalyti
 
         {/* 1日あたり平均支出 */}
         <div
+          className="arca-card"
           style={{
-            background: C.white,
+            background: "var(--bg-card-solid)",
             borderRadius: C.radiusCard,
             boxShadow: C.cardShadow,
             padding: "1.2rem 1.4rem",
-            border: "1px solid rgba(0, 0, 0, 0.03)",
+            border: "1px solid var(--border-subtle)",
           }}
         >
           <div style={{ fontSize: "0.72rem", fontWeight: 650, color: C.charcoalLight, marginBottom: "0.3rem" }}>
@@ -103,12 +105,13 @@ export function FinanceAnalytics({ transactions, selectedMonth }: FinanceAnalyti
 
         {/* 取引件数 */}
         <div
+          className="arca-card"
           style={{
-            background: C.white,
+            background: "var(--bg-card-solid)",
             borderRadius: C.radiusCard,
             boxShadow: C.cardShadow,
             padding: "1.2rem 1.4rem",
-            border: "1px solid rgba(0, 0, 0, 0.03)",
+            border: "1px solid var(--border-subtle)",
           }}
         >
           <div style={{ fontSize: "0.72rem", fontWeight: 650, color: C.charcoalLight, marginBottom: "0.3rem" }}>
@@ -124,12 +127,13 @@ export function FinanceAnalytics({ transactions, selectedMonth }: FinanceAnalyti
 
         {/* 最大支出 */}
         <div
+          className="arca-card"
           style={{
-            background: C.white,
+            background: "var(--bg-card-solid)",
             borderRadius: C.radiusCard,
             boxShadow: C.cardShadow,
             padding: "1.2rem 1.4rem",
-            border: "1px solid rgba(0, 0, 0, 0.03)",
+            border: "1px solid var(--border-subtle)",
           }}
         >
           <div style={{ fontSize: "0.72rem", fontWeight: 650, color: C.charcoalLight, marginBottom: "0.3rem" }}>
@@ -155,12 +159,13 @@ export function FinanceAnalytics({ transactions, selectedMonth }: FinanceAnalyti
 
       {/* ── カテゴリ別支出比率 ── */}
       <div
+        className="arca-card"
         style={{
-          background: C.white,
+          background: "var(--bg-card-solid)",
           borderRadius: C.radiusCard,
           boxShadow: C.cardShadow,
           padding: "1.5rem",
-          border: "1px solid rgba(0, 0, 0, 0.03)",
+          border: "1px solid var(--border-subtle)",
         }}
       >
         <h3
@@ -183,7 +188,7 @@ export function FinanceAnalytics({ transactions, selectedMonth }: FinanceAnalyti
               height: "14px",
               borderRadius: "9999px",
               overflow: "hidden",
-              background: "rgba(0, 0, 0, 0.04)",
+              background: "var(--bg-nav-track)",
               marginBottom: "1.4rem",
             }}
           >
@@ -250,7 +255,7 @@ export function FinanceAnalytics({ transactions, selectedMonth }: FinanceAnalyti
                         flex: 1,
                         height: "8px",
                         borderRadius: "9999px",
-                        background: "rgba(0, 0, 0, 0.04)",
+                        background: "var(--bg-nav-track)",
                         overflow: "hidden",
                       }}
                     >
@@ -280,12 +285,13 @@ export function FinanceAnalytics({ transactions, selectedMonth }: FinanceAnalyti
 
       {/* ── 日別支出推移バーチャート ── */}
       <div
+        className="arca-card"
         style={{
-          background: C.white,
+          background: "var(--bg-card-solid)",
           borderRadius: C.radiusCard,
           boxShadow: C.cardShadow,
           padding: "1.5rem",
-          border: "1px solid rgba(0, 0, 0, 0.03)",
+          border: "1px solid var(--border-subtle)",
         }}
       >
         <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: "1.2rem" }}>
@@ -346,7 +352,7 @@ export function FinanceAnalytics({ transactions, selectedMonth }: FinanceAnalyti
                     width: "100%",
                     maxWidth: "16px",
                     height: `${Math.max(amount > 0 ? 6 : 2, heightPct)}%`,
-                    background: isPeak ? C.gold : amount > 0 ? "rgba(197, 160, 89, 0.45)" : "rgba(0, 0, 0, 0.04)",
+                    background: isPeak ? C.gold : amount > 0 ? "rgba(197, 160, 89, 0.45)" : "var(--bg-nav-track)",
                     borderRadius: "4px 4px 0 0",
                     transition: "height 0.3s ease, background 0.15s ease",
                   }}
@@ -373,12 +379,13 @@ export function FinanceAnalytics({ transactions, selectedMonth }: FinanceAnalyti
       {/* ── 高額支出ランキング (Top 5) ── */}
       {topTransactions.length > 0 && (
         <div
+          className="arca-card"
           style={{
-            background: C.white,
+            background: "var(--bg-card-solid)",
             borderRadius: C.radiusCard,
             boxShadow: C.cardShadow,
             padding: "1.5rem",
-            border: "1px solid rgba(0, 0, 0, 0.03)",
+            border: "1px solid var(--border-subtle)",
           }}
         >
           <h3
@@ -390,7 +397,7 @@ export function FinanceAnalytics({ transactions, selectedMonth }: FinanceAnalyti
               letterSpacing: "-0.01em",
             }}
           >
-            当月の高額支出 (Top 5)
+            高額支出ランキング (Top 5)
           </h3>
 
           <div style={{ display: "flex", flexDirection: "column", gap: "0.6rem" }}>
@@ -403,9 +410,10 @@ export function FinanceAnalytics({ transactions, selectedMonth }: FinanceAnalyti
                     display: "flex",
                     alignItems: "center",
                     justifyContent: "space-between",
-                    padding: "0.6rem 0.8rem",
-                    background: "rgba(0, 0, 0, 0.015)",
-                    borderRadius: "8px",
+                    padding: "0.65rem 0.9rem",
+                    background: "var(--bg-nav-track)",
+                    borderRadius: "10px",
+                    border: "1px solid var(--border-subtle)",
                   }}
                 >
                   <div style={{ display: "flex", alignItems: "center", gap: "0.6rem" }}>

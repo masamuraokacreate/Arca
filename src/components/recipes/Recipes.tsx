@@ -436,7 +436,7 @@ export default function Recipes({ onNavigateToLists }: RecipesProps = {}) {
               <div
                 style={{
                   display: "flex",
-                  background: "rgba(0, 0, 0, 0.04)",
+                  background: "var(--bg-nav-track)",
                   borderRadius: "9px",
                   padding: "2px",
                   gap: "1px",
@@ -447,15 +447,16 @@ export default function Recipes({ onNavigateToLists }: RecipesProps = {}) {
                   onClick={() => setLayoutStyle("grid")}
                   aria-label="グリッド表示"
                   style={{
-                    background: layoutStyle === "grid" ? C.white : "transparent",
-                    color: layoutStyle === "grid" ? C.charcoal : C.charcoalLight,
+                    background: layoutStyle === "grid" ? "var(--bg-nav-pill)" : "transparent",
+                    color: layoutStyle === "grid" ? "var(--text-main)" : C.charcoalLight,
                     border: "none",
                     borderRadius: "7px",
                     padding: "0.4rem 0.6rem",
                     cursor: "pointer",
                     display: "flex",
                     alignItems: "center",
-                    boxShadow: layoutStyle === "grid" ? "0 1px 3px rgba(0,0,0,0.06)" : "none",
+                    boxShadow: layoutStyle === "grid" ? "0 1px 4px rgba(0,0,0,0.12)" : "none",
+                    transition: "all 0.15s ease",
                   }}
                 >
                   <GridIcon />
@@ -464,15 +465,16 @@ export default function Recipes({ onNavigateToLists }: RecipesProps = {}) {
                   onClick={() => setLayoutStyle("list")}
                   aria-label="リスト表示"
                   style={{
-                    background: layoutStyle === "list" ? C.white : "transparent",
-                    color: layoutStyle === "list" ? C.charcoal : C.charcoalLight,
+                    background: layoutStyle === "list" ? "var(--bg-nav-pill)" : "transparent",
+                    color: layoutStyle === "list" ? "var(--text-main)" : C.charcoalLight,
                     border: "none",
                     borderRadius: "7px",
                     padding: "0.4rem 0.6rem",
                     cursor: "pointer",
                     display: "flex",
                     alignItems: "center",
-                    boxShadow: layoutStyle === "list" ? "0 1px 3px rgba(0,0,0,0.06)" : "none",
+                    boxShadow: layoutStyle === "list" ? "0 1px 4px rgba(0,0,0,0.12)" : "none",
+                    transition: "all 0.15s ease",
                   }}
                 >
                   <ListIcon />
@@ -530,13 +532,14 @@ export default function Recipes({ onNavigateToLists }: RecipesProps = {}) {
                 layoutStyle === "grid"
                   ? "repeat(auto-fill, minmax(280px, 1fr))"
                   : "1fr",
-              gap: "1.25rem",
+              gap: layoutStyle === "grid" ? "1.25rem" : "0.85rem",
             }}
           >
             {filteredRecipes.map((recipe) => (
               <RecipeCard
                 key={recipe.id}
                 recipe={recipe}
+                viewMode={layoutStyle}
                 onClick={() => handleOpenDetail(recipe.id)}
                 onEdit={(e) => {
                   e.stopPropagation();

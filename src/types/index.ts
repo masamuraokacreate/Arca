@@ -164,7 +164,7 @@ export interface NoteItem {
 export * from "./recipe";
 
 // ─────────────────────────────────────────
-// 勤務シフト（Shift） & PM（予防保全）モジュール
+// 勤務シフト（Shift） & PM（PM作業）モジュール
 // ─────────────────────────────────────────
 export * from "./shift";
 export * from "./pm";

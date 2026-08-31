@@ -44,6 +44,8 @@ vi.mock("firebase/auth", () => {
     signOut: vi.fn().mockResolvedValue(undefined),
     GoogleAuthProvider: class {
       setCustomParameters = vi.fn();
+      addScope = vi.fn();
+      static credentialFromResult = vi.fn(() => ({ accessToken: "mock-token" }));
     },
   };
 });
@@ -70,6 +72,7 @@ vi.mock("firebase/firestore", () => ({
     if (typeof cb === "function") {
       cb({
         docs: [],
+        forEach: vi.fn(),
         exists: () => false,
         data: () => ({}),
       });
@@ -160,7 +163,7 @@ beforeEach(() => {
   if (vi.isMockFunction(firestore.onSnapshot)) {
     vi.mocked(firestore.onSnapshot).mockImplementation((_q: unknown, cb: unknown) => {
       if (typeof cb === "function") {
-        cb({ docs: [] });
+        cb({ docs: [], forEach: vi.fn() });
       }
       return vi.fn();
     });

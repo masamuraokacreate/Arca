@@ -53,9 +53,11 @@ export function TransactionList({
   if (transactions.length === 0) {
     return (
       <div
+        className="arca-card"
         style={{
-          background: C.white,
+          background: "var(--bg-card-solid)",
           borderRadius: C.radiusCard,
+          border: "1px solid var(--border-subtle)",
           boxShadow: C.cardShadow,
           padding: "4rem 2rem",
           textAlign: "center",
@@ -142,7 +144,7 @@ export function TransactionList({
                   fontSize: "0.74rem",
                   fontWeight: 650,
                   color: C.charcoalLight,
-                  background: "rgba(0, 0, 0, 0.03)",
+                  background: "var(--bg-nav-track)",
                   padding: "0.15rem 0.5rem",
                   borderRadius: "9999px",
                 }}
@@ -153,12 +155,13 @@ export function TransactionList({
 
             {/* 当日の取引カード群 */}
             <div
+              className="arca-card"
               style={{
-                background: C.white,
+                background: "var(--bg-card-solid)",
                 borderRadius: C.radiusCard,
                 boxShadow: C.cardShadow,
                 overflow: "hidden",
-                border: "1px solid rgba(0, 0, 0, 0.03)",
+                border: "1px solid var(--border-subtle)",
               }}
             >
               {dayTxs.map((tx, idx) => {
@@ -337,8 +340,8 @@ export function TransactionList({
                     {isExpanded && (
                       <div
                         style={{
-                          background: "rgba(0, 0, 0, 0.015)",
-                          borderTop: "1px dashed rgba(0, 0, 0, 0.06)",
+                          background: "var(--bg-nav-track)",
+                          borderTop: "1px dashed var(--border-subtle)",
                           padding: "0.9rem 1.2rem 1rem",
                           display: "flex",
                           flexDirection: "column",
@@ -364,7 +367,7 @@ export function TransactionList({
                                     padding: "0.35rem 0.6rem",
                                     background: C.white,
                                     borderRadius: "6px",
-                                    border: "1px solid rgba(0, 0, 0, 0.03)",
+                                    border: "1px solid var(--border-subtle)",
                                   }}
                                 >
                                   <div style={{ display: "flex", alignItems: "center", gap: "0.45rem" }}>

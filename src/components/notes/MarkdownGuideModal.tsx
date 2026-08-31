@@ -153,7 +153,7 @@ export function MarkdownGuideModal({
           width: "100%",
           maxWidth: "680px",
           maxHeight: "85vh",
-          background: "rgba(253, 252, 250, 0.95)",
+          background: "var(--bg-card-solid)",
           backdropFilter: "blur(24px) saturate(180%)",
           WebkitBackdropFilter: "blur(24px) saturate(180%)",
           borderRadius: "22px",
@@ -161,7 +161,7 @@ export function MarkdownGuideModal({
           display: "flex",
           flexDirection: "column",
           overflow: "hidden",
-          border: "1px solid rgba(255, 255, 255, 0.6)",
+          border: "1px solid var(--border-subtle)",
         }}
       >
         {/* ── ヘッダー ── */}

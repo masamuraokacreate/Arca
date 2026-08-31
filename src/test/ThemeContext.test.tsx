@@ -112,6 +112,13 @@ describe("ThemeModal コンポーネント", () => {
 
     // ヘッダーが表示される
     expect(screen.getByText("外観・テーマ設定")).toBeInTheDocument();
+    expect(
+      screen.getByText("自動を選択した際、昼はアイボリー、夜はディープスペースが選択されます")
+    ).toBeInTheDocument();
+
+    // モード切り替えボタンが存在する
+    expect(screen.getByText("手動")).toBeInTheDocument();
+    expect(screen.getByText("OS連動")).toBeInTheDocument();
 
     // 各パレットのカードが存在する
     expect(screen.getAllByText("アイボリー").length).toBeGreaterThan(0);
@@ -119,7 +126,7 @@ describe("ThemeModal コンポーネント", () => {
     expect(screen.getAllByText("ウォームサンド").length).toBeGreaterThan(0);
     expect(screen.getAllByText("ミッドナイトセージ").length).toBeGreaterThan(0);
 
-    // 「ディープスペース」をクリック
+    // 「ディープスペース」をクリック（手動に変更される）
     fireEvent.click(screen.getAllByText("ディープスペース")[0]);
     expect(document.documentElement.getAttribute("data-theme")).toBe("dark");
 
@@ -127,8 +134,12 @@ describe("ThemeModal コンポーネント", () => {
     fireEvent.click(screen.getAllByText("ウォームサンド")[0]);
     expect(document.documentElement.getAttribute("data-theme")).toBe("sand");
 
+    // 「OS連動」をクリック
+    fireEvent.click(screen.getByText("OS連動"));
+
     // 完了ボタンをクリックして閉じる
     fireEvent.click(screen.getByText("完了"));
     expect(handleClose).toHaveBeenCalled();
   });
 });
+

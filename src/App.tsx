@@ -15,6 +15,7 @@ import ThemeModal from "./components/ThemeModal";
 import { C } from "./lib/designSystem";
 import { useNetworkStatus } from "./hooks/useNetworkStatus";
 import { logoutUser } from "./components/AuthGate";
+import { loadSavedToken, syncAllGoogleData } from "./services/googleAuth";
 
 // ---------- ネットワーク接続状態バッジ ----------
 function NetworkStatusBadge({ isOnline }: { isOnline: boolean }) {
@@ -279,8 +280,12 @@ function NavBar({
               }}
               title="外観・テーマ設定"
             >
-              <svg viewBox="0 0 24 24" fill="none" strokeWidth={1.75} stroke="currentColor" style={{ width: "0.88rem", height: "0.88rem" }}>
-                <path strokeLinecap="round" strokeLinejoin="round" d="M4.098 19.902a3.75 3.75 0 0 0 5.304 0l6.401-6.402M6.75 21A3.75 3.75 0 0 1 3 17.25V4.125C3 3.504 3.504 3 4.125 3h5.25c.621 0 1.125.504 1.125 1.125v4.072M6.75 21a3.75 3.75 0 0 0 3.75-3.75V8.197M6.75 21h13.125c.621 0 1.125-.504 1.125-1.125v-5.25c0-.621-.504-1.125-1.125-1.125h-4.072M10.5 8.197l9.75 9.75" />
+              <svg viewBox="0 0 24 24" fill="none" strokeWidth={1.75} stroke="currentColor" strokeLinecap="round" strokeLinejoin="round" style={{ width: "0.88rem", height: "0.88rem" }}>
+                <circle cx="13.5" cy="6.5" r=".5" fill="currentColor" />
+                <circle cx="17.5" cy="10.5" r=".5" fill="currentColor" />
+                <circle cx="8.5" cy="7.5" r=".5" fill="currentColor" />
+                <circle cx="6.5" cy="12.5" r=".5" fill="currentColor" />
+                <path d="M12 2C6.48 2 2 6.48 2 12a10 10 0 0 0 10 10c.83 0 1.5-.67 1.5-1.5 0-.39-.15-.74-.39-1.01-.23-.26-.38-.61-.38-.99 0-.83.67-1.5 1.5-1.5H16c3.31 0 6-2.69 6-6 0-4.97-4.48-9-10-9z" />
               </svg>
             </button>
 
@@ -401,14 +406,14 @@ function NavBar({
                   fontSize: isMobile ? "0.78rem" : "0.78rem",
                   fontWeight: isActive ? 650 : 450,
                   letterSpacing: "0.02em",
-                  color: isActive ? C.charcoal : C.charcoalLight,
+                  color: isActive ? "var(--text-main)" : C.charcoalLight,
                   transition: "color 0.18s ease",
                   whiteSpace: "nowrap",
                   userSelect: "none",
                   flexShrink: 0,
                 }}
                 onMouseEnter={(e) => {
-                  if (!isActive) (e.currentTarget as HTMLButtonElement).style.color = C.charcoal;
+                  if (!isActive) (e.currentTarget as HTMLButtonElement).style.color = "var(--text-main)";
                 }}
                 onMouseLeave={(e) => {
                   if (!isActive) (e.currentTarget as HTMLButtonElement).style.color = C.charcoalLight;
@@ -453,8 +458,12 @@ function NavBar({
               (e.currentTarget as HTMLButtonElement).style.background = "transparent";
             }}
           >
-            <svg viewBox="0 0 24 24" fill="none" strokeWidth={1.75} stroke="currentColor" style={{ width: "0.85rem", height: "0.85rem", flexShrink: 0 }}>
-              <path strokeLinecap="round" strokeLinejoin="round" d="M4.098 19.902a3.75 3.75 0 0 0 5.304 0l6.401-6.402M6.75 21A3.75 3.75 0 0 1 3 17.25V4.125C3 3.504 3.504 3 4.125 3h5.25c.621 0 1.125.504 1.125 1.125v4.072M6.75 21a3.75 3.75 0 0 0 3.75-3.75V8.197M6.75 21h13.125c.621 0 1.125-.504 1.125-1.125v-5.25c0-.621-.504-1.125-1.125-1.125h-4.072M10.5 8.197l9.75 9.75" />
+            <svg viewBox="0 0 24 24" fill="none" strokeWidth={1.75} stroke="currentColor" strokeLinecap="round" strokeLinejoin="round" style={{ width: "0.85rem", height: "0.85rem", flexShrink: 0 }}>
+              <circle cx="13.5" cy="6.5" r=".5" fill="currentColor" />
+              <circle cx="17.5" cy="10.5" r=".5" fill="currentColor" />
+              <circle cx="8.5" cy="7.5" r=".5" fill="currentColor" />
+              <circle cx="6.5" cy="12.5" r=".5" fill="currentColor" />
+              <path d="M12 2C6.48 2 2 6.48 2 12a10 10 0 0 0 10 10c.83 0 1.5-.67 1.5-1.5 0-.39-.15-.74-.39-1.01-.23-.26-.38-.61-.38-.99 0-.83.67-1.5 1.5-1.5H16c3.31 0 6-2.69 6-6 0-4.97-4.48-9-10-9z" />
             </svg>
             <span className="hidden sm:inline">外観</span>
           </button>
@@ -539,12 +548,26 @@ function App() {
   const [isThemeModalOpen, setIsThemeModalOpen] = useState(false);
   const [isMobile, setIsMobile] = useState(typeof window !== "undefined" ? window.innerWidth < 640 : false);
 
+  // 画面幅監視
   useEffect(() => {
     const handleResize = () => {
       setIsMobile(window.innerWidth < 640);
     };
     window.addEventListener("resize", handleResize);
     return () => window.removeEventListener("resize", handleResize);
+  }, []);
+
+  // ─── Googleアカウント認証完了時（AuthGate通過時）の自動一括同期 ───
+  const hasInitialSyncedRef = useRef(false);
+  useEffect(() => {
+    if (hasInitialSyncedRef.current) return;
+    const token = loadSavedToken();
+    if (!token) return;
+
+    hasInitialSyncedRef.current = true;
+    syncAllGoogleData(token).catch((err) => {
+      console.warn("[App] Initial Google sync error:", err);
+    });
   }, []);
 
   const handleNavigate = useCallback((module: Module, tab: "tasks" | "lists" = "tasks") => {

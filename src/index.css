@@ -70,14 +70,14 @@
   --bg-card: rgba(26, 29, 38, 0.72);
   --bg-card-hover: rgba(32, 35, 46, 0.88);
   --bg-card-solid: #191B24;
-  --bg-nav-track: rgba(255, 255, 255, 0.06);
-  --bg-nav-pill: #252834;
+  --bg-nav-track: rgba(255, 255, 255, 0.08);
+  --bg-nav-pill: rgba(255, 255, 255, 0.20);
 
   --color-ivory-tint: #1C1E29;
   --color-ivory-tint2: #242735;
 
-  --text-main: #F2F2F7;
-  --text-mid: #AEAEB2;
+  --text-main: #FFFFFF;
+  --text-mid: #B0B0B8;
   --text-muted: #8E8E93;
   --text-xmuted: #636366;
 
@@ -142,14 +142,14 @@
   --bg-card: rgba(28, 42, 37, 0.72);
   --bg-card-hover: rgba(34, 52, 46, 0.88);
   --bg-card-solid: #1C2B26;
-  --bg-nav-track: rgba(255, 255, 255, 0.06);
-  --bg-nav-pill: #253832;
+  --bg-nav-track: rgba(255, 255, 255, 0.08);
+  --bg-nav-pill: rgba(255, 255, 255, 0.20);
 
   --color-ivory-tint: #1C2925;
   --color-ivory-tint2: #243530;
 
-  --text-main: #EDF4F1;
-  --text-mid: #A8BCB5;
+  --text-main: #FFFFFF;
+  --text-mid: #AFC2BC;
   --text-muted: #7D948D;
   --text-xmuted: #51635D;
 
@@ -188,6 +188,21 @@
     transition: background 0.25s ease, color 0.25s ease;
   }
 
+  /* ── フォーム要素のテーマ自動適応（ダークモード時の白浮き完全防止） ── */
+  input,
+  textarea,
+  select {
+    color: var(--text-main);
+    background-color: var(--bg-surface);
+    border-color: var(--border-subtle);
+  }
+
+  input::placeholder,
+  textarea::placeholder {
+    color: var(--text-xmuted);
+    opacity: 0.85;
+  }
+
   /* ── Apple HIG: キーボードフォーカスリング ── */
   :focus-visible {
     outline: 2px solid var(--accent-gold);
@@ -223,6 +238,13 @@
   }
 }
 
+/* ── メインエディタ・詳細シートコンテナ（Theme Adaptive Glass） ── */
+.arca-layout-container {
+  background: var(--bg-surface-glass) !important;
+  border: 1px solid var(--border-subtle) !important;
+  box-shadow: var(--shadow-modal) !important;
+}
+
 /* ── 共通カードスタイル（枠線完全排除・浮遊感） ── */
 .arca-card {
   background: var(--bg-card);
@@ -230,7 +252,7 @@
   -webkit-backdrop-filter: blur(16px) saturate(180%);
   border-radius: 20px;
   box-shadow: var(--shadow-card);
-  border: none !important;
+  border: 1px solid var(--border-subtle) !important;
   transition: transform 0.22s ease, box-shadow 0.22s ease, background 0.22s ease;
 }
 
@@ -448,7 +470,7 @@
   flex-shrink: 0;
 }
 .arca-segment-btn.active {
-  background: var(--bg-surface);
+  background: var(--bg-nav-pill);
   color: var(--text-main);
   font-weight: 600;
   box-shadow: 0 1px 3px rgba(0, 0, 0, 0.08), 0 0 1px rgba(0, 0, 0, 0.04);
@@ -473,7 +495,201 @@
   white-space: nowrap;
 }
 
-@media (max-width: 640px) {
+/* ── ノートダッシュボード用ボタンスタイル ── */
+.arca-notes-btn-primary {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.45rem;
+  background: var(--accent-gold);
+  color: #FDFCFA;
+  border: none;
+  border-radius: 12px;
+  padding: 0 1.25rem;
+  height: 42px;
+  font-size: 0.84rem;
+  font-weight: 650;
+  letter-spacing: 0.02em;
+  cursor: pointer;
+  white-space: nowrap;
+  flex-shrink: 0;
+  box-shadow: 0 2px 12px rgba(197, 160, 89, 0.32);
+  transition: all 0.18s cubic-bezier(0.16, 1, 0.3, 1);
+  user-select: none;
+}
+.arca-notes-btn-primary:hover {
+  box-shadow: 0 5px 20px rgba(197, 160, 89, 0.45);
+  transform: translateY(-1px);
+}
+.arca-notes-btn-primary:active {
+  transform: translateY(0);
+}
+
+.arca-notes-btn-sub {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.35rem;
+  background: var(--bg-nav-track);
+  color: var(--text-mid);
+  border: none;
+  border-radius: 12px;
+  padding: 0 0.85rem;
+  height: 42px;
+  font-size: 0.82rem;
+  font-weight: 600;
+  cursor: pointer;
+  white-space: nowrap;
+  flex-shrink: 0;
+  transition: all 0.15s ease;
+  user-select: none;
+}
+.arca-notes-btn-sub:hover {
+  background: rgba(0, 0, 0, 0.08);
+  color: var(--text-main);
+}
+.arca-notes-btn-sub:active {
+  transform: scale(0.98);
+}
+
+/* 検索入力欄共通 */
+.arca-notes-search-input {
+  width: 100%;
+  height: 42px;
+  background: var(--bg-surface);
+  color: var(--text-main);
+  border: none;
+  border-radius: 12px;
+  padding: 0 0.75rem 0 2.35rem;
+  font-size: 0.85rem;
+  box-shadow: 0 1px 4px rgba(0,0,0,0.03);
+  box-sizing: border-box;
+  outline: none;
+  transition: box-shadow 0.15s ease;
+}
+.arca-notes-search-input:focus {
+  box-shadow: 0 2px 8px rgba(0,0,0,0.06);
+}
+
+/* ソートセレクタ共通 */
+.arca-notes-sort-select {
+  height: 42px;
+  appearance: none;
+  background-color: var(--bg-surface);
+  color: var(--text-mid);
+  border: none;
+  border-radius: 12px;
+  padding: 0 2.2rem 0 0.85rem;
+  font-size: 0.82rem;
+  font-weight: 500;
+  cursor: pointer;
+  box-shadow: 0 1px 4px rgba(0,0,0,0.03);
+  outline: none;
+  white-space: nowrap;
+  background-image: url('data:image/svg+xml;utf8,<svg fill="%239A9A96" height="24" viewBox="0 0 24 24" width="24" xmlns="http://www.w3.org/2000/svg"><path d="M7 10l5 5 5-5z"/></svg>');
+  background-repeat: no-repeat;
+  background-position: right 0.4rem center;
+}
+
+/* PC・タブレット表示時（min-width: 640px） */
+@media (min-width: 640px) {
+  .arca-notes-toolbar-grid {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 0.75rem;
+  }
+  .arca-notes-search-box {
+    position: relative;
+    flex: 1 1 240px;
+    max-width: 380px;
+  }
+  .arca-notes-sort-box {
+    display: flex;
+    align-items: center;
+    gap: 0.4rem;
+  }
+  .arca-notes-sort-label {
+    display: none;
+  }
+  .arca-notes-btn-new {
+    margin-left: auto;
+    order: 10;
+  }
+  .arca-notes-btn-trash {
+    order: 8;
+  }
+  .arca-notes-btn-import {
+    order: 9;
+  }
+}
+
+/* モバイル表示時（max-width: 639px） */
+@media (max-width: 639px) {
+  .arca-notes-toolbar-grid {
+    display: grid;
+    grid-template-columns: 1fr auto auto;
+    gap: 0.6rem 0.5rem;
+    align-items: center;
+    width: 100%;
+    min-width: 0;
+    box-sizing: border-box;
+  }
+  /* 【上段】検索バー + ごみ箱 + インポート */
+  .arca-notes-search-box {
+    position: relative;
+    grid-column: 1 / 2;
+    grid-row: 1;
+    min-width: 0;
+  }
+  .arca-notes-btn-trash {
+    grid-column: 2 / 3;
+    grid-row: 1;
+    height: 42px;
+    padding: 0 0.75rem;
+    flex-shrink: 0;
+  }
+  .arca-notes-btn-import {
+    grid-column: 3 / 4;
+    grid-row: 1;
+    height: 42px;
+    padding: 0 0.75rem;
+    flex-shrink: 0;
+  }
+  /* 【下段】「＋ 新規ノート」フル幅ボタン */
+  .arca-notes-btn-new {
+    grid-column: 1 / -1;
+    grid-row: 2;
+    width: 100%;
+    height: 44px;
+    font-size: 0.88rem;
+  }
+  /* 【下段下】ソートセレクタ */
+  .arca-notes-sort-box {
+    grid-column: 1 / -1;
+    grid-row: 3;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.5rem;
+    width: 100%;
+    min-width: 0;
+    box-sizing: border-box;
+  }
+  .arca-notes-sort-label {
+    display: inline;
+    font-size: 0.75rem;
+    color: var(--text-muted);
+    font-weight: 600;
+    white-space: nowrap;
+    flex-shrink: 0;
+  }
+  .arca-notes-sort-select {
+    flex: 1;
+    min-width: 0;
+    max-width: 240px;
+  }
+
   .arca-toolbar {
     padding: 0 0.75rem;
     gap: 0.35rem;

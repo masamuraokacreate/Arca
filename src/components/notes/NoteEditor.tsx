@@ -227,16 +227,16 @@ function SlashMenu({
       style={{
         ...style,
         zIndex: 100,
-        background: "rgba(255, 255, 255, 0.94)",
+        background: "var(--bg-card-solid)",
         backdropFilter: "blur(24px) saturate(180%)",
         WebkitBackdropFilter: "blur(24px) saturate(180%)",
         borderRadius: "16px",
-        boxShadow: "0 10px 40px rgba(0,0,0,0.12), 0 2px 10px rgba(0,0,0,0.06)",
+        boxShadow: "var(--shadow-modal)",
         padding: "0.45rem",
         width: "250px",
         maxHeight: "320px",
         overflowY: "auto",
-        border: "1px solid rgba(255, 255, 255, 0.8)",
+        border: "1px solid var(--border-subtle)",
         animation: "slash-in 0.12s cubic-bezier(0, 0, 0.2, 1)",
       }}
     >
@@ -679,7 +679,7 @@ export const NoteEditor = forwardRef<NoteEditorHandles, NoteEditorProps>(functio
           font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Hiragino Sans", "Segoe UI", sans-serif;
           font-size: 1.02rem;
           line-height: 1.9;
-          color: ${C.charcoal};
+          color: var(--text-main);
           letter-spacing: 0.005em;
         }
 
@@ -687,7 +687,7 @@ export const NoteEditor = forwardRef<NoteEditorHandles, NoteEditorProps>(functio
         .arca-tiptap-prose p.is-editor-empty:first-child::before {
           content: attr(data-placeholder);
           float: left;
-          color: ${C.charcoalXLight};
+          color: var(--text-xmuted);
           pointer-events: none;
           height: 0;
           white-space: pre-wrap;
@@ -698,7 +698,7 @@ export const NoteEditor = forwardRef<NoteEditorHandles, NoteEditorProps>(functio
         .arca-tiptap-prose h1 {
           font-size: 1.95rem;
           font-weight: 750;
-          color: ${C.charcoal};
+          color: var(--text-main);
           letter-spacing: -0.03em;
           line-height: 1.25;
           margin: 1.6rem 0 0.8rem;
@@ -706,7 +706,7 @@ export const NoteEditor = forwardRef<NoteEditorHandles, NoteEditorProps>(functio
         .arca-tiptap-prose h2 {
           font-size: 1.45rem;
           font-weight: 700;
-          color: ${C.charcoal};
+          color: var(--text-main);
           letter-spacing: -0.02em;
           line-height: 1.32;
           margin: 1.35rem 0 0.65rem;
@@ -714,7 +714,7 @@ export const NoteEditor = forwardRef<NoteEditorHandles, NoteEditorProps>(functio
         .arca-tiptap-prose h3 {
           font-size: 1.15rem;
           font-weight: 650;
-          color: ${C.charcoal};
+          color: var(--text-main);
           letter-spacing: -0.015em;
           line-height: 1.38;
           margin: 1.1rem 0 0.5rem;
@@ -734,6 +734,7 @@ export const NoteEditor = forwardRef<NoteEditorHandles, NoteEditorProps>(functio
         .arca-tiptap-prose li {
           margin-bottom: 0.35rem;
           line-height: 1.8;
+          color: var(--text-main);
         }
 
         /* タスクリスト（チェックボックス） */
@@ -753,24 +754,24 @@ export const NoteEditor = forwardRef<NoteEditorHandles, NoteEditorProps>(functio
         }
         .arca-tiptap-prose li[data-type="taskItem"] > label input[type="checkbox"] {
           cursor: pointer;
-          accent-color: ${C.gold};
+          accent-color: var(--accent-gold);
           width: 15px;
           height: 15px;
           border-radius: 4px;
         }
         .arca-tiptap-prose li[data-type="taskItem"][data-checked="true"] > div {
           text-decoration: line-through;
-          color: ${C.charcoalLight};
+          color: var(--text-muted);
         }
 
         /* 引用ブロック */
         .arca-tiptap-blockquote {
-          border-left: 3px solid ${C.gold};
-          background: ${C.goldFaint};
+          border-left: 3px solid var(--accent-gold);
+          background: var(--accent-gold-faint);
           padding: 0.75rem 1.25rem;
           border-radius: 0 10px 10px 0;
           font-style: italic;
-          color: ${C.charcoalMid};
+          color: var(--text-mid);
           margin: 1.2rem 0;
         }
 
@@ -778,18 +779,19 @@ export const NoteEditor = forwardRef<NoteEditorHandles, NoteEditorProps>(functio
         .arca-tiptap-prose code:not(pre code) {
           font-family: "SF Mono", Menlo, Monaco, Consolas, monospace;
           font-size: 0.88em;
-          background: rgba(0, 0, 0, 0.05);
-          color: #b54a3d;
+          background: var(--bg-nav-track);
+          color: var(--accent-gold-dark);
           padding: 0.15em 0.35em;
           border-radius: 5px;
         }
 
         /* コードブロック */
         .arca-tiptap-code-block {
-          background: #242220;
+          background: #181A20;
           color: #EDE8DF;
           padding: 1rem 1.25rem;
           border-radius: 12px;
+          border: 1px solid var(--border-subtle);
           font-family: "SF Mono", Menlo, Monaco, Consolas, monospace;
           font-size: 0.88rem;
           line-height: 1.7;
@@ -799,19 +801,19 @@ export const NoteEditor = forwardRef<NoteEditorHandles, NoteEditorProps>(functio
 
         /* リンク */
         .arca-tiptap-link {
-          color: ${C.goldDark};
+          color: var(--accent-gold-dark);
           text-decoration: underline;
           text-underline-offset: 3px;
           transition: color 0.15s;
         }
         .arca-tiptap-link:hover {
-          color: ${C.gold};
+          color: var(--accent-gold);
         }
 
         /* 水平線 */
         .arca-tiptap-hr {
           border: none;
-          border-top: 1px solid rgba(0, 0, 0, 0.08);
+          border-top: 1px solid var(--border-subtle);
           margin: 2rem 0;
         }
 
@@ -821,7 +823,7 @@ export const NoteEditor = forwardRef<NoteEditorHandles, NoteEditorProps>(functio
           border-radius: 16px;
           margin: 1.2rem auto;
           display: block;
-          box-shadow: 0 4px 20px rgba(0, 0, 0, 0.06);
+          box-shadow: var(--shadow-card);
         }
       `}</style>
     </div>

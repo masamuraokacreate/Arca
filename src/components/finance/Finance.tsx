@@ -331,7 +331,8 @@ export default function Finance() {
               style={{
                 display: "flex",
                 alignItems: "center",
-                background: C.white,
+                background: "var(--bg-card-solid)",
+                border: "1px solid var(--border-subtle)",
                 borderRadius: "10px",
                 padding: "2px",
                 boxShadow: "0 1px 4px rgba(0,0,0,0.04)",
@@ -392,7 +393,7 @@ export default function Finance() {
               <button
                 onClick={() => setSelectedMonth(getCurrentMonth())}
                 style={{
-                  background: "rgba(0, 0, 0, 0.04)",
+                  background: "var(--bg-nav-track)",
                   border: "none",
                   borderRadius: "6px",
                   padding: "0.25rem 0.5rem",
@@ -414,8 +415,8 @@ export default function Finance() {
                 display: "flex",
                 alignItems: "center",
                 gap: "0.45rem",
-                background: C.white,
-                border: "1px solid rgba(0, 0, 0, 0.08)",
+                background: "var(--bg-card-solid)",
+                border: "1px solid var(--border-subtle)",
                 borderRadius: "11px",
                 padding: "0.62rem 1.05rem",
                 cursor: "pointer",
@@ -431,7 +432,7 @@ export default function Finance() {
                 e.currentTarget.style.transform = "translateY(-1px)";
               }}
               onMouseLeave={(e) => {
-                e.currentTarget.style.background = C.white;
+                e.currentTarget.style.background = "var(--bg-card-solid)";
                 e.currentTarget.style.transform = "translateY(0)";
               }}
               title="iPhoneのカメラまたは写真からレシートを自動解析"
@@ -458,16 +459,14 @@ export default function Finance() {
                 color: "#FDFCFA",
                 fontSize: "0.82rem",
                 fontWeight: 650,
-                letterSpacing: "0.03em",
-                boxShadow: "0 2px 14px rgba(197,160,89,0.38)",
-                transition: "box-shadow 0.2s, transform 0.2s",
+                letterSpacing: "0.02em",
+                boxShadow: "0 2px 10px rgba(197, 160, 89, 0.3)",
+                transition: "transform 0.15s ease",
               }}
               onMouseEnter={(e) => {
-                e.currentTarget.style.boxShadow = "0 6px 24px rgba(197,160,89,0.48)";
                 e.currentTarget.style.transform = "translateY(-1px)";
               }}
               onMouseLeave={(e) => {
-                e.currentTarget.style.boxShadow = "0 2px 14px rgba(197,160,89,0.38)";
                 e.currentTarget.style.transform = "translateY(0)";
               }}
             >
@@ -497,7 +496,7 @@ export default function Finance() {
           <div
             style={{
               display: "flex",
-              background: "rgba(0, 0, 0, 0.04)",
+              background: "var(--bg-nav-track)",
               padding: "3px",
               borderRadius: "9999px",
               gap: "2px",
@@ -506,13 +505,13 @@ export default function Finance() {
             <button
               onClick={() => setActiveTab("transactions")}
               style={{
-                background: activeTab === "transactions" ? C.white : "transparent",
+                background: activeTab === "transactions" ? "var(--bg-nav-pill)" : "transparent",
                 border: "none",
                 borderRadius: "9999px",
                 padding: "0.42rem 1.05rem",
                 fontSize: "0.78rem",
                 fontWeight: activeTab === "transactions" ? 650 : 500,
-                color: activeTab === "transactions" ? C.charcoal : C.charcoalLight,
+                color: activeTab === "transactions" ? "var(--text-main)" : C.charcoalLight,
                 cursor: "pointer",
                 boxShadow: activeTab === "transactions" ? "0 1px 3px rgba(0,0,0,0.06)" : "none",
                 transition: "all 0.15s ease",
@@ -524,13 +523,13 @@ export default function Finance() {
             <button
               onClick={() => setActiveTab("analytics")}
               style={{
-                background: activeTab === "analytics" ? C.white : "transparent",
+                background: activeTab === "analytics" ? "var(--bg-nav-pill)" : "transparent",
                 border: "none",
                 borderRadius: "9999px",
                 padding: "0.42rem 1.05rem",
                 fontSize: "0.78rem",
                 fontWeight: activeTab === "analytics" ? 650 : 500,
-                color: activeTab === "analytics" ? C.charcoal : C.charcoalLight,
+                color: activeTab === "analytics" ? "var(--text-main)" : C.charcoalLight,
                 cursor: "pointer",
                 boxShadow: activeTab === "analytics" ? "0 1px 3px rgba(0,0,0,0.06)" : "none",
                 transition: "all 0.15s ease",
@@ -542,13 +541,13 @@ export default function Finance() {
             <button
               onClick={() => setActiveTab("reconcile")}
               style={{
-                background: activeTab === "reconcile" ? C.white : "transparent",
+                background: activeTab === "reconcile" ? "var(--bg-nav-pill)" : "transparent",
                 border: "none",
                 borderRadius: "9999px",
                 padding: "0.42rem 1.05rem",
                 fontSize: "0.78rem",
                 fontWeight: activeTab === "reconcile" ? 650 : 500,
-                color: activeTab === "reconcile" ? C.charcoal : C.charcoalLight,
+                color: activeTab === "reconcile" ? "var(--text-main)" : C.charcoalLight,
                 cursor: "pointer",
                 boxShadow: activeTab === "reconcile" ? "0 1px 3px rgba(0,0,0,0.06)" : "none",
                 transition: "all 0.15s ease",
@@ -587,8 +586,8 @@ export default function Finance() {
                   onChange={(e) => setSearchQuery(e.target.value)}
                   style={{
                     width: "100%",
-                    background: C.white,
-                    border: "none",
+                    background: "var(--bg-card-solid)",
+                    border: "1px solid var(--border-subtle)",
                     borderRadius: "8px",
                     padding: "0.45rem 0.6rem",
                     fontSize: "0.78rem",
@@ -605,8 +604,8 @@ export default function Finance() {
                 value={selectedCategory}
                 onChange={(e) => setSelectedCategory(e.target.value)}
                 style={{
-                  background: C.white,
-                  border: "none",
+                  background: "var(--bg-card-solid)",
+                  border: "1px solid var(--border-subtle)",
                   borderRadius: "8px",
                   padding: "0.45rem 0.65rem",
                   fontSize: "0.76rem",
@@ -629,8 +628,8 @@ export default function Finance() {
                 value={selectedPaymentMethod}
                 onChange={(e) => setSelectedPaymentMethod(e.target.value)}
                 style={{
-                  background: C.white,
-                  border: "none",
+                  background: "var(--bg-card-solid)",
+                  border: "1px solid var(--border-subtle)",
                   borderRadius: "8px",
                   padding: "0.45rem 0.65rem",
                   fontSize: "0.76rem",
@@ -653,8 +652,8 @@ export default function Finance() {
                 value={reconcileFilter}
                 onChange={(e) => setReconcileFilter(e.target.value as any)}
                 style={{
-                  background: C.white,
-                  border: "none",
+                  background: "var(--bg-card-solid)",
+                  border: "1px solid var(--border-subtle)",
                   borderRadius: "8px",
                   padding: "0.45rem 0.65rem",
                   fontSize: "0.76rem",

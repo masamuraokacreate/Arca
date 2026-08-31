@@ -1,6 +1,6 @@
 /**
  * src/components/tasks/PMSettingsModal.tsx
- * Arca — PM（予防保全）計画表・タスク設定モーダル（Apple HIG × Arca 準拠）
+ * Arca — PM計画表・タスク設定モーダル（Apple HIG × Arca 準拠）
  *
  * 設計原則:
  *  - 枠線の完全排除・多層シャドウ・マットゴールド #C5A059
@@ -24,7 +24,6 @@ import { db } from "../../lib/firebase";
 import type { PMSettings, PMTemplateItem, PMShiftTiming } from "../../types/pm";
 import { PM_TIMING_LABELS } from "../../types/pm";
 import { C } from "../../lib/designSystem";
-import { seedDefaultPMTemplatesIfEmpty } from "../../services/pmCycleService";
 
 // ─────────────────────────────────────────
 // インライン SVG アイコン
@@ -258,9 +257,10 @@ export function PMSettingsModal({
           width: "100%",
           maxWidth: "680px",
           maxHeight: "90vh",
-          background: "#FDFCFA",
+          background: "var(--bg-card-solid)",
           borderRadius: C.radiusCardLg,
-          boxShadow: C.briefingShadow,
+          border: "1px solid var(--border-subtle)",
+          boxShadow: "var(--shadow-modal)",
           display: "flex",
           flexDirection: "column",
           overflow: "hidden",
@@ -271,7 +271,7 @@ export function PMSettingsModal({
         <div
           style={{
             padding: "1.25rem 1.6rem",
-            borderBottom: "1px solid rgba(0, 0, 0, 0.05)",
+            borderBottom: "1px solid var(--border-subtle)",
             display: "flex",
             alignItems: "center",
             justifyContent: "space-between",
@@ -282,7 +282,7 @@ export function PMSettingsModal({
               PREVENTIVE MAINTENANCE
             </span>
             <h2 style={{ margin: "0.15rem 0 0", fontSize: "1.25rem", fontWeight: 750, color: C.charcoal, letterSpacing: "-0.02em" }}>
-              ⚙ PM（予防保全）計画表・タスク管理
+              ⚙ PM計画表・タスク管理
             </h2>
           </div>
           <button
@@ -367,13 +367,14 @@ export function PMSettingsModal({
                   style={{
                     width: "100%",
                     boxSizing: "border-box",
-                    border: "none",
+                    border: "1px solid var(--border-subtle)",
                     borderRadius: "10px",
                     padding: "0.6rem 0.8rem",
                     fontSize: "0.9rem",
                     fontWeight: 600,
                     outline: "none",
-                    background: "#FFFFFF",
+                    background: C.white,
+                    color: C.charcoal,
                     boxShadow: "0 1px 4px rgba(0,0,0,0.04)",
                   }}
                 />
@@ -390,13 +391,13 @@ export function PMSettingsModal({
                   style={{
                     width: "100%",
                     boxSizing: "border-box",
-                    border: "none",
+                    border: "1px solid var(--border-subtle)",
                     borderRadius: "10px",
                     padding: "0.6rem 0.8rem",
                     fontSize: "0.85rem",
                     fontWeight: 550,
                     color: C.charcoal,
-                    background: "#FFFFFF",
+                    background: C.white,
                     boxShadow: "0 1px 4px rgba(0,0,0,0.04)",
                     outline: "none",
                     cursor: "pointer",
@@ -425,8 +426,9 @@ export function PMSettingsModal({
                         width: "80px",
                         padding: "0.45rem 0.6rem",
                         borderRadius: "8px",
-                        border: "none",
-                        background: "#FFF",
+                        border: "1px solid var(--border-subtle)",
+                        background: C.white,
+                        color: C.charcoal,
                         fontSize: "0.85rem",
                         outline: "none",
                       }}
@@ -448,8 +450,9 @@ export function PMSettingsModal({
                         width: "80px",
                         padding: "0.45rem 0.6rem",
                         borderRadius: "8px",
-                        border: "none",
-                        background: "#FFF",
+                        border: "1px solid var(--border-subtle)",
+                        background: C.white,
+                        color: C.charcoal,
                         fontSize: "0.85rem",
                         outline: "none",
                       }}
@@ -472,14 +475,14 @@ export function PMSettingsModal({
                   style={{
                     width: "100%",
                     boxSizing: "border-box",
-                    border: "none",
+                    border: "1px solid var(--border-subtle)",
                     borderRadius: "10px",
                     padding: "0.75rem 0.85rem",
                     fontSize: "0.85rem",
                     lineHeight: 1.6,
                     outline: "none",
                     resize: "vertical",
-                    background: "#FFFFFF",
+                    background: C.white,
                     boxShadow: "0 1px 4px rgba(0,0,0,0.04)",
                     color: C.charcoal,
                   }}
@@ -556,28 +559,8 @@ export function PMSettingsModal({
                   登録されたPMタスクがありません
                 </p>
                 <p style={{ margin: "0.3rem 0 1rem", fontSize: "0.76rem", color: C.charcoalLight }}>
-                  休日の初日や出勤日に行う予防保全タスクを登録してください
+                  休日の初日や出勤日に行うPMタスクを登録してください
                 </p>
-                <button
-                  type="button"
-                  onClick={async () => {
-                    await seedDefaultPMTemplatesIfEmpty();
-                    showToast("推奨テンプレートを登録しました");
-                  }}
-                  style={{
-                    background: C.gold,
-                    color: "#FDFCFA",
-                    border: "none",
-                    borderRadius: "10px",
-                    padding: "0.55rem 1.2rem",
-                    fontSize: "0.8rem",
-                    fontWeight: 650,
-                    cursor: "pointer",
-                    boxShadow: "0 2px 8px rgba(197, 160, 89, 0.25)",
-                  }}
-                >
-                  ✦ 推奨テンプレート（6日分）を一括登録する
-                </button>
               </div>
             ) : (
               localTemplates.map((item) => {
@@ -590,15 +573,17 @@ export function PMSettingsModal({
                 return (
                   <div
                     key={item.id}
+                    className="arca-card"
                     onClick={() => handleOpenEdit(item)}
                     style={{
-                      background: "#FFFFFF",
+                      background: "var(--bg-card-solid)",
                       borderRadius: "14px",
+                      border: "1px solid var(--border-subtle)",
                       padding: "1rem 1.15rem",
                       display: "flex",
                       flexDirection: "column",
                       gap: "0.5rem",
-                      boxShadow: "0 1px 4px rgba(0,0,0,0.03), 0 4px 16px rgba(0,0,0,0.02)",
+                      boxShadow: "var(--shadow-card)",
                       cursor: "pointer",
                       transition: "transform 0.15s ease, box-shadow 0.15s ease",
                     }}
@@ -691,31 +676,6 @@ export function PMSettingsModal({
                   </div>
                 );
               })
-            )}
-
-            {/* 下部の一括復元導線 */}
-            {localTemplates.length > 0 && (
-              <div style={{ marginTop: "1.5rem", textAlign: "center" }}>
-                <button
-                  type="button"
-                  onClick={async () => {
-                    if (window.confirm("推奨テンプレート（6日分）を追加で一括登録しますか？")) {
-                      await seedDefaultPMTemplatesIfEmpty();
-                      showToast("推奨テンプレートを登録しました");
-                    }
-                  }}
-                  style={{
-                    background: "none",
-                    border: "none",
-                    fontSize: "0.74rem",
-                    color: C.charcoalLight,
-                    cursor: "pointer",
-                    textDecoration: "underline",
-                  }}
-                >
-                  推奨テンプレート（6日分）を一括追加する
-                </button>
-              </div>
             )}
           </div>
         </div>

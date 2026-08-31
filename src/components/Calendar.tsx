@@ -1525,7 +1525,7 @@ export default function Calendar() {
             カレンダー
           </h1>
           <p style={{ fontSize: "0.78rem", color: C.charcoalLight, margin: "0.3rem 0 0", letterSpacing: "0.01em" }}>
-            予定・タスク・PM（予防保全）の統合ビュー
+            予定・タスク・PM作業の統合ビュー
           </p>
         </div>
 
@@ -1639,13 +1639,13 @@ export default function Calendar() {
             </div>
           </div>
 
-          {/* ── PM（予防保全）セクション ── */}
+          {/* ── PM作業セクション ── */}
           {selectedDatePMItems.length > 0 && (
             <div className="arca-card" style={{ padding: "1.15rem 1.4rem", borderRadius: "20px" }}>
               <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: "0.75rem" }}>
                 <div style={{ display: "flex", alignItems: "center", gap: "0.45rem" }}>
                   <span style={{ fontSize: "0.75rem", color: C.gold }}>✦</span>
-                  <p style={{ ...sectionLabelStyle, margin: 0 }}>予防保全（PM）計画</p>
+                  <p style={{ ...sectionLabelStyle, margin: 0 }}>PM作業</p>
                 </div>
                 <span
                   style={{

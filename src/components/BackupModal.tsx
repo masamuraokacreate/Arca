@@ -309,8 +309,9 @@ export default function BackupModal({ isOpen, onClose }: BackupModalProps) {
           display: "flex",
           flexDirection: "column",
           borderRadius: "24px",
-          background: "rgba(253, 252, 250, 0.94)",
-          boxShadow: "0 24px 48px -12px rgba(0, 0, 0, 0.14), 0 1px 4px rgba(0, 0, 0, 0.04)",
+          background: "var(--bg-card-solid)",
+          border: "1px solid var(--border-subtle)",
+          boxShadow: "var(--shadow-modal)",
           overflow: "hidden",
           animation: "arca-module-in 0.24s cubic-bezier(0.16, 1, 0.3, 1)",
         }}
@@ -456,7 +457,8 @@ export default function BackupModal({ isOpen, onClose }: BackupModalProps) {
               marginBottom: "1.4rem",
               padding: "1.1rem 1.25rem",
               borderRadius: "16px",
-              background: "rgba(255, 255, 255, 0.8)",
+              background: "var(--bg-surface)",
+              border: "1px solid var(--border-subtle)",
               boxShadow: "0 1px 4px rgba(0, 0, 0, 0.03)",
             }}
           >
@@ -514,7 +516,8 @@ export default function BackupModal({ isOpen, onClose }: BackupModalProps) {
               marginBottom: "1.4rem",
               padding: "1.1rem 1.25rem",
               borderRadius: "16px",
-              background: "rgba(255, 255, 255, 0.8)",
+              background: "var(--bg-surface)",
+              border: "1px solid var(--border-subtle)",
               boxShadow: "0 1px 4px rgba(0, 0, 0, 0.03)",
             }}
           >
@@ -536,7 +539,7 @@ export default function BackupModal({ isOpen, onClose }: BackupModalProps) {
                 gap: "0.45rem",
                 padding: "0.55rem 1.1rem",
                 borderRadius: "10px",
-                background: "rgba(0, 0, 0, 0.05)",
+                background: "var(--bg-nav-track)",
                 color: C.charcoal,
                 border: "none",
                 fontSize: "0.8rem",
@@ -548,7 +551,7 @@ export default function BackupModal({ isOpen, onClose }: BackupModalProps) {
                 if (!isExportingLocal) (e.currentTarget as HTMLButtonElement).style.background = "rgba(0, 0, 0, 0.08)";
               }}
               onMouseLeave={(e) => {
-                if (!isExportingLocal) (e.currentTarget as HTMLButtonElement).style.background = "rgba(0, 0, 0, 0.05)";
+                if (!isExportingLocal) (e.currentTarget as HTMLButtonElement).style.background = "var(--bg-nav-track)";
               }}
             >
               {isExportingLocal ? (
@@ -570,7 +573,8 @@ export default function BackupModal({ isOpen, onClose }: BackupModalProps) {
             style={{
               padding: "1.1rem 1.25rem",
               borderRadius: "16px",
-              background: "rgba(255, 255, 255, 0.8)",
+              background: "var(--bg-surface)",
+              border: "1px solid var(--border-subtle)",
               boxShadow: "0 1px 4px rgba(0, 0, 0, 0.03)",
             }}
           >

@@ -1,13 +1,13 @@
 /**
  * src/components/tasks/PMSection.tsx
- * Arca — Tasks 画面下部 PM（予防保全・勤務周期管理）セクション
+ * Arca — Tasks 画面下部 PM作業セクション
  *
  * 設計原則:
  *  - Apple HIG準拠、枠線の完全排除、多層シャドウ、マットゴールド #C5A059
  *  - 道具としての静けさと主体性
  *  - 今日のDay番号（例: Day 1 / 6）バッジ
  *  - タスクの完了トグル（CheckCircle）およびスキップ理由記録
- *  - 「⚙ 計画表」ボタンから PMSettingsModal を開く
+ *  - 「⚙ PM計画表」ボタンから PMSettingsModal を開く
  */
 
 import { useState, useEffect, useCallback, useRef } from "react";
@@ -34,7 +34,6 @@ import {
   savePMSettings,
   savePMTemplate,
   deletePMTemplate,
-  seedDefaultPMTemplatesIfEmpty,
   resolveShiftInfo,
   saveShiftOverride,
   getActivePMTasksForDate,
@@ -314,7 +313,7 @@ export function PMSection({ date, events }: PMSectionProps) {
                 gap: "0.35rem",
               }}
             >
-              <span style={{ color: C.gold }}>✦</span> PM 予防保全計画
+              <span style={{ color: C.gold }}>✦</span> PM作業
             </span>
 
             {/* シフト・サイクルピル */}
@@ -357,7 +356,7 @@ export function PMSection({ date, events }: PMSectionProps) {
             title="PM計画表・周期を設定"
           >
             <SettingsIcon />
-            <span>⚙ 計画表</span>
+            <span>⚙ PM計画表</span>
           </button>
         </div>
 
@@ -404,45 +403,26 @@ export function PMSection({ date, events }: PMSectionProps) {
                   PM 計画が未設定です
                 </p>
                 <p style={{ margin: "0.3rem 0 0", fontSize: "0.76rem", color: C.charcoalLight, lineHeight: 1.5 }}>
-                  出勤サイクルや生活周期に合わせた予防保全タスクを登録できます
+                  出勤サイクルや生活周期に合わせたPMタスクを登録できます
                 </p>
               </div>
               <div style={{ display: "flex", gap: "0.6rem", flexWrap: "wrap", justifyContent: "center", marginTop: "0.35rem" }}>
                 <button
                   type="button"
-                  onClick={async () => {
-                    await seedDefaultPMTemplatesIfEmpty();
-                    await savePMSettings({ cycleLength: 6 });
-                  }}
+                  onClick={() => setShowSettings(true)}
                   style={{
                     background: C.gold,
                     color: "#FDFCFA",
                     border: "none",
                     borderRadius: "10px",
-                    padding: "0.5rem 1.1rem",
+                    padding: "0.55rem 1.2rem",
                     fontSize: "0.8rem",
                     fontWeight: 650,
                     cursor: "pointer",
                     boxShadow: "0 3px 12px rgba(197, 160, 89, 0.28)",
                   }}
                 >
-                  ✦ 推奨テンプレート（6日分）を適用
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setShowSettings(true)}
-                  style={{
-                    background: "rgba(0, 0, 0, 0.05)",
-                    color: C.charcoal,
-                    border: "none",
-                    borderRadius: "10px",
-                    padding: "0.5rem 1.1rem",
-                    fontSize: "0.8rem",
-                    fontWeight: 600,
-                    cursor: "pointer",
-                  }}
-                >
-                  PM 計画を設定する
+                  PM計画を設定する
                 </button>
               </div>
             </div>

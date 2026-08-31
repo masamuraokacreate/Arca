@@ -495,16 +495,33 @@ export default function Tasks({ initialTab = "default" }: TasksProps = {}) {
     };
   }, [updatePill, categories]);
 
-  // ---------- Firestore リアルタイム購読（タスク） ----------
+  // ---------- Firestore リアルタイム購読（タスク） ＆ 重複クレンジング ----------
   useEffect(() => {
     const q = query(collection(db, "tasks"), orderBy("createdAt", "asc"));
     return onSnapshot(q, (snapshot) => {
-      setTasks(
-        snapshot.docs.map((d) => ({
-          id: d.id,
-          ...(d.data() as Omit<Task, "id">),
-        }))
-      );
+      const rawTasks = snapshot.docs.map((d) => ({
+        id: d.id,
+        ...(d.data() as Omit<Task, "id">),
+      }));
+
+      // 重複クレンジング（同一 id および同一 googleTaskId を持つ重複データを安全に除外）
+      const seenIds = new Set<string>();
+      const seenGoogleTaskIds = new Set<string>();
+      const sanitizedTasks: Task[] = [];
+
+      for (const t of rawTasks) {
+        if (seenIds.has(t.id)) continue;
+        seenIds.add(t.id);
+
+        if (t.googleTaskId) {
+          if (seenGoogleTaskIds.has(t.googleTaskId)) continue;
+          seenGoogleTaskIds.add(t.googleTaskId);
+        }
+
+        sanitizedTasks.push(t);
+      }
+
+      setTasks(sanitizedTasks);
     });
   }, []);
 
@@ -893,7 +910,7 @@ export default function Tasks({ initialTab = "default" }: TasksProps = {}) {
           position: "relative",
           display: "flex",
           alignItems: "center",
-          background: "rgba(0, 0, 0, 0.05)",
+          background: "var(--bg-nav-track)",
           borderRadius: "9999px",
           padding: "3px",
           marginBottom: "1.6rem",
@@ -914,7 +931,7 @@ export default function Tasks({ initialTab = "default" }: TasksProps = {}) {
             transform: `translate3d(${pillStyle.left}px, 0, 0)`,
             width: pillStyle.width,
             height: pillStyle.height,
-            background: C.white,
+            background: "var(--bg-nav-pill)",
             borderRadius: "9999px",
             boxShadow: "0 1px 4px rgba(0, 0, 0, 0.08), 0 0 1px rgba(0, 0, 0, 0.04)",
             transition: pillStyle.ready
@@ -968,14 +985,32 @@ export default function Tasks({ initialTab = "default" }: TasksProps = {}) {
                   whiteSpace: "nowrap",
                 }}
               >
-                {cat.id === "shopping" && <span style={{ marginRight: "4px", flexShrink: 0 }}>🛒</span>}
-                {cat.id === "default" && <span style={{ marginRight: "4px", flexShrink: 0 }}>✦</span>}
+                {cat.id === "shopping" && (
+                  <span style={{ marginRight: "4px", flexShrink: 0, opacity: isActive ? 1 : 0.65 }}>
+                    🛒
+                  </span>
+                )}
+                {cat.id === "default" && (
+                  <span
+                    style={{
+                      marginRight: "4px",
+                      flexShrink: 0,
+                      color: isActive ? "var(--text-main)" : C.charcoalLight,
+                      fontWeight: isActive ? 750 : 400,
+                      transition: "color 0.18s ease",
+                    }}
+                  >
+                    ✦
+                  </span>
+                )}
                 <span
                   style={{
                     maxWidth: "200px",
                     overflow: "hidden",
                     textOverflow: "ellipsis",
                     whiteSpace: "nowrap",
+                    color: isActive ? "var(--text-main)" : C.charcoalLight,
+                    transition: "color 0.18s ease",
                   }}
                   title={cat.title}
                 >
@@ -996,7 +1031,7 @@ export default function Tasks({ initialTab = "default" }: TasksProps = {}) {
                     border: "none",
                     padding: "0 0.15rem",
                     cursor: "pointer",
-                    color: C.charcoalLight,
+                    color: isActive ? "var(--text-main)" : C.charcoalLight,
                     lineHeight: 1,
                     display: "flex",
                     alignItems: "center",
@@ -1128,10 +1163,10 @@ export default function Tasks({ initialTab = "default" }: TasksProps = {}) {
               flexShrink: 0,
               width: "auto",
               maxWidth: "120px",
-              background: "rgba(0, 0, 0, 0.03)",
+              background: "var(--bg-nav-track)",
               borderRadius: "8px",
               padding: "0.35rem 0.5rem",
-              border: "none",
+              border: "1px solid var(--border-subtle)",
               outline: "none",
               fontSize: "0.75rem",
               color: dueInput ? C.charcoalMid : C.charcoalXLight,
@@ -1224,7 +1259,7 @@ export default function Tasks({ initialTab = "default" }: TasksProps = {}) {
           </div>
         )}
 
-        {/* ─── PM（予防保全）セクション ─── */}
+        {/* ─── PM作業セクション ─── */}
         <PMSection />
 
       </div>
@@ -1265,13 +1300,14 @@ export default function Tasks({ initialTab = "default" }: TasksProps = {}) {
             style={{
               width: "100%",
               maxWidth: "380px",
-              background: C.white,
+              background: "var(--bg-card-solid)",
               borderRadius: "18px",
+              border: "1px solid var(--border-subtle)",
               padding: "1.4rem",
               display: "flex",
               flexDirection: "column",
               gap: "0.85rem",
-              boxShadow: "0 16px 40px rgba(0,0,0,0.16)",
+              boxShadow: "var(--shadow-modal)",
             }}
             onClick={(e) => e.stopPropagation()}
           >
@@ -1297,8 +1333,8 @@ export default function Tasks({ initialTab = "default" }: TasksProps = {}) {
                 width: "100%",
                 padding: "0.65rem 0.85rem",
                 borderRadius: "12px",
-                border: "1px solid rgba(0, 0, 0, 0.08)",
-                background: C.ivory,
+                border: "1px solid var(--border-subtle)",
+                background: C.white,
                 fontSize: "0.9rem",
                 color: C.charcoal,
                 outline: "none",
@@ -1310,7 +1346,7 @@ export default function Tasks({ initialTab = "default" }: TasksProps = {}) {
                 type="button"
                 onClick={() => setShowAddListModal(false)}
                 style={{
-                  background: "rgba(0,0,0,0.05)",
+                  background: "var(--bg-nav-track)",
                   border: "none",
                   borderRadius: "8px",
                   padding: "0.5rem 0.9rem",
@@ -1368,13 +1404,14 @@ export default function Tasks({ initialTab = "default" }: TasksProps = {}) {
             style={{
               width: "100%",
               maxWidth: "380px",
-              background: C.white,
+              background: "var(--bg-card-solid)",
               borderRadius: "18px",
+              border: "1px solid var(--border-subtle)",
               padding: "1.4rem",
               display: "flex",
               flexDirection: "column",
               gap: "0.85rem",
-              boxShadow: "0 16px 40px rgba(0,0,0,0.16)",
+              boxShadow: "var(--shadow-modal)",
             }}
             onClick={(e) => e.stopPropagation()}
           >
@@ -1400,8 +1437,8 @@ export default function Tasks({ initialTab = "default" }: TasksProps = {}) {
                 width: "100%",
                 padding: "0.65rem 0.85rem",
                 borderRadius: "12px",
-                border: "1px solid rgba(0, 0, 0, 0.08)",
-                background: C.ivory,
+                border: "1px solid var(--border-subtle)",
+                background: C.white,
                 fontSize: "0.9rem",
                 color: C.charcoal,
                 outline: "none",
@@ -1429,7 +1466,7 @@ export default function Tasks({ initialTab = "default" }: TasksProps = {}) {
                   type="button"
                   onClick={() => setEditingCategory(null)}
                   style={{
-                    background: "rgba(0,0,0,0.05)",
+                    background: "var(--bg-nav-track)",
                     border: "none",
                     borderRadius: "8px",
                     padding: "0.5rem 0.9rem",
@@ -1486,13 +1523,14 @@ export default function Tasks({ initialTab = "default" }: TasksProps = {}) {
             style={{
               width: "100%",
               maxWidth: "360px",
-              background: C.white,
+              background: "var(--bg-card-solid)",
               borderRadius: "18px",
+              border: "1px solid var(--border-subtle)",
               padding: "1.4rem",
               display: "flex",
               flexDirection: "column",
               gap: "0.8rem",
-              boxShadow: "0 20px 48px rgba(0,0,0,0.2)",
+              boxShadow: "var(--shadow-modal)",
             }}
             onClick={(e) => e.stopPropagation()}
           >
@@ -1507,7 +1545,7 @@ export default function Tasks({ initialTab = "default" }: TasksProps = {}) {
                 type="button"
                 onClick={() => setShowDeleteListConfirm(false)}
                 style={{
-                  background: "rgba(0,0,0,0.05)",
+                  background: "var(--bg-nav-track)",
                   border: "none",
                   borderRadius: "8px",
                   padding: "0.5rem 0.9rem",

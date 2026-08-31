@@ -89,11 +89,11 @@ describe("PMSection", () => {
 
     await waitFor(() => {
       expect(screen.getByText("PM 計画が未設定です")).toBeInTheDocument();
-      expect(screen.getByText("PM 計画を設定する")).toBeInTheDocument();
+      expect(screen.getByText("PM計画を設定する")).toBeInTheDocument();
     });
   });
 
-  it("「⚙ 計画表」ボタンをクリックすると PMSettingsModal が開く", async () => {
+  it("「⚙ PM計画表」ボタンをクリックすると PMSettingsModal が開く", async () => {
     (getDoc as Mock).mockResolvedValue({
       exists: () => false,
       data: () => undefined,
@@ -111,7 +111,7 @@ describe("PMSection", () => {
     fireEvent.click(settingsBtn);
 
     await waitFor(() => {
-      expect(screen.getByText(/PM（予防保全）計画表/)).toBeInTheDocument();
+      expect(screen.getByRole("heading", { name: /PM計画表/ })).toBeInTheDocument();
     });
   });
 
