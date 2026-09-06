@@ -390,7 +390,47 @@ describe("backupService", () => {
             completedTasks: ["タスクA"],
             events: ["予定A"],
           },
+          spaceType: "journal",
         }),
+        { merge: true }
+      );
+    });
+
+    it("spaceType未設定のノートを journal / document / memo へ自動フォールバック復元する", async () => {
+      const legacyBackup: BackupData = {
+        version: "1.0",
+        exportedAt: "2026-09-06T12:00:00.000Z",
+        owner: "test@example.com",
+        counts: { lists: 0, tasks: 0, events: 0, notes: 3 },
+        data: {
+          lists: [],
+          tasks: [],
+          events: [],
+          notes: [
+            { id: "legacy-1", title: "日報", journalDate: "2026-09-06", content: "日記" },
+            { id: "legacy-2", title: "子ページ", parentId: "parent-doc", content: "階層ドキュメント" },
+            { id: "legacy-3", title: "クイックメモ", content: "買いたいもの" },
+          ],
+        },
+      };
+
+      const res = await restoreFromJson(legacyBackup, "merge");
+      expect(res.success).toBe(true);
+
+      const batchInstance = (writeBatch as Mock).mock.results[0]?.value;
+      expect(batchInstance.set).toHaveBeenCalledWith(
+        expect.anything(),
+        expect.objectContaining({ title: "日報", spaceType: "journal" }),
+        { merge: true }
+      );
+      expect(batchInstance.set).toHaveBeenCalledWith(
+        expect.anything(),
+        expect.objectContaining({ title: "子ページ", spaceType: "document" }),
+        { merge: true }
+      );
+      expect(batchInstance.set).toHaveBeenCalledWith(
+        expect.anything(),
+        expect.objectContaining({ title: "クイックメモ", spaceType: "memo" }),
         { merge: true }
       );
     });

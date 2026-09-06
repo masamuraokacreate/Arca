@@ -496,7 +496,27 @@ export async function restoreFromJson(
       const batch = writeBatch(db);
       for (const rawItem of chunk) {
         const itemId = (rawItem.id as string) || doc(collection(db, colName)).id;
-        const cleanedData = restoreDocData(rawItem);
+        let cleanedData = restoreDocData(rawItem);
+        if (colName === "notes") {
+          if (!cleanedData.spaceType) {
+            const isJournal = Boolean(
+              cleanedData.journalDate ||
+              (Array.isArray(cleanedData.tags) &&
+                cleanedData.tags.some(
+                  (t: unknown) =>
+                    typeof t === "string" &&
+                    (t.toLowerCase() === "ジャーナル" || t.toLowerCase() === "journal")
+                ))
+            );
+            if (isJournal) {
+              cleanedData.spaceType = "journal";
+            } else if (cleanedData.parentId) {
+              cleanedData.spaceType = "document";
+            } else {
+              cleanedData.spaceType = "memo";
+            }
+          }
+        }
         const docRef = doc(db, colName, itemId);
         batch.set(docRef, cleanedData, { merge: mode === "merge" });
       }

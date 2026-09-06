@@ -61,6 +61,7 @@ export const MOOD_ORDER: JournalMood[] = ["great", "good", "neutral", "tired", "
 
 interface MoodPickerProps {
   currentMood?: JournalMood;
+  value?: JournalMood;
   onChange: (mood: JournalMood) => void;
   className?: string;
 }
@@ -68,7 +69,8 @@ interface MoodPickerProps {
 /**
  * Mood（コンディション）選択ピル
  */
-export function MoodPicker({ currentMood, onChange, className = "" }: MoodPickerProps) {
+export function MoodPicker({ currentMood, value, onChange, className = "" }: MoodPickerProps) {
+  const activeMood = currentMood ?? value;
   return (
     <div
       role="radiogroup"
@@ -78,7 +80,7 @@ export function MoodPicker({ currentMood, onChange, className = "" }: MoodPicker
       {MOOD_ORDER.map((moodKey) => {
         const conf = MOOD_CONFIGS[moodKey];
         const Icon = conf.icon;
-        const isSelected = currentMood === moodKey;
+        const isSelected = activeMood === moodKey;
 
         return (
           <button

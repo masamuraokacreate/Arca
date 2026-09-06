@@ -23,6 +23,7 @@ import React, {
   useCallback,
   useRef,
   useEffect,
+  useMemo,
   Component,
   type ErrorInfo,
   type ReactNode,
@@ -46,11 +47,16 @@ import type {
   NoteChildViewMode,
   JournalMood,
   NoteContextSnapshot,
+  NoteSpaceType,
 } from "../types";
+import { MemoModal } from "./notes/MemoModal";
+import { MemoSpace } from "./notes/MemoSpace";
+import { DocumentSpace } from "./notes/DocumentSpace";
+import { JournalSpace } from "./notes/JournalSpace";
+import { NotesSpaceNav } from "./notes/NotesSpaceNav";
 import {
   List,
   LayoutGrid,
-  BookOpen,
   Sparkles,
   Folder,
   FileText,
@@ -66,7 +72,6 @@ import { MarkdownGuideModal } from "./notes/MarkdownGuideModal";
 import { ConfirmModal } from "./notes/ConfirmModal";
 import { NoteBreadcrumbs } from "./notes/NoteBreadcrumbs";
 import { MoveNoteModal } from "./notes/MoveNoteModal";
-import { JournalTimeline } from "./notes/JournalTimeline";
 import { MoodPicker } from "./notes/MoodPicker";
 import {
   fetchDailyFootprint,
@@ -298,7 +303,7 @@ const GLOBAL_STYLES = `
   /* ── ツールバー（Apple風レスポンシブ & 安定Sticky） ── */
   .arca-toolbar {
     position: sticky;
-    top: calc(52px + env(safe-area-inset-top, 0px));
+    top: 0;
     z-index: 50;
     width: 100%;
     background: var(--bg-surface-glass);
@@ -318,11 +323,6 @@ const GLOBAL_STYLES = `
     -webkit-overflow-scrolling: touch;
     scrollbar-width: none;
     -ms-overflow-style: none;
-  }
-  @media (max-width: 639px) {
-    .arca-toolbar {
-      top: calc(88px + env(safe-area-inset-top, 0px));
-    }
   }
   .arca-toolbar::-webkit-scrollbar {
     display: none;
@@ -665,10 +665,11 @@ export function NoteViewer({
   onToggleFullWidth,
   onToastMessage,
   onChildViewModeChange,
-  onNewJournalNote,
+  onNewJournalNote: _onNewJournalNote,
   onMoodChange,
   onJournalDateChange,
   onContextSnapshotChange,
+  isDocumentSpace = false,
 }: {
   note: NoteItem;
   allNotes: NoteItem[];
@@ -697,10 +698,11 @@ export function NoteViewer({
   onMoodChange?: (mood: JournalMood) => void;
   onJournalDateChange?: (date: string) => void;
   onContextSnapshotChange?: (snapshot: NoteContextSnapshot) => void;
+  isDocumentSpace?: boolean;
 }) {
   const [showToc, setShowToc] = useState(false);
   const [isSourceMode, setIsSourceMode] = useState(false);
-  const [tagsInput, setTagsInput] = useState(note.tags.join(", "));
+  const [tagInput, setTagInput] = useState("");
   const [showGuide, setShowGuide] = useState(false);
   const [isImportingFootprint, setIsImportingFootprint] = useState(false);
   const editorRef = useRef<NoteEditorHandles>(null);
@@ -795,14 +797,33 @@ export function NoteViewer({
 
   // ノート切替時のリセット
   useEffect(() => {
-    setTagsInput(note.tags.join(", "));
+    setTagInput("");
     setShowToc(false);
     setExtractedData(null);
   }, [note.id]);
 
-  const handleTagsBlur = () => {
-    const parsed = tagsInput.split(",").map((t) => t.trim()).filter(Boolean);
-    onTagsChange(parsed);
+  const handleCommitTag = () => {
+    if (!tagInput.trim()) return;
+    const newTags = tagInput
+      .split(",")
+      .map((t) => t.trim())
+      .filter(Boolean);
+    if (newTags.length > 0) {
+      const merged = Array.from(new Set([...note.tags, ...newTags]));
+      onTagsChange(merged);
+    }
+    setTagInput("");
+  };
+
+  const handleTagKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
+    if (e.key === "Enter" || e.key === ",") {
+      e.preventDefault();
+      handleCommitTag();
+    } else if (e.key === "Backspace" && !tagInput && note.tags.length > 0) {
+      const lastTag = note.tags[note.tags.length - 1];
+      onTagsChange(note.tags.slice(0, -1));
+      setTagInput(lastTag);
+    }
   };
 
   const handleInsertSyntax = useCallback((syntax: string) => {
@@ -814,16 +835,523 @@ export function NoteViewer({
   const toc = extractToc(note.content);
   const currentChildViewMode: NoteChildViewMode = note.childViewMode || "list";
 
+  // 目次（TOC）サイドバーの描画
+  const renderTocSidebar = (
+    <aside style={{ width: "220px", flexShrink: 0, marginTop: "0.5rem", display: "block" }}>
+      <div
+        style={{
+          position: "sticky",
+          top: "4rem",
+          background: "var(--bg-surface-glass)",
+          backdropFilter: "blur(16px)",
+          padding: "1rem",
+          borderRadius: "16px",
+          boxShadow: C.cardShadow,
+          maxHeight: "calc(100vh - 8rem)",
+          overflowY: "auto",
+          border: "1px solid var(--border-subtle)",
+        }}
+        className="arca-scroll"
+      >
+        <h4 style={{ fontSize: "0.75rem", fontWeight: 700, color: C.charcoalMid, margin: "0 0 1rem", letterSpacing: "0.05em" }}>
+          目次
+        </h4>
+        <ul style={{ listStyle: "none", padding: 0, margin: 0, display: "flex", flexDirection: "column", gap: "0.5rem" }}>
+          {toc.length === 0 ? (
+            <li style={{ fontSize: "0.75rem", color: C.charcoalXLight }}>見出しがありません</li>
+          ) : (
+            toc.map((t) => (
+              <li key={t.id} style={{ paddingLeft: `${(t.level - 1) * 0.8}rem` }}>
+                <a
+                  href={`#${t.id}`}
+                  onClick={(e) => {
+                    e.preventDefault();
+                    const el = document.getElementById(t.id);
+                    if (el) {
+                      const headerOffset = 80;
+                      const elementPosition = el.getBoundingClientRect().top;
+                      const offsetPosition = elementPosition + window.pageYOffset - headerOffset;
+                      window.scrollTo({ top: offsetPosition, behavior: "smooth" });
+                    }
+                  }}
+                  style={{
+                    fontSize: "0.8rem",
+                    color: C.charcoalLight,
+                    textDecoration: "none",
+                    display: "block",
+                    lineHeight: 1.4,
+                    transition: "color 0.15s",
+                  }}
+                  onMouseEnter={(e) => {
+                    (e.currentTarget as HTMLAnchorElement).style.color = C.gold;
+                  }}
+                  onMouseLeave={(e) => {
+                    (e.currentTarget as HTMLAnchorElement).style.color = C.charcoalLight;
+                  }}
+                >
+                  {t.text}
+                </a>
+              </li>
+            ))
+          )}
+        </ul>
+      </div>
+    </aside>
+  );
+
+  // エディタ本文（タイトル、メタ行、Tiptap、サブノート）
+  const editorBody = (
+    <>
+      {/* パンくずリスト（階層ナビゲーション） */}
+      <NoteBreadcrumbs
+        breadcrumbs={breadcrumbs}
+        onSelectBreadcrumb={onSelectBreadcrumb}
+      />
+
+      {/* タイトル入力（直接インライン編集） */}
+      <input
+        type="text"
+        value={note.title}
+        onChange={(e) => onTitleChange(e.target.value)}
+        placeholder="タイトルを入力…"
+        style={{
+          display: "block",
+          width: "100%",
+          background: "transparent",
+          border: "none",
+          outline: "none",
+          fontSize: isDocumentSpace ? "clamp(1.85rem, 3.5vw, 2.35rem)" : "2rem",
+          fontWeight: 750,
+          color: C.charcoal,
+          letterSpacing: "-0.03em",
+          lineHeight: 1.2,
+          marginBottom: "0.8rem",
+          boxSizing: "border-box",
+        }}
+      />
+
+      {/* メタ行（タグ・更新日） */}
+      <div
+        style={{
+          display: "flex",
+          alignItems: "center",
+          gap: "0.6rem",
+          marginBottom: "2rem",
+          paddingBottom: "1.2rem",
+          borderBottom: "1px solid rgba(0,0,0,0.06)",
+          flexWrap: "wrap",
+        }}
+      >
+        <div style={{ display: "flex", alignItems: "center", gap: "0.4rem", flex: 1, flexWrap: "wrap" }}>
+          {note.tags.map((tag) => (
+            <span
+              key={tag}
+              style={{
+                fontSize: "0.7rem",
+                color: C.gold,
+                background: C.goldFaint,
+                borderRadius: "6px",
+                padding: "0.15rem 0.55rem",
+                letterSpacing: "0.05em",
+                fontWeight: 500,
+                display: "inline-flex",
+                alignItems: "center",
+                gap: "0.25rem",
+              }}
+            >
+              <button
+                type="button"
+                onClick={() => {
+                  onTagsChange(note.tags.filter((t) => t !== tag));
+                  setTagInput(tag);
+                }}
+                style={{
+                  background: "none",
+                  border: "none",
+                  padding: 0,
+                  cursor: "pointer",
+                  color: C.gold,
+                  fontSize: "inherit",
+                  fontWeight: "inherit",
+                }}
+                title="クリックして編集"
+              >
+                #{tag}
+              </button>
+              <button
+                type="button"
+                onClick={() => onTagsChange(note.tags.filter((t) => t !== tag))}
+                style={{
+                  background: "none",
+                  border: "none",
+                  padding: 0,
+                  cursor: "pointer",
+                  color: C.gold,
+                  display: "flex",
+                  alignItems: "center",
+                  lineHeight: 1,
+                }}
+                title="削除"
+              >
+                ×
+              </button>
+            </span>
+          ))}
+          <input
+            type="text"
+            value={tagInput}
+            onChange={(e) => setTagInput(e.target.value)}
+            onBlur={handleCommitTag}
+            onKeyDown={handleTagKeyDown}
+            placeholder={note.tags.length === 0 ? "タグを追加（Enterで確定）" : "+ タグ追加"}
+            style={{
+              background: "transparent",
+              border: "none",
+              outline: "none",
+              fontSize: "0.76rem",
+              color: C.gold,
+              letterSpacing: "0.04em",
+              minWidth: "120px",
+              flex: "0 1 auto",
+            }}
+          />
+        </div>
+
+        <span style={{ fontSize: "0.75rem", color: C.charcoalXLight }}>
+          最終更新: {formatDateRelative(note.updatedAt)}
+        </span>
+      </div>
+
+      {/* ── ジャーナル専用メタバー（Mood選択 ＆ 当日Footprint取り込み） ── */}
+      {isJournalNote && (
+        <div
+          data-testid="journal-meta-bar"
+          style={{
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "space-between",
+            flexWrap: "wrap",
+            gap: "0.8rem",
+            padding: "0.75rem 1rem",
+            marginBottom: "1.5rem",
+            borderRadius: "14px",
+            background: "rgba(181, 141, 61, 0.05)",
+            border: "1px solid rgba(181, 141, 61, 0.12)",
+          }}
+        >
+          <div style={{ display: "flex", alignItems: "center", gap: "0.6rem", flexWrap: "wrap" }}>
+            <span style={{ fontSize: "0.75rem", fontWeight: 650, color: C.goldDark }}>
+              今日の気分
+            </span>
+            <MoodPicker
+              value={note.mood}
+              onChange={(newMood) => {
+                onMoodChange?.(newMood);
+                onToastMessage?.("気分を記録しました");
+              }}
+            />
+          </div>
+
+          <button
+            type="button"
+            data-testid="import-footprint-btn"
+            disabled={isImportingFootprint}
+            onClick={handleImportFootprint}
+            style={{
+              display: "inline-flex",
+              alignItems: "center",
+              gap: "0.35rem",
+              background: C.goldFaint2,
+              border: "none",
+              borderRadius: "8px",
+              padding: "0.35rem 0.75rem",
+              fontSize: "0.75rem",
+              fontWeight: 600,
+              color: C.goldDark,
+              cursor: isImportingFootprint ? "default" : "pointer",
+              opacity: isImportingFootprint ? 0.6 : 1,
+              transition: "all 0.15s ease",
+            }}
+            title="完了タスク・Google予定をタイムラインから自動引用"
+          >
+            <Sparkles size={13} style={{ color: C.gold }} />
+            <span>{isImportingFootprint ? "足跡取り込み中…" : "今日の足跡を取り込む"}</span>
+          </button>
+        </div>
+      )}
+
+
+
+      {/* ── 抽出データ プレビュー ── */}
+      {extractedData && (
+        <div
+          style={{
+            background: "rgba(181, 141, 61, 0.06)",
+            border: `1px solid ${C.goldFaint}`,
+            borderRadius: "14px",
+            padding: "1rem",
+            marginBottom: "1.5rem",
+          }}
+        >
+          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: "0.5rem" }}>
+            <span style={{ fontSize: "0.78rem", fontWeight: 700, color: C.goldDark }}>
+              ✦ Aether 抽出プレビュー
+            </span>
+            <button
+              onClick={() => setExtractedData(null)}
+              style={{ background: "transparent", border: "none", cursor: "pointer", fontSize: "0.8rem", color: C.charcoalLight }}
+            >
+              閉じる
+            </button>
+          </div>
+          {extractedData.tasks.length > 0 && (
+            <p style={{ margin: "0.2rem 0", fontSize: "0.78rem", color: C.charcoal }}>
+              タスク候補: {extractedData.tasks.length}件
+            </p>
+          )}
+          {extractedData.lists && extractedData.lists.length > 0 && (
+            <p style={{ margin: "0.2rem 0", fontSize: "0.78rem", color: C.charcoal }}>
+              リスト候補: {extractedData.lists.length}件
+            </p>
+          )}
+        </div>
+      )}
+
+      {/* ── NoteEditor: Tiptap WYSIWYG エディタ本体 ── */}
+      <NoteEditor
+        ref={editorRef}
+        content={note.content}
+        attachments={note.attachments}
+        onAttachmentsChange={onAttachmentsChange}
+        onChange={onContentChange}
+        isSourceMode={isSourceMode}
+      />
+
+      {/* ────── サブノート（Sub-notes Hub）セクション ────── */}
+      <div
+        style={{
+          marginTop: isDocumentSpace ? "3.5rem" : "2rem",
+          paddingTop: isDocumentSpace ? "2rem" : "1.5rem",
+          borderTop: "1px solid rgba(0, 0, 0, 0.06)",
+        }}
+      >
+        <div
+          style={{
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "space-between",
+            marginBottom: "1.2rem",
+            flexWrap: "wrap",
+            gap: "0.8rem",
+          }}
+        >
+          <div style={{ display: "flex", alignItems: "center", gap: "0.8rem", flexWrap: "wrap" }}>
+            <div style={{ display: "flex", alignItems: "center", gap: "0.6rem" }}>
+              <h3
+                style={{
+                  fontSize: "1.08rem",
+                  fontWeight: 700,
+                  color: C.charcoal,
+                  margin: 0,
+                  letterSpacing: "-0.02em",
+                }}
+              >
+                サブノート
+              </h3>
+              {childNotes.length > 0 && (
+                <span
+                  style={{
+                    fontSize: "0.72rem",
+                    color: C.charcoalMid,
+                    background: "rgba(0,0,0,0.04)",
+                    borderRadius: "12px",
+                    padding: "0.15rem 0.55rem",
+                    fontWeight: 600,
+                  }}
+                >
+                  {childNotes.length}件
+                </span>
+              )}
+            </div>
+
+            {/* ビュー切り替えピル（セグメントコントロール）: [ リスト | カード ] */}
+            <div
+              role="radiogroup"
+              aria-label="サブノート表示形式切り替え"
+              className="flex items-center shrink-0"
+              style={{
+                background: "rgba(0, 0, 0, 0.04)",
+                borderRadius: "9px",
+                padding: "2px",
+                gap: "2px",
+              }}
+            >
+              <button
+                type="button"
+                role="radio"
+                aria-checked={currentChildViewMode !== "board"}
+                aria-label="リスト表示"
+                title="Notion風リスト表示"
+                onClick={() => onChildViewModeChange?.("list")}
+                className="appearance-none whitespace-nowrap shrink-0 flex items-center gap-1.5"
+                style={{
+                  background: currentChildViewMode !== "board" ? "var(--bg-card-solid)" : "transparent",
+                  color: currentChildViewMode !== "board" ? C.charcoal : C.charcoalLight,
+                  border: "none",
+                  borderRadius: "7px",
+                  padding: "0.35rem 0.65rem",
+                  cursor: "pointer",
+                  fontSize: "0.76rem",
+                  fontWeight: currentChildViewMode !== "board" ? 650 : 500,
+                  boxShadow: currentChildViewMode !== "board" ? "0 1px 3px rgba(0,0,0,0.08)" : "none",
+                  transition: "all 0.15s ease",
+                }}
+              >
+                <List size={14} />
+                <span>リスト</span>
+              </button>
+              <button
+                type="button"
+                role="radio"
+                aria-checked={currentChildViewMode === "board"}
+                aria-label="カード表示"
+                title="Keep風カード表示"
+                onClick={() => onChildViewModeChange?.("board")}
+                className="appearance-none whitespace-nowrap shrink-0 flex items-center gap-1.5"
+                style={{
+                  background: currentChildViewMode === "board" ? "var(--bg-card-solid)" : "transparent",
+                  color: currentChildViewMode === "board" ? C.charcoal : C.charcoalLight,
+                  border: "none",
+                  borderRadius: "7px",
+                  padding: "0.35rem 0.65rem",
+                  cursor: "pointer",
+                  fontSize: "0.76rem",
+                  fontWeight: currentChildViewMode === "board" ? 650 : 500,
+                  boxShadow: currentChildViewMode === "board" ? "0 1px 3px rgba(0,0,0,0.08)" : "none",
+                  transition: "all 0.15s ease",
+                }}
+              >
+                <LayoutGrid size={14} />
+                <span>カード</span>
+              </button>
+            </div>
+          </div>
+
+          <button
+            type="button"
+            onClick={onNewChildNote}
+            className="appearance-none whitespace-nowrap shrink-0"
+            style={{
+              display: "inline-flex",
+              alignItems: "center",
+              gap: "0.35rem",
+              background: C.goldFaint2,
+              border: "none",
+              borderRadius: "8px",
+              padding: "0.4rem 0.85rem",
+              fontSize: "0.78rem",
+              fontWeight: 600,
+              color: C.goldDark,
+              cursor: "pointer",
+              transition: "all 0.15s ease",
+            }}
+            onMouseEnter={(e) => {
+              e.currentTarget.style.background = C.goldFaint3;
+            }}
+            onMouseLeave={(e) => {
+              e.currentTarget.style.background = C.goldFaint2;
+            }}
+          >
+            <span style={{ fontSize: "0.95rem", lineHeight: 1 }}>＋</span>
+            <span>子ノート作成</span>
+          </button>
+        </div>
+
+        {childNotes.length === 0 ? (
+          <div
+            style={{
+              background: "rgba(0, 0, 0, 0.015)",
+              borderRadius: "14px",
+              border: "1px dashed rgba(0, 0, 0, 0.07)",
+              padding: "1.8rem 1.5rem",
+              textAlign: "center",
+            }}
+          >
+            <p style={{ margin: 0, fontSize: "0.8rem", color: C.charcoalLight }}>
+              サブノートはまだありません
+            </p>
+          </div>
+        ) : currentChildViewMode === "list" ? (
+          /* Notion風リスト表示 */
+          <div
+            className="flex flex-col w-full"
+            style={{ gap: "0.25rem" }}
+            data-testid="subnotes-list-view"
+          >
+            {childNotes.map((child) => (
+              <NoteSubNoteListItem
+                key={child.id}
+                note={child}
+                childCount={getChildCount(allNotes, child.id)}
+                onClick={() => onSelectChildNote(child.id)}
+                onMove={(e) => {
+                  e.stopPropagation();
+                  onMoveChildNote?.(child);
+                }}
+                onDelete={(e) => {
+                  e.stopPropagation();
+                  onDeleteChildNote(child);
+                }}
+                onDownload={(e) => {
+                  e.stopPropagation();
+                  onDownloadChildNote(child);
+                }}
+              />
+            ))}
+          </div>
+        ) : (
+          /* Google Keep風カードグリッド表示 */
+          <div
+            style={{
+              display: "grid",
+              gridTemplateColumns: "repeat(auto-fill, minmax(260px, 1fr))",
+              gap: "1rem",
+            }}
+            data-testid="subnotes-board-view"
+          >
+            {childNotes.map((child) => (
+              <NoteCard
+                key={child.id}
+                note={child}
+                childCount={getChildCount(allNotes, child.id)}
+                onClick={() => onSelectChildNote(child.id)}
+                onMove={(e) => {
+                  e.stopPropagation();
+                  onMoveChildNote?.(child);
+                }}
+                onDelete={(e) => {
+                  e.stopPropagation();
+                  onDeleteChildNote(child);
+                }}
+                onDownload={(e) => {
+                  e.stopPropagation();
+                  onDownloadChildNote(child);
+                }}
+              />
+            ))}
+          </div>
+        )}
+      </div>
+    </>
+  );
+
   return (
     <div
-      className="arca-view-in"
-      style={{
-        minHeight: "100vh",
-        display: "flex",
-        flexDirection: "column",
-        alignItems: "center",
-        width: "100%",
-      }}
+      className={
+        isDocumentSpace
+          ? "arca-view-in flex flex-col w-full h-full min-h-0 flex-1 overflow-hidden"
+          : "arca-view-in min-h-screen flex flex-col items-center w-full"
+      }
     >
       {/* 非表示の画像ファイル選択input */}
       <input
@@ -854,526 +1382,54 @@ export function NoteViewer({
         onToggleSourceMode={() => setIsSourceMode((s) => !s)}
       />
 
-      {/* ────── 本文コンテナ（広大なベージュ余白と浮遊するカードシート） ────── */}
-      <div
-        style={{
-          width: "100%",
-          display: "flex",
-          justifyContent: "center",
-          gap: "2rem",
-          padding: isFullWidth
-            ? "2rem clamp(1.5rem, 5vw, 4rem) 6rem"
-            : "2rem clamp(1rem, 4vw, 3rem) 6rem",
-          boxSizing: "border-box",
-        }}
-      >
-        <div
-          className="arca-layout-container"
-          style={{
-            width: "100%",
-            maxWidth: isFullWidth ? "100%" : "880px",
-            flex: 1,
-            minWidth: 0,
-            background: "var(--bg-surface-glass)",
-            backdropFilter: "blur(20px) saturate(180%)",
-            WebkitBackdropFilter: "blur(20px) saturate(180%)",
-            borderRadius: "22px",
-            boxShadow: "var(--shadow-modal)",
-            border: "1px solid var(--border-subtle)",
-            padding: "2.5rem clamp(1.5rem, 4vw, 3.5rem) 2.5rem",
-            boxSizing: "border-box",
-            transition: "all 0.3s ease",
-          }}
-        >
-          {/* パンくずリスト（階層ナビゲーション） */}
-          <NoteBreadcrumbs
-            breadcrumbs={breadcrumbs}
-            onSelectBreadcrumb={onSelectBreadcrumb}
-          />
-
-          {/* タイトル入力（直接インライン編集） */}
-          <input
-            type="text"
-            value={note.title}
-            onChange={(e) => onTitleChange(e.target.value)}
-            placeholder="タイトルを入力…"
-            style={{
-              display: "block",
-              width: "100%",
-              background: "transparent",
-              border: "none",
-              outline: "none",
-              fontSize: "2rem",
-              fontWeight: 750,
-              color: C.charcoal,
-              letterSpacing: "-0.03em",
-              lineHeight: 1.2,
-              marginBottom: "0.8rem",
-              boxSizing: "border-box",
-            }}
-          />
-
-          {/* メタ行（タグ・更新日） */}
+      {/* ────── 本文コンテナ（Notion風シームレス執筆エリア / 浮遊カード） ────── */}
+      {isDocumentSpace ? (
+        <div className="flex-1 w-full h-full overflow-y-auto">
           <div
-            style={{
-              display: "flex",
-              alignItems: "center",
-              gap: "0.6rem",
-              marginBottom: "2rem",
-              paddingBottom: "1.2rem",
-              borderBottom: "1px solid rgba(0,0,0,0.06)",
-              flexWrap: "wrap",
-            }}
+            className={`w-full mx-auto px-6 sm:px-12 py-6 pb-32 transition-all duration-200 flex gap-8 ${
+              isFullWidth ? "max-w-none" : "max-w-4xl"
+            }`}
           >
-            <div style={{ display: "flex", alignItems: "center", gap: "0.4rem", flex: 1, flexWrap: "wrap" }}>
-              {note.tags.map((tag) => (
-                <span
-                  key={tag}
-                  style={{
-                    fontSize: "0.7rem",
-                    color: C.gold,
-                    background: C.goldFaint,
-                    borderRadius: "6px",
-                    padding: "0.15rem 0.55rem",
-                    letterSpacing: "0.05em",
-                    fontWeight: 500,
-                  }}
-                >
-                  {tag}
-                </span>
-              ))}
-              <input
-                type="text"
-                value={tagsInput}
-                onChange={(e) => setTagsInput(e.target.value)}
-                onBlur={handleTagsBlur}
-                placeholder={note.tags.length === 0 ? "タグを追加（カンマ区切り）" : "+ タグ追加"}
-                style={{
-                  background: "transparent",
-                  border: "none",
-                  outline: "none",
-                  fontSize: "0.76rem",
-                  color: C.gold,
-                  letterSpacing: "0.04em",
-                  minWidth: "120px",
-                  flex: "0 1 auto",
-                }}
-              />
-              {!isJournalNote && (
-                <button
-                  type="button"
-                  onClick={() => {
-                    const today = new Date().toISOString().split("T")[0];
-                    const newTags = Array.from(new Set([...note.tags, "ジャーナル"]));
-                    onTagsChange(newTags);
-                    if (!note.journalDate) {
-                      onJournalDateChange?.(today);
-                    }
-                  }}
-                  className="appearance-none whitespace-nowrap shrink-0 flex items-center gap-1"
-                  style={{
-                    fontSize: "0.7rem",
-                    color: C.charcoalLight,
-                    background: "rgba(0,0,0,0.03)",
-                    borderRadius: "6px",
-                    padding: "0.15rem 0.5rem",
-                    border: "none",
-                    cursor: "pointer",
-                    transition: "all 0.15s ease",
-                  }}
-                  title="このノートをジャーナル形式として記録します"
-                >
-                  <span>+ ジャーナル化</span>
-                </button>
-              )}
-            </div>
-            <span style={{ fontSize: "0.7rem", color: C.charcoalXLight, whiteSpace: "nowrap", marginLeft: "auto" }}>
-              {formatDateRelative(note.updatedAt)} 更新
-            </span>
-          </div>
-
-          {/* ジャーナル メタバー（コンディション / Mood & 足跡取り込み） */}
-          {isJournalNote && (
-            <div
-              className="flex items-center justify-between flex-wrap gap-3"
-              style={{
-                marginBottom: "1.6rem",
-                padding: "0.75rem 1.1rem",
-                background: "rgba(0, 0, 0, 0.025)",
-                borderRadius: "14px",
-                border: "1px solid rgba(0, 0, 0, 0.04)",
-              }}
-              data-testid="journal-meta-bar"
-            >
-              <div className="flex items-center gap-3 flex-wrap">
-                <span
-                  style={{
-                    fontSize: "0.76rem",
-                    fontWeight: 650,
-                    color: C.charcoalMid,
-                    letterSpacing: "-0.01em",
-                  }}
-                >
-                  今日の気分
-                </span>
-                <MoodPicker
-                  currentMood={note.mood}
-                  onChange={(m) => onMoodChange?.(m)}
-                />
-              </div>
-
-              <button
-                type="button"
-                onClick={handleImportFootprint}
-                disabled={isImportingFootprint}
-                className="appearance-none whitespace-nowrap shrink-0 flex items-center gap-1.5 transition-all active:scale-[0.98]"
-                style={{
-                  minHeight: "36px",
-                  background: C.goldFaint2,
-                  color: C.goldDark,
-                  border: "none",
-                  borderRadius: "9px",
-                  padding: "0.4rem 0.85rem",
-                  fontSize: "0.78rem",
-                  fontWeight: 650,
-                  cursor: isImportingFootprint ? "wait" : "pointer",
-                  opacity: isImportingFootprint ? 0.7 : 1,
-                  boxShadow: "0 1px 2px rgba(0,0,0,0.04)",
-                }}
-                title="当日のタスク・予定を本文末尾に取り込みます"
-                data-testid="import-footprint-btn"
-              >
-                <Sparkles size={14} style={{ color: C.gold }} />
-                <span>{isImportingFootprint ? "取り込み中…" : "今日の足跡を取り込む"}</span>
-              </button>
-            </div>
-          )}
-
-          {/* 本文（完全インライン統合エディタ） */}
-          <NoteEditor
-            ref={editorRef}
-            content={note.content}
-            attachments={note.attachments}
-            onAttachmentsChange={onAttachmentsChange}
-            onChange={onContentChange}
-            isSourceMode={isSourceMode}
-          />
-
-          {/* ────── サブノート（Sub-notes Hub）セクション ────── */}
-          <div
-            style={{
-              marginTop: "2rem",
-              paddingTop: "1.5rem",
-              borderTop: "1px solid rgba(0, 0, 0, 0.06)",
-            }}
-          >
-            <div
-              style={{
-                display: "flex",
-                alignItems: "center",
-                justifyContent: "space-between",
-                marginBottom: "1.2rem",
-                flexWrap: "wrap",
-                gap: "0.8rem",
-              }}
-            >
-              <div style={{ display: "flex", alignItems: "center", gap: "0.8rem", flexWrap: "wrap" }}>
-                <div style={{ display: "flex", alignItems: "center", gap: "0.6rem" }}>
-                  <h3
-                    style={{
-                      fontSize: "1.08rem",
-                      fontWeight: 700,
-                      color: C.charcoal,
-                      margin: 0,
-                      letterSpacing: "-0.02em",
-                    }}
-                  >
-                    サブノート
-                  </h3>
-                  {childNotes.length > 0 && (
-                    <span
-                      style={{
-                        fontSize: "0.72rem",
-                        color: C.charcoalMid,
-                        background: "rgba(0,0,0,0.04)",
-                        borderRadius: "12px",
-                        padding: "0.15rem 0.55rem",
-                        fontWeight: 600,
-                      }}
-                    >
-                      {childNotes.length}件
-                    </span>
-                  )}
-                </div>
-
-                {/* ビュー切り替えピル（セグメントコントロール）: [ リスト | カード | ジャーナル ] */}
-                <div
-                  role="radiogroup"
-                  aria-label="サブノート表示形式切り替え"
-                  className="flex items-center shrink-0"
-                  style={{
-                    background: "rgba(0, 0, 0, 0.04)",
-                    borderRadius: "9px",
-                    padding: "2px",
-                    gap: "2px",
-                  }}
-                >
-                  <button
-                    type="button"
-                    role="radio"
-                    aria-checked={currentChildViewMode === "list"}
-                    aria-label="リスト表示"
-                    title="Notion風リスト表示"
-                    onClick={() => onChildViewModeChange?.("list")}
-                    className="appearance-none whitespace-nowrap shrink-0 flex items-center gap-1.5"
-                    style={{
-                      background: currentChildViewMode === "list" ? "var(--bg-card-solid)" : "transparent",
-                      color: currentChildViewMode === "list" ? C.charcoal : C.charcoalLight,
-                      border: "none",
-                      borderRadius: "7px",
-                      padding: "0.35rem 0.65rem",
-                      cursor: "pointer",
-                      fontSize: "0.76rem",
-                      fontWeight: currentChildViewMode === "list" ? 650 : 500,
-                      boxShadow: currentChildViewMode === "list" ? "0 1px 3px rgba(0,0,0,0.08)" : "none",
-                      transition: "all 0.15s ease",
-                    }}
-                  >
-                    <List size={14} />
-                    <span>リスト</span>
-                  </button>
-                  <button
-                    type="button"
-                    role="radio"
-                    aria-checked={currentChildViewMode === "board"}
-                    aria-label="カード表示"
-                    title="Keep風カード表示"
-                    onClick={() => onChildViewModeChange?.("board")}
-                    className="appearance-none whitespace-nowrap shrink-0 flex items-center gap-1.5"
-                    style={{
-                      background: currentChildViewMode === "board" ? "var(--bg-card-solid)" : "transparent",
-                      color: currentChildViewMode === "board" ? C.charcoal : C.charcoalLight,
-                      border: "none",
-                      borderRadius: "7px",
-                      padding: "0.35rem 0.65rem",
-                      cursor: "pointer",
-                      fontSize: "0.76rem",
-                      fontWeight: currentChildViewMode === "board" ? 650 : 500,
-                      boxShadow: currentChildViewMode === "board" ? "0 1px 3px rgba(0,0,0,0.08)" : "none",
-                      transition: "all 0.15s ease",
-                    }}
-                  >
-                    <LayoutGrid size={14} />
-                    <span>カード</span>
-                  </button>
-                  <button
-                    type="button"
-                    role="radio"
-                    aria-checked={currentChildViewMode === "journal"}
-                    aria-label="ジャーナル表示"
-                    title="ジャーナルタイムライン表示"
-                    onClick={() => onChildViewModeChange?.("journal")}
-                    className="appearance-none whitespace-nowrap shrink-0 flex items-center gap-1.5"
-                    style={{
-                      background: currentChildViewMode === "journal" ? "var(--bg-card-solid)" : "transparent",
-                      color: currentChildViewMode === "journal" ? C.charcoal : C.charcoalLight,
-                      border: "none",
-                      borderRadius: "7px",
-                      padding: "0.35rem 0.65rem",
-                      cursor: "pointer",
-                      fontSize: "0.76rem",
-                      fontWeight: currentChildViewMode === "journal" ? 650 : 500,
-                      boxShadow: currentChildViewMode === "journal" ? "0 1px 3px rgba(0,0,0,0.08)" : "none",
-                      transition: "all 0.15s ease",
-                    }}
-                  >
-                    <BookOpen size={14} />
-                    <span>ジャーナル</span>
-                  </button>
-                </div>
-              </div>
-
-              <button
-                type="button"
-                onClick={onNewChildNote}
-                className="appearance-none whitespace-nowrap shrink-0"
-                style={{
-                  display: "inline-flex",
-                  alignItems: "center",
-                  gap: "0.35rem",
-                  background: C.goldFaint2,
-                  border: "none",
-                  borderRadius: "8px",
-                  padding: "0.4rem 0.85rem",
-                  fontSize: "0.78rem",
-                  fontWeight: 600,
-                  color: C.goldDark,
-                  cursor: "pointer",
-                  transition: "all 0.15s ease",
-                }}
-                onMouseEnter={(e) => {
-                  e.currentTarget.style.background = C.goldFaint3;
-                }}
-                onMouseLeave={(e) => {
-                  e.currentTarget.style.background = C.goldFaint2;
-                }}
-              >
-                <span style={{ fontSize: "0.95rem", lineHeight: 1 }}>＋</span>
-                <span>子ノート作成</span>
-              </button>
-            </div>
-
-            {currentChildViewMode === "journal" ? (
-              <JournalTimeline
-                childNotes={childNotes}
-                allNotes={allNotes}
-                onSelectChildNote={onSelectChildNote}
-                onNewJournalNote={onNewJournalNote || (() => onNewChildNote())}
-                onMoveChildNote={onMoveChildNote}
-                onDeleteChildNote={onDeleteChildNote}
-                onDownloadChildNote={onDownloadChildNote}
-              />
-            ) : childNotes.length === 0 ? (
-              <div
-                style={{
-                  background: "rgba(0, 0, 0, 0.015)",
-                  borderRadius: "14px",
-                  border: "1px dashed rgba(0, 0, 0, 0.07)",
-                  padding: "1.8rem 1.5rem",
-                  textAlign: "center",
-                }}
-              >
-                <p style={{ margin: 0, fontSize: "0.8rem", color: C.charcoalLight }}>
-                  サブノートはまだありません
-                </p>
-              </div>
-            ) : currentChildViewMode === "list" ? (
-              /* Notion風リスト表示 */
-              <div
-                className="flex flex-col w-full"
-                style={{ gap: "0.25rem" }}
-                data-testid="subnotes-list-view"
-              >
-                {childNotes.map((child) => (
-                  <NoteSubNoteListItem
-                    key={child.id}
-                    note={child}
-                    childCount={getChildCount(allNotes, child.id)}
-                    onClick={() => onSelectChildNote(child.id)}
-                    onMove={(e) => {
-                      e.stopPropagation();
-                      onMoveChildNote?.(child);
-                    }}
-                    onDelete={(e) => {
-                      e.stopPropagation();
-                      onDeleteChildNote(child);
-                    }}
-                    onDownload={(e) => {
-                      e.stopPropagation();
-                      onDownloadChildNote(child);
-                    }}
-                  />
-                ))}
-              </div>
-            ) : (
-              /* Google Keep風カードグリッド表示 */
-              <div
-                style={{
-                  display: "grid",
-                  gridTemplateColumns: "repeat(auto-fill, minmax(260px, 1fr))",
-                  gap: "1rem",
-                }}
-                data-testid="subnotes-board-view"
-              >
-                {childNotes.map((child) => (
-                  <NoteCard
-                    key={child.id}
-                    note={child}
-                    childCount={getChildCount(allNotes, child.id)}
-                    onClick={() => onSelectChildNote(child.id)}
-                    onMove={(e) => {
-                      e.stopPropagation();
-                      onMoveChildNote?.(child);
-                    }}
-                    onDelete={(e) => {
-                      e.stopPropagation();
-                      onDeleteChildNote(child);
-                    }}
-                    onDownload={(e) => {
-                      e.stopPropagation();
-                      onDownloadChildNote(child);
-                    }}
-                  />
-                ))}
-              </div>
-            )}
+            <div className="flex-1 min-w-0">{editorBody}</div>
+            {showToc && renderTocSidebar}
           </div>
         </div>
-
-        {/* TOC Sidebar */}
-        {showToc && (
-          <aside style={{ width: "240px", flexShrink: 0, marginTop: "0.5rem", display: "block" }}>
-            <div
-              style={{
-                position: "sticky",
-                top: "7rem",
-                background: "var(--bg-surface-glass)",
-                backdropFilter: "blur(16px)",
-                padding: "1rem",
-                borderRadius: "16px",
-                boxShadow: C.cardShadow,
-                maxHeight: "calc(100vh - 10rem)",
-                overflowY: "auto",
-                border: "1px solid var(--border-subtle)",
-              }}
-              className="arca-scroll"
-            >
-              <h4 style={{ fontSize: "0.75rem", fontWeight: 700, color: C.charcoalMid, margin: "0 0 1rem", letterSpacing: "0.05em" }}>
-                目次
-              </h4>
-              <ul style={{ listStyle: "none", padding: 0, margin: 0, display: "flex", flexDirection: "column", gap: "0.5rem" }}>
-                {toc.length === 0 ? (
-                  <li style={{ fontSize: "0.75rem", color: C.charcoalXLight }}>見出しがありません</li>
-                ) : (
-                  toc.map((t) => (
-                    <li key={t.id} style={{ paddingLeft: `${(t.level - 1) * 0.8}rem` }}>
-                      <a
-                        href={`#${t.id}`}
-                        onClick={(e) => {
-                          e.preventDefault();
-                          const el = document.getElementById(t.id);
-                          if (el) {
-                            const headerOffset = 110;
-                            const elementPosition = el.getBoundingClientRect().top;
-                            const offsetPosition = elementPosition + window.pageYOffset - headerOffset;
-                            window.scrollTo({ top: offsetPosition, behavior: "smooth" });
-                          }
-                        }}
-                        style={{
-                          fontSize: "0.8rem",
-                          color: C.charcoalLight,
-                          textDecoration: "none",
-                          display: "block",
-                          lineHeight: 1.4,
-                          transition: "color 0.15s",
-                        }}
-                        onMouseEnter={(e) => {
-                          (e.currentTarget as HTMLAnchorElement).style.color = C.gold;
-                        }}
-                        onMouseLeave={(e) => {
-                          (e.currentTarget as HTMLAnchorElement).style.color = C.charcoalLight;
-                        }}
-                      >
-                        {t.text}
-                      </a>
-                    </li>
-                  ))
-                )}
-              </ul>
-            </div>
-          </aside>
-        )}
-      </div>
+      ) : (
+        <div
+          style={{
+            width: "100%",
+            display: "flex",
+            justifyContent: "center",
+            gap: "2rem",
+            padding: isFullWidth
+              ? "2rem clamp(1.5rem, 5vw, 4rem) 7rem"
+              : "2rem clamp(1rem, 4vw, 3rem) 7rem",
+            boxSizing: "border-box",
+          }}
+        >
+          <div
+            className="arca-layout-container"
+            style={{
+              width: "100%",
+              maxWidth: isFullWidth ? "100%" : "880px",
+              flex: 1,
+              minWidth: 0,
+              background: "var(--bg-surface-glass)",
+              backdropFilter: "blur(20px) saturate(180%)",
+              WebkitBackdropFilter: "blur(20px) saturate(180%)",
+              borderRadius: "22px",
+              boxShadow: "var(--shadow-modal)",
+              border: "1px solid var(--border-subtle)",
+              padding: "2.5rem clamp(1.5rem, 4vw, 3.5rem) 2.5rem",
+              boxSizing: "border-box",
+              transition: "all 0.3s ease",
+            }}
+          >
+            {editorBody}
+          </div>
+          {showToc && renderTocSidebar}
+        </div>
+      )}
 
       {/* フッター（文字数・保存ステータス） */}
       <footer
@@ -1555,12 +1611,14 @@ function NoteSubNoteListItem({
           onClick();
         }
       }}
-      className="group w-full max-w-full overflow-x-hidden rounded-xl px-3.5 py-2.5 flex items-center justify-between cursor-pointer transition-colors duration-150 hover:bg-stone-100/60 dark:hover:bg-stone-800/60"
+      className="group w-full max-w-full rounded-xl px-3.5 py-2.5 flex items-center justify-between cursor-pointer transition-colors duration-150 hover:bg-stone-100/60 dark:hover:bg-stone-800/60"
       style={{
         border: "none",
         background: "transparent",
         minHeight: "44px",
         boxSizing: "border-box",
+        position: "relative",
+        zIndex: menuOpen ? 100 : 1,
       }}
       data-testid={`subnote-list-item-${note.id}`}
     >
@@ -1668,7 +1726,7 @@ function NoteSubNoteListItem({
                 boxShadow: "var(--shadow-modal)",
                 padding: "0.35rem",
                 minWidth: "135px",
-                zIndex: 30,
+                zIndex: 100,
                 border: "1px solid var(--border-subtle)",
               }}
             >
@@ -1805,12 +1863,13 @@ function NoteCard({
           boxShadow: C.cardShadow,
           border: "1px solid var(--border-subtle)",
           position: "relative",
+          zIndex: menuOpen ? 100 : 1,
           gap: "0.75rem",
           width: "100%",
           maxWidth: "100%",
           minWidth: 0,
           boxSizing: "border-box",
-          overflow: "hidden",
+          overflow: menuOpen ? "visible" : "hidden",
           transition: "transform 0.18s cubic-bezier(0.16, 1, 0.3, 1), box-shadow 0.18s cubic-bezier(0.16, 1, 0.3, 1)",
         }}
         onMouseEnter={(e) => {
@@ -1961,7 +2020,7 @@ function NoteCard({
                   boxShadow: "var(--shadow-modal)",
                   padding: "0.35rem",
                   minWidth: "135px",
-                  zIndex: 20,
+                  zIndex: 100,
                   animation: "slash-in 0.12s ease",
                   border: "1px solid var(--border-subtle)",
                 }}
@@ -2081,9 +2140,10 @@ function NoteCard({
         gap: "0.5rem",
         minHeight: "170px",
         position: "relative",
+        zIndex: menuOpen ? 100 : 1,
         cursor: "pointer",
         border: "1px solid var(--border-subtle)",
-        overflow: "hidden",
+        overflow: menuOpen ? "visible" : "hidden",
       }}
     >
       {/* 添付画像サムネイル（存在する場合: Keep風カード） */}
@@ -2165,7 +2225,7 @@ function NoteCard({
               boxShadow: "var(--shadow-modal)",
               padding: "0.35rem",
               minWidth: "135px",
-              zIndex: 20,
+              zIndex: 100,
               animation: "slash-in 0.12s ease",
               border: "1px solid var(--border-subtle)",
             }}
@@ -2473,7 +2533,7 @@ function TrashModal({
 // ノートダッシュボード（グリッド一覧）
 // ─────────────────────────────────────────
 
-function NoteDashboard({
+export function NoteDashboard({
   notes,
   allNotes,
   onSelectNote,
@@ -2948,15 +3008,42 @@ export default function Notes({
   onClearSelectedNote,
 }: NotesProps = {}) {
   const [notes, setNotes] = useState<NoteItem[]>([]);
+  const [activeSpace, setActiveSpace] = useState<NoteSpaceType>(() => {
+    try {
+      const saved = localStorage.getItem("arca_notes_active_space");
+      if (saved === "memo" || saved === "document" || saved === "journal") {
+        return saved;
+      }
+    } catch {}
+    return "document";
+  });
+  const [editingMemo, setEditingMemo] = useState<NoteItem | null>(null);
+
   const [view, setView] = useState<View>(() =>
     initialNoteId ? { type: "viewer", noteId: initialNoteId } : { type: "dashboard" }
+  );
+
+  const handleSpaceChange = useCallback(
+    (space: NoteSpaceType) => {
+      setActiveSpace(space);
+      try {
+        localStorage.setItem("arca_notes_active_space", space);
+      } catch {}
+      setView({ type: "dashboard" });
+      onClearSelectedNote?.();
+    },
+    [onClearSelectedNote]
   );
 
   useEffect(() => {
     if (initialNoteId) {
       setView({ type: "viewer", noteId: initialNoteId });
+      const found = notes.find((n: NoteItem) => n.id === initialNoteId);
+      if (found?.spaceType && found.spaceType !== activeSpace) {
+        setActiveSpace(found.spaceType);
+      }
     }
-  }, [initialNoteId]);
+  }, [initialNoteId, notes, activeSpace]);
 
   const [isFullWidth, setIsFullWidth] = useState(false);
   const [saveStatus, setSaveStatus] = useState<"idle" | "saving" | "saved">("idle");
@@ -2973,6 +3060,11 @@ export default function Notes({
       const fetched: NoteItem[] = [];
       snapshot.forEach((docSnap) => {
         const data = docSnap.data();
+        const rawSpaceType = data.spaceType as NoteSpaceType | undefined;
+        const isJournalEntry = Boolean(data.journalDate);
+        const fallbackSpaceType: NoteSpaceType =
+          rawSpaceType || (isJournalEntry ? "journal" : "document");
+
         fetched.push({
           id: docSnap.id,
           title: data.title || "",
@@ -2983,6 +3075,7 @@ export default function Notes({
           isDeleted: !!data.isDeleted,
           parentId: data.parentId ?? null,
           pinned: !!data.pinned,
+          spaceType: fallbackSpaceType,
           attachments: data.attachments || {},
           childViewMode:
             data.childViewMode === "board" ||
@@ -3001,9 +3094,34 @@ export default function Notes({
     return () => unsubscribe();
   }, []);
 
-  const activeNotes = notes.filter((n) => !n.isDeleted);
-  const rootNotes = activeNotes.filter((n) => !n.parentId);
-  const deletedNotes = notes.filter((n) => n.isDeleted);
+  // データの完全分離：各ノートの spaceType をそのまま尊重
+  const resolvedNotes: NoteItem[] = notes;
+
+  const activeNotes: NoteItem[] = resolvedNotes.filter((n: NoteItem) => !n.isDeleted);
+  const deletedNotes: NoteItem[] = resolvedNotes.filter((n: NoteItem) => n.isDeleted);
+
+  // スペースごとのノート一覧
+  const memoNotes = useMemo(
+    () => activeNotes.filter((n: NoteItem) => n.spaceType === "memo"),
+    [activeNotes]
+  );
+  const documentNotes = useMemo(
+    () => activeNotes.filter((n: NoteItem) => n.spaceType === "document"),
+    [activeNotes]
+  );
+  const journalNotes = useMemo(
+    () => activeNotes.filter((n: NoteItem) => n.spaceType === "journal"),
+    [activeNotes]
+  );
+
+  const spaceCounts = useMemo(
+    () => ({
+      memo: memoNotes.length,
+      document: documentNotes.length,
+      journal: journalNotes.length,
+    }),
+    [memoNotes.length, documentNotes.length, journalNotes.length]
+  );
 
   // 共通トースト
   const { toast, showUndoToast, showMessageToast, dismissToast, triggerUndo } = useUndoToast<NoteItem>();
@@ -3148,12 +3266,27 @@ export default function Notes({
         title: title || "（タイトルなし）",
         content: content || "",
         tags: [],
+        spaceType: activeSpace,
         createdAt: serverTimestamp(),
         updatedAt: serverTimestamp(),
         isDeleted: false,
         parentId: null,
       });
-      setView({ type: "viewer", noteId: docRef.id });
+      if (activeSpace === "memo") {
+        setEditingMemo({
+          id: docRef.id,
+          title: title || "（タイトルなし）",
+          content: content || "",
+          tags: [],
+          spaceType: "memo",
+          createdAt: nowIso(),
+          updatedAt: nowIso(),
+          isDeleted: false,
+          parentId: null,
+        });
+      } else {
+        setView({ type: "viewer", noteId: docRef.id });
+      }
       showMessageToast(`「${file.name}」を取り込みました`);
     } catch (err) {
       console.error("Import error", err);
@@ -3166,25 +3299,95 @@ export default function Notes({
   const activeNote =
     view.type === "viewer" ? (notes.find((n) => n.id === view.noteId) ?? null) : null;
 
-  // 新規ノート作成（親ノート指定可能）
-  const handleNewNote = useCallback(async (parentId: string | null = null) => {
+  // 新規メモ作成（画面遷移せずポップアップモーダルを即起動）
+  const handleNewMemo = useCallback(async () => {
     try {
       const docRef = await addDoc(collection(db, "notes"), {
         title: "",
         content: "",
         tags: [],
+        spaceType: "memo",
         createdAt: serverTimestamp(),
         updatedAt: serverTimestamp(),
         isDeleted: false,
-        parentId: parentId || null,
+        parentId: null,
       });
-      setView({ type: "viewer", noteId: docRef.id });
+      setEditingMemo({
+        id: docRef.id,
+        title: "",
+        content: "",
+        tags: [],
+        spaceType: "memo",
+        createdAt: nowIso(),
+        updatedAt: nowIso(),
+        isDeleted: false,
+        parentId: null,
+      });
     } catch (e) {
-      console.error("Create failed", e);
+      console.error("Create memo failed", e);
     }
   }, []);
 
-  // 新規ジャーナルノート作成
+  // 新規ノート作成（親ノート指定可能）
+  const handleNewNote = useCallback(
+    async (parentId: string | null = null, spaceType: NoteSpaceType = "document") => {
+      try {
+        const docRef = await addDoc(collection(db, "notes"), {
+          title: "",
+          content: "",
+          tags: [],
+          spaceType,
+          createdAt: serverTimestamp(),
+          updatedAt: serverTimestamp(),
+          isDeleted: false,
+          parentId: parentId || null,
+        });
+        setView({ type: "viewer", noteId: docRef.id });
+      } catch (e) {
+        console.error("Create failed", e);
+      }
+    },
+    []
+  );
+
+  // 新規ジャーナルノート作成（トップレベル / 当日ライフログ）
+  const handleNewTodayJournal = useCallback(
+    async (targetDate?: string) => {
+      const date = targetDate || new Date().toISOString().split("T")[0];
+      try {
+        const existing = activeNotes.find(
+          (n: NoteItem) =>
+            n.spaceType === "journal" &&
+            (n.journalDate === date || n.title === `${date} のジャーナル`)
+        );
+        if (existing) {
+          setView({ type: "viewer", noteId: existing.id });
+          showMessageToast(`「${date}」のジャーナルを開きました`);
+          return;
+        }
+
+        const docRef = await addDoc(collection(db, "notes"), {
+          title: `${date} のジャーナル`,
+          content: "",
+          tags: ["ジャーナル"],
+          spaceType: "journal",
+          journalDate: date,
+          createdAt: serverTimestamp(),
+          updatedAt: serverTimestamp(),
+          isDeleted: false,
+          parentId: null,
+        });
+        setView({ type: "viewer", noteId: docRef.id });
+        showMessageToast(`「${date}」のジャーナルを作成しました`);
+      } catch (e) {
+        console.error("Create journal failed", e);
+        showMessageToast("ジャーナルの作成に失敗しました");
+      }
+    },
+    [activeNotes, showMessageToast]
+  );
+
+  // 既存サブノート配下ジャーナルノート作成（互換性維持）
   const handleNewJournalNote = useCallback(
     async (targetDate: string) => {
       if (!activeNote) return;
@@ -3205,6 +3408,7 @@ export default function Notes({
           title: `${targetDate} のジャーナル`,
           content: "",
           tags: ["ジャーナル"],
+          spaceType: "journal",
           journalDate: targetDate,
           createdAt: serverTimestamp(),
           updatedAt: serverTimestamp(),
@@ -3273,7 +3477,7 @@ export default function Notes({
   const handleEmptyTrash = useCallback(async () => {
     if (deletedNotes.length === 0) return;
     try {
-      await Promise.all(deletedNotes.map((n) => deleteDoc(doc(db, "notes", n.id))));
+      await Promise.all(deletedNotes.map((n: NoteItem) => deleteDoc(doc(db, "notes", n.id))));
       setNotes((prev) => prev.filter((n) => !n.isDeleted));
       setShowTrash(false);
       showMessageToast("ごみ箱を空にしました");
@@ -3317,73 +3521,212 @@ export default function Notes({
         }}
       />
 
-      {view.type === "dashboard" && (
-        <NoteDashboard
-          key="dashboard"
-          notes={rootNotes}
-          allNotes={activeNotes}
-          onSelectNote={handleSelectNote}
-          onNewNote={() => handleNewNote(null)}
-          onMoveNote={(target) => setMovingNote(target)}
-          onDeleteNote={(target) => setNoteToDelete(target)}
-          onDownloadNote={handleDownloadNote}
-          onTriggerImport={() => fileInputRef.current?.click()}
-          onOpenTrash={() => setShowTrash(true)}
-        />
+      {/* ── 1. メモ（Memo）スペース ── */}
+      {activeSpace === "memo" && (
+        <>
+          {view.type === "dashboard" ? (
+            <MemoSpace
+              notes={memoNotes}
+              onOpenMemo={(note) => setEditingMemo(note)}
+              onNewMemo={handleNewMemo}
+              onDeleteNote={(target) => setNoteToDelete(target)}
+              onTogglePin={(id, pinned) => mutateNote(id, { pinned })}
+              onDownloadNote={handleDownloadNote}
+              onTriggerImport={() => fileInputRef.current?.click()}
+              onOpenTrash={() => setShowTrash(true)}
+            />
+          ) : activeNote ? (
+            <NoteErrorBoundary key={`boundary-memo-${activeNote.id}`}>
+              <NoteViewer
+                key={activeNote.id}
+                note={activeNote}
+                allNotes={memoNotes}
+                breadcrumbs={getBreadcrumbs(memoNotes, activeNote.id)}
+                onSelectBreadcrumb={handleSelectBreadcrumb}
+                childNotes={getChildNotes(memoNotes, activeNote.id)}
+                onSelectChildNote={handleSelectNote}
+                onNewChildNote={() => handleNewNote(activeNote.id, "memo")}
+                onMoveChildNote={(target) => setMovingNote(target)}
+                onDeleteChildNote={(target) => setNoteToDelete(target)}
+                onDownloadChildNote={handleDownloadNote}
+                isFullWidth={isFullWidth}
+                saveStatus={saveStatus}
+                onBack={handleBack}
+                onTitleChange={(val) => currentId && mutateNote(currentId, { title: val })}
+                onContentChange={(val) => currentId && mutateNote(currentId, { content: val })}
+                onTagsChange={(tags) => currentId && mutateNote(currentId, { tags })}
+                onAttachmentsChange={(attachments) => currentId && mutateNote(currentId, { attachments })}
+                onMoveNote={() => setMovingNote(activeNote)}
+                onDelete={() => setNoteToDelete(activeNote)}
+                onImportMarkdown={() => fileInputRef.current?.click()}
+                onToggleFullWidth={() => setIsFullWidth((v) => !v)}
+                onToastMessage={showMessageToast}
+                onChildViewModeChange={(mode) =>
+                  currentId && mutateNote(currentId, { childViewMode: mode }, true)
+                }
+                onNewJournalNote={handleNewJournalNote}
+                onMoodChange={(mood) => currentId && mutateNote(currentId, { mood }, true)}
+                onJournalDateChange={(date) => currentId && mutateNote(currentId, { journalDate: date }, true)}
+                onContextSnapshotChange={(snapshot) =>
+                  currentId && mutateNote(currentId, { contextSnapshot: snapshot }, true)
+                }
+              />
+            </NoteErrorBoundary>
+          ) : (
+            <MemoSpace
+              notes={memoNotes}
+              onOpenMemo={(note) => setEditingMemo(note)}
+              onNewMemo={handleNewMemo}
+              onDeleteNote={(target) => setNoteToDelete(target)}
+              onTogglePin={(id, pinned) => mutateNote(id, { pinned })}
+              onDownloadNote={handleDownloadNote}
+              onTriggerImport={() => fileInputRef.current?.click()}
+              onOpenTrash={() => setShowTrash(true)}
+            />
+          )}
+        </>
       )}
 
-      {view.type === "viewer" && activeNote && (
-        <NoteErrorBoundary key={`boundary-${activeNote.id}`}>
-          <NoteViewer
-            key={activeNote.id}
-            note={activeNote}
-            allNotes={notes}
-            breadcrumbs={getBreadcrumbs(notes, activeNote.id)}
-            onSelectBreadcrumb={handleSelectBreadcrumb}
-            childNotes={getChildNotes(activeNotes, activeNote.id)}
-            onSelectChildNote={handleSelectNote}
-            onNewChildNote={() => handleNewNote(activeNote.id)}
-            onMoveChildNote={(target) => setMovingNote(target)}
-            onDeleteChildNote={(target) => setNoteToDelete(target)}
-            onDownloadChildNote={handleDownloadNote}
-            isFullWidth={isFullWidth}
-            saveStatus={saveStatus}
-            onBack={handleBack}
-            onTitleChange={(val) => currentId && mutateNote(currentId, { title: val })}
-            onContentChange={(val) => currentId && mutateNote(currentId, { content: val })}
-            onTagsChange={(tags) => currentId && mutateNote(currentId, { tags })}
-            onAttachmentsChange={(attachments) => currentId && mutateNote(currentId, { attachments })}
-            onMoveNote={() => setMovingNote(activeNote)}
-            onDelete={() => setNoteToDelete(activeNote)}
-            onImportMarkdown={() => fileInputRef.current?.click()}
-            onToggleFullWidth={() => setIsFullWidth((v) => !v)}
-            onToastMessage={showMessageToast}
-            onChildViewModeChange={(mode) =>
-              currentId && mutateNote(currentId, { childViewMode: mode }, true)
-            }
-            onNewJournalNote={handleNewJournalNote}
-            onMoodChange={(mood) => currentId && mutateNote(currentId, { mood }, true)}
-            onJournalDateChange={(date) => currentId && mutateNote(currentId, { journalDate: date }, true)}
-            onContextSnapshotChange={(snapshot) =>
-              currentId && mutateNote(currentId, { contextSnapshot: snapshot }, true)
-            }
-          />
-        </NoteErrorBoundary>
+      {/* ── 2. ノート（Pages / Document）スペース ── */}
+      {activeSpace === "document" && (
+        <DocumentSpace
+          notes={documentNotes}
+          activeNoteId={view.type === "viewer" && activeNote ? activeNote.id : null}
+          onSelectNote={handleSelectNote}
+          onCreateRootNote={() => handleNewNote(null, "document")}
+          onCreateChildNote={(parentId) => handleNewNote(parentId, "document")}
+        >
+          {view.type === "viewer" && activeNote ? (
+            <NoteErrorBoundary key={`boundary-doc-${activeNote.id}`}>
+              <NoteViewer
+                key={activeNote.id}
+                note={activeNote}
+                allNotes={documentNotes}
+                breadcrumbs={getBreadcrumbs(documentNotes, activeNote.id)}
+                onSelectBreadcrumb={handleSelectBreadcrumb}
+                childNotes={getChildNotes(documentNotes, activeNote.id)}
+                onSelectChildNote={handleSelectNote}
+                onNewChildNote={() => handleNewNote(activeNote.id, "document")}
+                onMoveChildNote={(target) => setMovingNote(target)}
+                onDeleteChildNote={(target) => setNoteToDelete(target)}
+                onDownloadChildNote={handleDownloadNote}
+                isFullWidth={isFullWidth}
+                saveStatus={saveStatus}
+                onBack={() => setView({ type: "dashboard" })}
+                onTitleChange={(val) => currentId && mutateNote(currentId, { title: val })}
+                onContentChange={(val) => currentId && mutateNote(currentId, { content: val })}
+                onTagsChange={(tags) => currentId && mutateNote(currentId, { tags })}
+                onAttachmentsChange={(attachments) => currentId && mutateNote(currentId, { attachments })}
+                onMoveNote={() => setMovingNote(activeNote)}
+                onDelete={() => setNoteToDelete(activeNote)}
+                onImportMarkdown={() => fileInputRef.current?.click()}
+                onToggleFullWidth={() => setIsFullWidth((v) => !v)}
+                onToastMessage={showMessageToast}
+                onChildViewModeChange={(mode) =>
+                  currentId && mutateNote(currentId, { childViewMode: mode }, true)
+                }
+                onNewJournalNote={handleNewJournalNote}
+                onMoodChange={(mood) => currentId && mutateNote(currentId, { mood }, true)}
+                onJournalDateChange={(date) => currentId && mutateNote(currentId, { journalDate: date }, true)}
+                onContextSnapshotChange={(snapshot) =>
+                  currentId && mutateNote(currentId, { contextSnapshot: snapshot }, true)
+                }
+                isDocumentSpace={true}
+              />
+            </NoteErrorBoundary>
+          ) : (
+            <NoteDashboard
+              key="dashboard"
+              notes={documentNotes.filter((n: NoteItem) => !n.parentId)}
+              allNotes={documentNotes}
+              onSelectNote={handleSelectNote}
+              onNewNote={() => handleNewNote(null, "document")}
+              onMoveNote={(target) => setMovingNote(target)}
+              onDeleteNote={(target) => setNoteToDelete(target)}
+              onDownloadNote={handleDownloadNote}
+              onTriggerImport={() => fileInputRef.current?.click()}
+              onOpenTrash={() => setShowTrash(true)}
+            />
+          )}
+        </DocumentSpace>
       )}
 
-      {/* ビューア表示中にノートがなくなった場合はダッシュボードへ */}
-      {view.type === "viewer" && !activeNote && (
-        <NoteDashboard
-          key="dashboard-fallback"
-          notes={rootNotes}
-          allNotes={activeNotes}
-          onSelectNote={handleSelectNote}
-          onNewNote={() => handleNewNote(null)}
-          onMoveNote={(target) => setMovingNote(target)}
-          onDeleteNote={(target) => setNoteToDelete(target)}
-          onDownloadNote={handleDownloadNote}
-          onTriggerImport={() => fileInputRef.current?.click()}
-          onOpenTrash={() => setShowTrash(true)}
+      {/* ── 3. 日記（Journal）スペース ── */}
+      {activeSpace === "journal" && (
+        <>
+          {view.type === "dashboard" ? (
+            <JournalSpace
+              notes={journalNotes}
+              allNotes={journalNotes}
+              onSelectNote={handleSelectNote}
+              onNewJournalNote={handleNewTodayJournal}
+              onDeleteNote={(target) => setNoteToDelete(target)}
+              onDownloadNote={handleDownloadNote}
+              onMoveNote={(target) => setMovingNote(target)}
+            />
+          ) : activeNote ? (
+            <NoteErrorBoundary key={`boundary-journal-${activeNote.id}`}>
+              <NoteViewer
+                key={activeNote.id}
+                note={activeNote}
+                allNotes={journalNotes}
+                breadcrumbs={getBreadcrumbs(journalNotes, activeNote.id)}
+                onSelectBreadcrumb={handleSelectBreadcrumb}
+                childNotes={getChildNotes(journalNotes, activeNote.id)}
+                onSelectChildNote={handleSelectNote}
+                onNewChildNote={() => handleNewNote(activeNote.id, "journal")}
+                onMoveChildNote={(target) => setMovingNote(target)}
+                onDeleteChildNote={(target) => setNoteToDelete(target)}
+                onDownloadChildNote={handleDownloadNote}
+                isFullWidth={isFullWidth}
+                saveStatus={saveStatus}
+                onBack={handleBack}
+                onTitleChange={(val) => currentId && mutateNote(currentId, { title: val })}
+                onContentChange={(val) => currentId && mutateNote(currentId, { content: val })}
+                onTagsChange={(tags) => currentId && mutateNote(currentId, { tags })}
+                onAttachmentsChange={(attachments) => currentId && mutateNote(currentId, { attachments })}
+                onMoveNote={() => setMovingNote(activeNote)}
+                onDelete={() => setNoteToDelete(activeNote)}
+                onImportMarkdown={() => fileInputRef.current?.click()}
+                onToggleFullWidth={() => setIsFullWidth((v) => !v)}
+                onToastMessage={showMessageToast}
+                onChildViewModeChange={(mode) =>
+                  currentId && mutateNote(currentId, { childViewMode: mode }, true)
+                }
+                onNewJournalNote={handleNewJournalNote}
+                onMoodChange={(mood) => currentId && mutateNote(currentId, { mood }, true)}
+                onJournalDateChange={(date) => currentId && mutateNote(currentId, { journalDate: date }, true)}
+                onContextSnapshotChange={(snapshot) =>
+                  currentId && mutateNote(currentId, { contextSnapshot: snapshot }, true)
+                }
+              />
+            </NoteErrorBoundary>
+          ) : (
+            <JournalSpace
+              notes={journalNotes}
+              allNotes={journalNotes}
+              onSelectNote={handleSelectNote}
+              onNewJournalNote={handleNewTodayJournal}
+              onDeleteNote={(target) => setNoteToDelete(target)}
+              onDownloadNote={handleDownloadNote}
+              onMoveNote={(target) => setMovingNote(target)}
+            />
+          )}
+        </>
+      )}
+
+      {/* ── メモ編集ポップアップモーダル（画面遷移せず中央浮遊） ── */}
+      {editingMemo && (
+        <MemoModal
+          note={editingMemo}
+          isOpen={!!editingMemo}
+          onClose={() => setEditingMemo(null)}
+          onSave={(id: string, patch: Partial<NoteItem>) => mutateNote(id, patch)}
+          onDelete={(target: NoteItem) => {
+            setEditingMemo(null);
+            setNoteToDelete(target);
+          }}
+          onToastMessage={showMessageToast}
         />
       )}
 
@@ -3434,6 +3777,14 @@ export default function Notes({
           }
         }}
         onCancel={() => setNoteToDelete(null)}
+      />
+
+      {/* ── 全ページ共通: 下中央フローティングDock（メモ・ノート・日記） ── */}
+      <NotesSpaceNav
+        activeSpace={activeSpace}
+        onChange={handleSpaceChange}
+        counts={spaceCounts}
+        variant="floating"
       />
 
       {/* 共通削除トースト */}

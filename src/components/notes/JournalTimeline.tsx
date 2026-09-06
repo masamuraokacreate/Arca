@@ -141,7 +141,8 @@ function JournalCard({
         background: "var(--bg-card-solid)",
         borderRadius: "20px",
         boxShadow: C.cardShadow,
-        overflow: "hidden",
+        zIndex: menuOpen ? 100 : 1,
+        overflow: menuOpen ? "visible" : "hidden",
         border: "1px solid var(--border-subtle)",
       }}
       data-testid={`journal-card-${note.id}`}
@@ -221,7 +222,7 @@ function JournalCard({
                   boxShadow: "var(--shadow-modal)",
                   padding: "0.35rem",
                   minWidth: "140px",
-                  zIndex: 30,
+                  zIndex: 100,
                   border: "1px solid var(--border-subtle)",
                 }}
               >

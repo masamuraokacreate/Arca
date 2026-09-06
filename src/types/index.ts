@@ -140,6 +140,9 @@ export interface NoteBreadcrumb {
   title: string;
 }
 
+/** 3大スペース種別 ('memo' | 'document' | 'journal') */
+export type NoteSpaceType = "memo" | "document" | "journal";
+
 /** 子ノートの表示形式 */
 export type NoteChildViewMode = "list" | "board" | "journal";
 
@@ -152,12 +155,14 @@ export interface NoteContextSnapshot {
   events?: string[];
 }
 
-/** メモ1件（Step 1: ローカルステート用。Step 2でFirestore Timestampに移行予定） */
+/** メモ・ノート・日記 アイテム */
 export interface NoteItem {
   id: string;
   title: string;
   /** Markdownフォーマットの本文 */
   content: string;
+  /** 所属スペース種別 ('memo' | 'document' | 'journal') */
+  spaceType?: NoteSpaceType;
   /** タグのリスト（例: ["日記", "アイデア"]） */
   tags: string[];
   /** 作成日時（ISO 8601文字列） */
@@ -166,7 +171,9 @@ export interface NoteItem {
   updatedAt: string;
   /** 論理削除フラグ */
   isDeleted?: boolean;
-  /** 親ノートのID（トップ階層は null または undefined） */
+  /** お気に入りフラグ */
+  favorite?: boolean;
+  /** 親ノートのID（ノート/documentの階層構造用、トップ階層は null または undefined） */
   parentId?: string | null;
   /** ピン留め/お気に入り */
   pinned?: boolean;

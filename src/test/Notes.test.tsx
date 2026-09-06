@@ -3,7 +3,7 @@
  * Arca — Notes モジュール 単体 & 統合テスト
  */
 
-import { describe, it, expect, vi } from "vitest";
+import { describe, it, expect, vi, beforeEach } from "vitest";
 import { render, screen, fireEvent } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { MarkdownViewer } from "../components/notes/MarkdownViewer";
@@ -651,9 +651,9 @@ describe("Notes 階層化・ハブ＆カード（Parent-Child Hub）統合テス
 
     render(<Notes />);
 
-    // ルートノートのみが表示される
-    expect(screen.getByText("プロジェクトハブ")).toBeInTheDocument();
-    expect(screen.getByText("単独ノート")).toBeInTheDocument();
+    // ルートノートが表示される（サイドバーおよびダッシュボード）
+    expect(screen.getAllByText("プロジェクトハブ")[0]).toBeInTheDocument();
+    expect(screen.getAllByText("単独ノート")[0]).toBeInTheDocument();
     // 子ノートはトップ一覧には直接表示されない
     expect(screen.queryByText("サブノートA")).not.toBeInTheDocument();
     expect(screen.queryByText("サブノートB")).not.toBeInTheDocument();
@@ -1207,7 +1207,7 @@ describe("Notes 階層化・ハブ＆カード（Parent-Child Hub）統合テス
 
       // リスト表示カードに切り替わる
       expect(container.querySelector(".arca-note-card-list")).toBeInTheDocument();
-      expect(screen.getByText("テストノート1")).toBeInTheDocument();
+      expect(screen.getAllByText("テストノート1")[0]).toBeInTheDocument();
 
       // 再びグリッド表示ボタンをクリック
       await userEvent.click(gridToggleBtn);
@@ -1218,8 +1218,8 @@ describe("Notes 階層化・ハブ＆カード（Parent-Child Hub）統合テス
   // ─────────────────────────────────────────
   // 19. サブノート表示形式の3態切り替え（リスト ⇄ カード ⇄ ジャーナル）
   // ─────────────────────────────────────────
-  describe("サブノート表示形式の3態切り替え（リスト ⇄ カード ⇄ ジャーナル）", () => {
-    it("親ノートを開いたとき、サブノートのセグメントコントロールに3つの選択肢が表示され、ジャーナル表示に切り替えられる", async () => {
+  describe("サブノート表示形式の2態切り替え（リスト ⇄ カード）", () => {
+    it("親ノートを開いたとき、サブノートのセグメントコントロールに2つの選択肢（リスト・カード）が表示され、ジャーナル表示は削除されている", async () => {
       const { onSnapshot, updateDoc } = await import("firebase/firestore");
       (updateDoc as any).mockClear();
       const Notes = (await import("../components/Notes")).default;
@@ -1230,24 +1230,22 @@ describe("Notes 階層化・ハブ＆カード（Parent-Child Hub）統合テス
             fn({
               id: "hub-parent-1",
               data: () => ({
-                title: "ジャーナル親フォルダ",
-                content: "ライフログ管理",
-                tags: ["ライフログ"],
+                title: "プロジェクト親ノート",
+                content: "ドキュメント管理",
+                tags: ["Docs"],
                 parentId: null,
                 isDeleted: false,
                 childViewMode: "list",
               }),
             });
             fn({
-              id: "child-j-1",
+              id: "child-doc-1",
               data: () => ({
-                title: "2026-09-06 のジャーナル",
-                content: "本日の出来事",
-                tags: ["ジャーナル"],
+                title: "設計仕様書",
+                content: "詳細設計",
+                tags: ["Docs"],
                 parentId: "hub-parent-1",
                 isDeleted: false,
-                journalDate: "2026-09-06",
-                mood: "great",
               }),
             });
           },
@@ -1257,32 +1255,31 @@ describe("Notes 階層化・ハブ＆カード（Parent-Child Hub）統合テス
 
       render(<Notes initialNoteId="hub-parent-1" />);
 
-      // 3つのラジオボタンが存在する
+      // リストとカードのラジオボタンが存在し、ジャーナル表示は存在しない
       const listBtn = screen.getByRole("radio", { name: "リスト表示" });
       const cardBtn = screen.getByRole("radio", { name: "カード表示" });
-      const journalBtn = screen.getByRole("radio", { name: "ジャーナル表示" });
 
       expect(listBtn).toBeInTheDocument();
       expect(cardBtn).toBeInTheDocument();
-      expect(journalBtn).toBeInTheDocument();
+      expect(screen.queryByRole("radio", { name: "ジャーナル表示" })).not.toBeInTheDocument();
 
       // 初期はリスト表示
       expect(listBtn).toHaveAttribute("aria-checked", "true");
-      expect(journalBtn).toHaveAttribute("aria-checked", "false");
+      expect(cardBtn).toHaveAttribute("aria-checked", "false");
 
-      // ジャーナル表示ボタンをクリック
-      await userEvent.click(journalBtn);
+      // カード表示ボタンをクリック
+      await userEvent.click(cardBtn);
 
-      // updateDoc で childViewMode: "journal" が即時保存される
+      // updateDoc で childViewMode: "board" が即時保存される
       expect(updateDoc).toHaveBeenCalledWith(
         expect.anything(),
         expect.objectContaining({
-          childViewMode: "journal",
+          childViewMode: "board",
         })
       );
     });
 
-    it("初期 childViewMode が 'journal' の親ノートを開くと、タイムラインと「今日のジャーナルを書く」が表示される", async () => {
+    it("メモ・ノート・日記で作成したノートが他スペースに混ざって表示されない（完全データ分離）", async () => {
       const { onSnapshot } = await import("firebase/firestore");
       const Notes = (await import("../components/Notes")).default;
 
@@ -1290,26 +1287,34 @@ describe("Notes 階層化・ハブ＆カード（Parent-Child Hub）統合テス
         callback({
           forEach: (fn: any) => {
             fn({
-              id: "hub-journal-mode",
+              id: "memo-isolated-1",
               data: () => ({
-                title: "ライフログ",
-                content: "日記フォルダ",
-                tags: ["Life"],
-                parentId: null,
+                title: "メモ専用データ",
+                content: "アイデアメモ",
+                tags: ["Memo"],
+                spaceType: "memo",
                 isDeleted: false,
-                childViewMode: "journal",
               }),
             });
             fn({
-              id: "j-note-sep",
+              id: "doc-isolated-1",
+              data: () => ({
+                title: "ノート専用データ",
+                content: "プロジェクト文書",
+                tags: ["Docs"],
+                spaceType: "document",
+                isDeleted: false,
+              }),
+            });
+            fn({
+              id: "journal-isolated-1",
               data: () => ({
                 title: "2026-09-06 のジャーナル",
-                content: "秋晴れの穏やかな日。",
+                content: "日記専用データ",
                 tags: ["ジャーナル"],
-                parentId: "hub-journal-mode",
-                isDeleted: false,
+                spaceType: "journal",
                 journalDate: "2026-09-06",
-                mood: "good",
+                isDeleted: false,
               }),
             });
           },
@@ -1317,20 +1322,28 @@ describe("Notes 階層化・ハブ＆カード（Parent-Child Hub）統合テス
         return vi.fn();
       });
 
-      render(<Notes initialNoteId="hub-journal-mode" />);
+      render(<Notes />);
 
-      const journalBtn = screen.getByRole("radio", { name: "ジャーナル表示" });
-      expect(journalBtn).toHaveAttribute("aria-checked", "true");
+      // 初期はノート（document）スペース：ノート専用データのみ表示され（サイドバーとダッシュボード）、メモ・日記は表示されない
+      expect(screen.getAllByText("ノート専用データ").length).toBeGreaterThanOrEqual(1);
+      expect(screen.queryByText("メモ専用データ")).not.toBeInTheDocument();
+      expect(screen.queryByText("日記専用データ")).not.toBeInTheDocument();
 
-      // 「今日のジャーナルを書く / 開く」クイックバーが存在する
-      expect(screen.getByTestId("quick-today-journal-btn")).toBeInTheDocument();
+      // メモスペースへ切り替え
+      const memoTab = screen.getByRole("tab", { name: "メモスペース" });
+      await userEvent.click(memoTab);
 
-      // 月別ヘッダー（2026年9月）が存在する
-      expect(screen.getByText("2026年9月")).toBeInTheDocument();
+      expect(screen.getByText("メモ専用データ")).toBeInTheDocument();
+      expect(screen.queryByText("ノート専用データ")).not.toBeInTheDocument();
+      expect(screen.queryByText("日記専用データ")).not.toBeInTheDocument();
 
-      // タイムラインカードの内容が表示される
-      expect(screen.getByText("2026-09-06 のジャーナル")).toBeInTheDocument();
-      expect(screen.getByText("秋晴れの穏やかな日。")).toBeInTheDocument();
+      // 日記スペースへ切り替え
+      const journalTab = screen.getByRole("tab", { name: "日記スペース" });
+      await userEvent.click(journalTab);
+
+      expect(screen.getByText("日記専用データ")).toBeInTheDocument();
+      expect(screen.queryByText("メモ専用データ")).not.toBeInTheDocument();
+      expect(screen.queryByText("ノート専用データ")).not.toBeInTheDocument();
     });
   });
 
@@ -1338,40 +1351,33 @@ describe("Notes 階層化・ハブ＆カード（Parent-Child Hub）統合テス
   // 20. ジャーナル統合（クイック作成、MoodPicker、足跡取り込み）
   // ─────────────────────────────────────────
   describe("ジャーナル統合（クイック作成、MoodPicker、足跡取り込み）", () => {
-    it("「今日のジャーナルを書く」をクリックすると、新規ジャーナルが作成され画面が開く", async () => {
+    it("日記スペースで「今日のジャーナルを書く」をクリックすると、新規ジャーナルが作成され画面が開く", async () => {
       const { onSnapshot, addDoc } = await import("firebase/firestore");
       (addDoc as any).mockClear();
+      (addDoc as any).mockResolvedValue({ id: "new-today-j-id" });
       const Notes = (await import("../components/Notes")).default;
 
       (onSnapshot as any).mockImplementation((_q: any, callback: any) => {
         callback({
-          forEach: (fn: any) => {
-            fn({
-              id: "journal-parent-hub",
-              data: () => ({
-                title: "My Journal",
-                content: "",
-                tags: [],
-                parentId: null,
-                isDeleted: false,
-                childViewMode: "journal",
-              }),
-            });
-          },
+          forEach: (_fn: any) => {},
         });
         return vi.fn();
       });
 
-      render(<Notes initialNoteId="journal-parent-hub" />);
+      render(<Notes />);
+
+      // 下中央フローティングDockの日記タブをクリック
+      const journalTab = screen.getByRole("tab", { name: "日記スペース" });
+      await userEvent.click(journalTab);
 
       const quickWriteBtn = screen.getByTestId("quick-today-journal-btn");
       await userEvent.click(quickWriteBtn);
 
-      // addDoc で当日のジャーナルノートが作成される
+      // addDoc で当日のジャーナルノート（spaceType: "journal"）が作成される
       expect(addDoc).toHaveBeenCalledWith(
         expect.anything(),
         expect.objectContaining({
-          parentId: "journal-parent-hub",
+          spaceType: "journal",
           tags: ["ジャーナル"],
           title: expect.stringMatching(/のジャーナル$/),
           journalDate: expect.stringMatching(/^\d{4}-\d{2}-\d{2}$/),
@@ -1512,7 +1518,173 @@ describe("Notes 階層化・ハブ＆カード（Parent-Child Hub）統合テス
       );
     });
   });
+
+  // ─────────────────────────────────────────
+  // 21. Sprint 4.8: Notes 3大スペース分離（メモ・ノート・日記）統合テスト
+  // ─────────────────────────────────────────
+  describe("Sprint 4.8: Notes 3大スペース分離（メモ・ノート・日記）", () => {
+    beforeEach(() => {
+      localStorage.clear();
+    });
+
+    it("最上部に『メモ』『ノート』『日記』の3大スペースセグメントが表示され、切り替えができる", async () => {
+      const Notes = (await import("../components/Notes")).default;
+      render(<Notes />);
+
+      const memoTab = screen.getByRole("tab", { name: "メモスペース" });
+      const docTab = screen.getByRole("tab", { name: "ノートスペース" });
+      const journalTab = screen.getByRole("tab", { name: "日記スペース" });
+
+      expect(memoTab).toBeInTheDocument();
+      expect(docTab).toBeInTheDocument();
+      expect(journalTab).toBeInTheDocument();
+
+      // 初期状態はノートスペースが選択されている
+      expect(docTab).toHaveAttribute("aria-selected", "true");
+      expect(memoTab).toHaveAttribute("aria-selected", "false");
+
+      // メモスペースに切り替え
+      await userEvent.click(memoTab);
+      expect(screen.getByRole("tab", { name: "メモスペース" })).toHaveAttribute("aria-selected", "true");
+      expect(screen.getByRole("tab", { name: "ノートスペース" })).toHaveAttribute("aria-selected", "false");
+      expect(screen.getByText("新しいメモ")).toBeInTheDocument();
+
+      // 日記スペースに切り替え
+      await userEvent.click(screen.getByRole("tab", { name: "日記スペース" }));
+      expect(screen.getByRole("tab", { name: "日記スペース" })).toHaveAttribute("aria-selected", "true");
+      expect(screen.getByTestId("quick-today-journal-btn")).toBeInTheDocument();
+    });
+
+    it("メモスペースで『新しいメモ』をクリックすると、画面遷移せずMemoModalがポップアップ表示される", async () => {
+      const { addDoc } = await import("firebase/firestore");
+      (addDoc as any).mockResolvedValue({ id: "new-memo-id" });
+
+      const Notes = (await import("../components/Notes")).default;
+      render(<Notes />);
+
+      // メモスペースへ切り替え
+      const memoTab = screen.getByRole("tab", { name: "メモスペース" });
+      await userEvent.click(memoTab);
+
+      const newMemoBtn = screen.getByRole("button", { name: "新しいメモ" });
+      await userEvent.click(newMemoBtn);
+
+      // addDoc が spaceType: "memo" で呼ばれる
+      expect(addDoc).toHaveBeenCalledWith(
+        expect.anything(),
+        expect.objectContaining({ spaceType: "memo" })
+      );
+
+      // MemoModal のタイトル入力欄が表示される
+      const titleInput = await screen.findByPlaceholderText("メモのタイトル…");
+      expect(titleInput).toBeInTheDocument();
+
+      // 完了ボタンをクリックするとモーダルが閉じる
+      const closeBtn = screen.getByRole("button", { name: "完了" });
+      await userEvent.click(closeBtn);
+
+      expect(screen.queryByPlaceholderText("メモのタイトル…")).not.toBeInTheDocument();
+    });
+
+    it("ノートスペースでサイドバー折りたたみボタンをクリックすると、サイドバーが開閉する", async () => {
+      const Notes = (await import("../components/Notes")).default;
+      render(<Notes />);
+
+      // サイドバーの「サイドバーを閉じる」ボタンが存在する
+      const closeSidebarBtn = screen.getByRole("button", { name: "サイドバーを閉じる" });
+      expect(closeSidebarBtn).toBeInTheDocument();
+
+      // サイドバーを閉じる
+      await userEvent.click(closeSidebarBtn);
+
+      // サイドバーを再度開くボタンが表示される
+      const openSidebarBtn = screen.getByRole("button", { name: "ページ一覧を開く" });
+      expect(openSidebarBtn).toBeInTheDocument();
+
+      // 再び開く
+      await userEvent.click(openSidebarBtn);
+      expect(screen.getByRole("button", { name: "サイドバーを閉じる" })).toBeInTheDocument();
+    });
+
+    it("ノート編集画面でタグが単一バッジとして表示され、入力欄に重複表示されない。またジャーナル化ボタンや簡易構文バーは存在しない", async () => {
+      const Notes = (await import("../components/Notes")).default;
+      const { onSnapshot } = await import("firebase/firestore");
+
+      (onSnapshot as any).mockImplementation((_query: any, callback: any) => {
+        callback({
+          forEach: (fn: any) => {
+            fn({
+              id: "test-note-single-tag",
+              data: () => ({
+                title: "タグ検証ノート",
+                content: "テスト本文",
+                tags: ["Game"],
+                parentId: null,
+                isDeleted: false,
+                spaceType: "document",
+              }),
+            });
+          },
+        });
+        return vi.fn();
+      });
+
+      render(<Notes initialNoteId="test-note-single-tag" />);
+
+      // タグバッジ #Game が1つだけ表示される
+      expect(screen.getByRole("button", { name: "#Game" })).toBeInTheDocument();
+
+      // タグ入力欄のプレースホルダーは "+ タグ追加" であり、値は空（重複して "Game" が入っていない）
+      const tagInput = screen.getByPlaceholderText("+ タグ追加") as HTMLInputElement;
+      expect(tagInput).toBeInTheDocument();
+      expect(tagInput.value).toBe("");
+
+      // 「＋ ジャーナル化」ボタンが存在しない
+      expect(screen.queryByText(/ジャーナル化/)).not.toBeInTheDocument();
+
+      // 簡易構文バーのボタン（H2, Table など）が存在しない
+      expect(screen.queryByRole("button", { name: "H2" })).not.toBeInTheDocument();
+      expect(screen.queryByRole("button", { name: "Table" })).not.toBeInTheDocument();
+    });
+
+    it("一覧表示で「…」メニューをクリックしたとき、カードが最前面（zIndex: 100）になりメニューウィンドウが正しく表示される", async () => {
+      const Notes = (await import("../components/Notes")).default;
+      const { onSnapshot } = await import("firebase/firestore");
+
+      (onSnapshot as any).mockImplementation((_query: any, callback: any) => {
+        callback({
+          forEach: (fn: any) => {
+            fn({
+              id: "test-note-menu-popover",
+              data: () => ({
+                title: "メニュー検証ノート",
+                content: "ポップオーバーの検証本文",
+                tags: ["テスト"],
+                parentId: null,
+                isDeleted: false,
+                spaceType: "document",
+              }),
+            });
+          },
+        });
+        return vi.fn();
+      });
+
+      render(<Notes />);
+
+      // 一覧の「…」メニューボタンを取得
+      const menuBtn = screen.getByRole("button", { name: "メニュー" });
+      expect(menuBtn).toBeInTheDocument();
+
+      // クリック前はメニュー項目（移動・md 保存・削除）が表示されていない
+      expect(screen.queryByText("md 保存")).not.toBeInTheDocument();
+
+      // クリックしてメニューを開く
+      await userEvent.click(menuBtn);
+
+      // メニューウィンドウ内の項目が表示される
+      expect(screen.getByText("md 保存")).toBeInTheDocument();
+      expect(screen.getByText("削除")).toBeInTheDocument();
+    });
+  });
 });
-
-
-
