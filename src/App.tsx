@@ -15,7 +15,9 @@ import ThemeModal from "./components/ThemeModal";
 import { C } from "./lib/designSystem";
 import { useNetworkStatus } from "./hooks/useNetworkStatus";
 import { logoutUser } from "./components/AuthGate";
-import { loadSavedToken, syncAllGoogleData } from "./services/googleAuth";
+import { getSavedToken, syncAllGoogleData } from "./services/googleAuth";
+import { useGoogleAuth } from "./hooks/useGoogleAuth";
+
 
 // ---------- ネットワーク接続状態バッジ ----------
 function NetworkStatusBadge({ isOnline }: { isOnline: boolean }) {
@@ -86,6 +88,114 @@ function NetworkStatusBadge({ isOnline }: { isOnline: boolean }) {
   );
 }
 
+// ---------- Google データ同期インジケータ ＆ 手動同期ボタン ----------
+export type GoogleSyncStatus = "idle" | "syncing" | "done" | "error";
+
+interface GoogleSyncBadgeProps {
+  status: GoogleSyncStatus;
+  onSync: () => void;
+  isMobile?: boolean;
+}
+
+function GoogleSyncBadge({ status, onSync, isMobile }: GoogleSyncBadgeProps) {
+  if (status === "syncing") {
+    return (
+      <div
+        style={{
+          display: "inline-flex",
+          alignItems: "center",
+          gap: "0.3rem",
+          padding: "0.2rem 0.55rem",
+          borderRadius: "9999px",
+          background: "rgba(82, 121, 111, 0.12)",
+          color: "#52796F",
+          fontSize: "0.68rem",
+          fontWeight: 600,
+          letterSpacing: "0.02em",
+          userSelect: "none",
+          flexShrink: 0,
+        }}
+        title="Googleカレンダー & Tasksを一括同期中"
+      >
+        <svg
+          style={{
+            width: "11px",
+            height: "11px",
+            animation: "spin 1s linear infinite",
+          }}
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="currentColor"
+          strokeWidth="2.5"
+        >
+          <path
+            strokeLinecap="round"
+            strokeLinejoin="round"
+            d="M16.023 9.348h4.992v-.001M2.985 19.644v-4.992m0 0h4.992m-4.993 0 3.181 3.183a8.25 8.25 0 0 0 13.803-3.7M4.031 9.865a8.25 8.25 0 0 1 13.803-3.7l3.181 3.182m0-4.991v4.99"
+          />
+        </svg>
+        <span className={isMobile ? "hidden" : "inline"}>Google同期中…</span>
+      </div>
+    );
+  }
+
+  if (status === "done") {
+    return (
+      <div
+        style={{
+          display: "inline-flex",
+          alignItems: "center",
+          gap: "0.25rem",
+          padding: "0.2rem 0.55rem",
+          borderRadius: "9999px",
+          background: "rgba(82, 121, 111, 0.14)",
+          color: "#52796F",
+          fontSize: "0.68rem",
+          fontWeight: 650,
+          letterSpacing: "0.02em",
+          userSelect: "none",
+          flexShrink: 0,
+          animation: "arca-fade-in 0.2s ease-out",
+        }}
+        title="Googleカレンダー & Tasksの同期が完了しました"
+      >
+        <span style={{ fontSize: "0.72rem", lineHeight: 1 }}>✓</span>
+        <span className={isMobile ? "hidden" : "inline"}>同期完了</span>
+      </div>
+    );
+  }
+
+  if (status === "error") {
+    return (
+      <button
+        onClick={onSync}
+        style={{
+          display: "inline-flex",
+          alignItems: "center",
+          gap: "0.25rem",
+          padding: "0.2rem 0.55rem",
+          borderRadius: "9999px",
+          background: "rgba(224, 86, 74, 0.1)",
+          color: "#E0564A",
+          border: "none",
+          fontSize: "0.68rem",
+          fontWeight: 600,
+          cursor: "pointer",
+          userSelect: "none",
+          flexShrink: 0,
+        }}
+        title="Google同期でエラーが発生しました。クリックで再試行"
+      >
+        <span>!</span>
+        <span className={isMobile ? "hidden" : "inline"}>再試行</span>
+      </button>
+    );
+  }
+
+  // idle: 通常時はバッジ・ボタンを表示せず、ヘッダーをクリーンに保つ
+  return null;
+}
+
 // ---------- ナビゲーション定義 ----------
 type Module = "dashboard" | "tasks" | "calendar" | "notes" | "recipes" | "finance";
 
@@ -104,11 +214,15 @@ function NavBar({
   onChange,
   onOpenBackup,
   onOpenTheme,
+  googleSyncStatus,
+  onManualSync,
 }: {
   active: Module;
   onChange: (m: Module) => void;
   onOpenBackup?: () => void;
   onOpenTheme?: () => void;
+  googleSyncStatus: GoogleSyncStatus;
+  onManualSync: () => void;
 }) {
   const { isOnline } = useNetworkStatus();
   const navTrackRef = useRef<HTMLDivElement>(null);
@@ -220,6 +334,7 @@ function NavBar({
           justifyContent: "space-between",
           height: isMobile ? "44px" : "100%",
           width: isMobile ? "100%" : "auto",
+          zIndex: 2,
         }}
       >
         {/* ロゴ */}
@@ -262,6 +377,7 @@ function NavBar({
         {isMobile && (
           <div style={{ display: "flex", alignItems: "center", gap: "0.35rem" }}>
             <NetworkStatusBadge isOnline={isOnline} />
+            <GoogleSyncBadge status={googleSyncStatus} onSync={onManualSync} isMobile={true} />
 
             {/* 外観・テーマ設定 */}
             <button
@@ -336,13 +452,18 @@ function NavBar({
         )}
       </div>
 
-      {/* ─── スライディングピル型モジュールタブバー（PC: 中央 / モバイル: 2段目に広々配置） ─── */}
+      {/* ─── スライディングピル型モジュールタブバー（PC: 幾何学的中央に完全固定 / モバイル: 2段目に広々配置） ─── */}
       <div
         style={{
           display: "flex",
-          justifyContent: isMobile ? "center" : "center",
+          justifyContent: "center",
+          position: isMobile ? "static" : "absolute",
+          left: isMobile ? "auto" : "50%",
+          top: isMobile ? "auto" : "50%",
+          transform: isMobile ? "none" : "translate(-50%, -50%)",
           width: isMobile ? "100%" : "auto",
           overflowX: "auto",
+          zIndex: 1,
         }}
         className="no-scrollbar"
       >
@@ -428,8 +549,9 @@ function NavBar({
 
       {/* ─── PC表示時の右端コントロール ─── */}
       {!isMobile && (
-        <div style={{ display: "flex", alignItems: "center", justifyContent: "flex-end", gap: "0.45rem", flexShrink: 0, minWidth: "24px" }}>
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "flex-end", gap: "0.45rem", flexShrink: 0, minWidth: "24px", zIndex: 2 }}>
           <NetworkStatusBadge isOnline={isOnline} />
+          <GoogleSyncBadge status={googleSyncStatus} onSync={onManualSync} isMobile={false} />
 
           {/* 外観・テーマ設定 */}
           <button
@@ -542,7 +664,7 @@ function NavBar({
 // ---------- App ----------
 function App() {
   const [activeModule, setActiveModule] = useState<Module>("dashboard");
-  const [tasksTab, setTasksTab] = useState<"tasks" | "lists">("tasks");
+  const [tasksTab, setTasksTab] = useState<string>("default");
   const [selectedNoteId, setSelectedNoteId] = useState<string | null>(null);
   const [isBackupModalOpen, setIsBackupModalOpen] = useState(false);
   const [isThemeModalOpen, setIsThemeModalOpen] = useState(false);
@@ -557,25 +679,102 @@ function App() {
     return () => window.removeEventListener("resize", handleResize);
   }, []);
 
-  // ─── Googleアカウント認証完了時（AuthGate通過時）の自動一括同期 ───
-  const hasInitialSyncedRef = useRef(false);
+  // ─── Googleアカウント一括自動同期（Calendar & Tasks） ───
+  const { requestAccessToken } = useGoogleAuth();
+  const [googleSyncStatus, setGoogleSyncStatus] = useState<GoogleSyncStatus>("idle");
+  const hasAutoSyncedRef = useRef(false);
+
+  // 手動同期ハンドラ（ユーザーが明示的に押した場合はフラグに関係なく実行可能）
+  const handleManualGoogleSync = useCallback(async () => {
+    let token = getSavedToken();
+    if (!token) {
+      try {
+        token = await requestAccessToken(false);
+      } catch (e) {
+        console.warn("[App] Manual sync token refresh failed:", e);
+      }
+    }
+    if (!token) {
+      console.warn("[App] Google sync skipped: no valid token found.");
+      setGoogleSyncStatus("error");
+      setTimeout(() => setGoogleSyncStatus("idle"), 3000);
+      return;
+    }
+
+    setGoogleSyncStatus("syncing");
+    try {
+      await syncAllGoogleData(token);
+      setGoogleSyncStatus("done");
+      setTimeout(() => {
+        setGoogleSyncStatus("idle");
+      }, 3000);
+    } catch (err) {
+      console.warn("[App] Manual Google sync error:", err);
+      setGoogleSyncStatus("error");
+      setTimeout(() => {
+        setGoogleSyncStatus("idle");
+      }, 4000);
+    }
+  }, [requestAccessToken]);
+
+  // ─── ページアクセス時・リロード時のGoogleデータ完全自動一括同期 ───
   useEffect(() => {
-    if (hasInitialSyncedRef.current) return;
-    const token = loadSavedToken();
-    if (!token) return;
+    if (hasAutoSyncedRef.current) return;
 
-    hasInitialSyncedRef.current = true;
-    syncAllGoogleData(token).catch((err) => {
-      console.warn("[App] Initial Google sync error:", err);
-    });
-  }, []);
+    let isMounted = true;
+    let retryCount = 0;
+    const maxRetries = 6;
 
-  const handleNavigate = useCallback((module: Module, tab: "tasks" | "lists" = "tasks") => {
+    const tryAutoSync = async () => {
+      let token = getSavedToken();
+      if (!token) {
+        // 保存トークンなし、または1時間経過で失効している場合、GISでサイレント再取得を試行
+        try {
+          token = await requestAccessToken(false);
+        } catch (e) {
+          console.warn("[App] Silent token refresh skipped or pending:", e);
+        }
+      }
+
+      if (token) {
+        hasAutoSyncedRef.current = true;
+        setGoogleSyncStatus("syncing");
+
+        try {
+          await syncAllGoogleData(token);
+          if (!isMounted) return;
+          setGoogleSyncStatus("done");
+          setTimeout(() => {
+            if (isMounted) setGoogleSyncStatus("idle");
+          }, 3000);
+        } catch (err) {
+          console.warn("[App] Auto Google sync error:", err);
+          if (!isMounted) return;
+          setGoogleSyncStatus("error");
+          setTimeout(() => {
+            if (isMounted) setGoogleSyncStatus("idle");
+          }, 4000);
+        }
+      } else if (retryCount < maxRetries) {
+        retryCount++;
+        // GISスクリプト初期化待機等を考慮して500ms毎に最大6回再試行
+        setTimeout(tryAutoSync, 500);
+      }
+    };
+
+    tryAutoSync();
+
+    return () => {
+      isMounted = false;
+    };
+  }, [requestAccessToken]);
+
+  const handleNavigate = useCallback((module: Module, tab: string = "default") => {
     if (module !== "notes") {
       setSelectedNoteId(null);
     }
     if (module === "tasks") {
-      setTasksTab(tab);
+      setTasksTab(tab || "default");
     }
     setActiveModule(module);
   }, []);
@@ -599,6 +798,8 @@ function App() {
         onChange={(m) => handleNavigate(m, "tasks")}
         onOpenBackup={() => setIsBackupModalOpen(true)}
         onOpenTheme={() => setIsThemeModalOpen(true)}
+        googleSyncStatus={googleSyncStatus}
+        onManualSync={handleManualGoogleSync}
       />
 
       {/* メインコンテンツ領域（ナビバー分の余白 & セーフエリア） */}

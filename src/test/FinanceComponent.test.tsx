@@ -3,25 +3,42 @@
  * Arca — Finance（家計・支出管理）UI コンポーネント結合テスト
  */
 
-import { describe, it, expect, vi, beforeEach } from "vitest";
+import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { render, screen, fireEvent, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import Finance from "../components/finance/Finance";
 import * as financeStorage from "../lib/financeStorage";
-import type { ExpenseTransaction } from "../types/finance";
+import * as csvReconcileService from "../services/csvReconcileService";
+import type { ExpenseTransaction, MonthlyCardReconcileStatus } from "../types/finance";
 
 describe("Finance コンポーネント", () => {
+  const mockStatuses: MonthlyCardReconcileStatus[] = [
+    {
+      id: "2026-08_Oliveカード",
+      month: "2026-08",
+      paymentMethod: "Oliveカード",
+      isReconciled: true,
+      matchedCount: 1,
+    },
+    {
+      id: "2026-08_dカード",
+      month: "2026-08",
+      paymentMethod: "dカード",
+      isReconciled: false,
+    },
+  ];
+
   const mockTransactions: ExpenseTransaction[] = [
     {
       id: "tx-1",
       date: "2026-08-10",
       title: "イオンモール",
       totalAmount: 5400,
-      category: "食費",
+      category: "食料品",
       paymentMethod: "Oliveカード",
       items: [
-        { id: "i1", name: "牛乳", amount: 200, category: "食費", quantity: 1 },
-        { id: "i2", name: "お米", amount: 5200, category: "食費", quantity: 1 },
+        { id: "i1", name: "牛乳", amount: 200, category: "食料品", quantity: 1 },
+        { id: "i2", name: "お米", amount: 5200, category: "食料品", quantity: 1 },
       ],
       isReconciled: true,
       createdAt: "2026-08-10T10:00:00Z",
@@ -33,7 +50,7 @@ describe("Finance コンポーネント", () => {
       date: "2026-08-15",
       title: "マツモトキヨシ",
       totalAmount: 1800,
-      category: "日用品",
+      category: "日用品・消耗品",
       paymentMethod: "dカード",
       items: [],
       isReconciled: false,
@@ -44,10 +61,20 @@ describe("Finance コンポーネント", () => {
   ];
 
   beforeEach(() => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    vi.setSystemTime(new Date("2026-08-20T12:00:00Z"));
     vi.spyOn(financeStorage, "subscribeExpenseTransactions").mockImplementation((cb) => {
       cb(mockTransactions);
       return () => {};
     });
+    vi.spyOn(csvReconcileService, "subscribeMonthlyReconcileStatuses").mockImplementation((cb) => {
+      cb(mockStatuses);
+      return () => {};
+    });
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
   });
 
   it("ヘッダーと支出取引一覧が正常にレンダリングされる", async () => {
@@ -178,4 +205,78 @@ describe("Finance コンポーネント", () => {
     // 決済合計金額が 5400円 に戻り、警告が消える
     expect(screen.queryByText(/決済合計.*と品目合計.*の差があります/)).not.toBeInTheDocument();
   });
+
+  it("カード別フィルターに照合済みバッジ（✓）が表示され、安心インジケータバナーが表示される", async () => {
+    render(<Finance />);
+
+    // 照合済み Oliveカード のバッジ（✓）が表示されている
+    const oliveBadge = screen.getByTestId("reconcile-badge-Oliveカード");
+    expect(oliveBadge).toHaveTextContent("✓");
+
+    // 未照合 dカード のバッジ（○）が表示されている
+    const dCardBadge = screen.getByTestId("reconcile-badge-dカード");
+    expect(dCardBadge).toHaveTextContent("○");
+
+    // 安心インジケータバナー（「CSV照合済みです」）が表示されている
+    expect(screen.getByText(/CSV照合済みです/)).toBeInTheDocument();
+  });
+
+  it("照合ステータスバッジをクリックすると手動トグルが実行される", async () => {
+    const toggleSpy = vi.spyOn(csvReconcileService, "toggleMonthlyCardReconcile").mockResolvedValue(undefined as any);
+
+    render(<Finance />);
+
+    // Oliveカードのバッジをクリック
+    const oliveBadge = screen.getByTestId("reconcile-badge-Oliveカード");
+    fireEvent.click(oliveBadge);
+
+    expect(toggleSpy).toHaveBeenCalledWith(
+      expect.stringMatching(/^\d{4}-\d{2}$/),
+      "Oliveカード",
+      true
+    );
+  });
+
+  it("「速報メール取得」ボタンをクリックすると Gmail 連携が実行される", async () => {
+    const gmailService = await import("../services/gmailFinanceService");
+    const syncSpy = vi.spyOn(gmailService, "fetchAndProcessCardNoticeEmails").mockResolvedValue({
+      createdCount: 2,
+      linkedCount: 1,
+      skippedCount: 0,
+      totalFound: 3,
+    });
+
+    render(<Finance />);
+
+    const syncBtn = screen.getByTestId("gmail-sync-btn");
+    fireEvent.click(syncBtn);
+
+    await waitFor(() => {
+      expect(syncSpy).toHaveBeenCalled();
+      expect(screen.getByTestId("sync-toast")).toHaveTextContent(/2件の新規決済を作成/);
+    });
+  });
+
+  it("マウント時に保存されたトークンがあればバックグラウンドで自動同期が実行される", async () => {
+    sessionStorage.clear();
+    const googleAuth = await import("../services/googleAuth");
+    vi.spyOn(googleAuth, "loadSavedToken").mockReturnValue("valid-saved-token");
+
+    const gmailService = await import("../services/gmailFinanceService");
+    const autoSyncSpy = vi.spyOn(gmailService, "fetchAndProcessCardNoticeEmails").mockResolvedValue({
+      createdCount: 1,
+      linkedCount: 0,
+      skippedCount: 0,
+      totalFound: 1,
+    });
+
+    render(<Finance />);
+
+    await waitFor(() => {
+      expect(autoSyncSpy).toHaveBeenCalledWith("valid-saved-token", expect.anything());
+      expect(screen.getByTestId("sync-toast")).toHaveTextContent(/1件の速報決済を取り込み/);
+    });
+  });
 });
+
+

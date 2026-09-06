@@ -10,7 +10,7 @@
  * 5. テキストモード（生Markdownソース）と WYSIWYG ビューのシームレスな切替
  * 6. 太字・斜体・取り消し線の改行時自動解除 (ClearMarksOnEnter)
  * 7. チェックリスト (TaskItem) の安全なテキスト入力 (nested: false)
- * 8. 最下部 35vh 余白 & Apple風タイポグラフィ
+ * 8. 最適化された余白 & Apple風タイポグラフィ
  */
 
 import {
@@ -360,7 +360,7 @@ export const NoteEditor = forwardRef<NoteEditorHandles, NoteEditorProps>(functio
       Placeholder.configure({
         placeholder:
           placeholder ||
-          "Markdownで書き始める…\n\n行頭で # や - または / を入力するとスタイルが適用されます",
+          "Markdownで書き始める…（/ でブロック挿入）",
       }),
       Link.configure({
         autolink: true,
@@ -571,8 +571,8 @@ export const NoteEditor = forwardRef<NoteEditorHandles, NoteEditorProps>(functio
         style={{
           position: "relative",
           width: "100%",
-          minHeight: "350px",
-          paddingBottom: "35vh",
+          minHeight: "120px",
+          paddingBottom: "1.5rem",
         }}
       >
         <div
@@ -597,7 +597,7 @@ export const NoteEditor = forwardRef<NoteEditorHandles, NoteEditorProps>(functio
           style={{
             display: "block",
             width: "100%",
-            minHeight: "380px",
+            minHeight: "140px",
             background: "transparent",
             border: "none",
             outline: "none",
@@ -619,8 +619,8 @@ export const NoteEditor = forwardRef<NoteEditorHandles, NoteEditorProps>(functio
       style={{
         position: "relative",
         width: "100%",
-        minHeight: "350px",
-        paddingBottom: "35vh",
+        minHeight: "120px",
+        paddingBottom: "1.5rem",
       }}
       onClick={() => {
         if (editor && !editor.isFocused) {
@@ -675,7 +675,7 @@ export const NoteEditor = forwardRef<NoteEditorHandles, NoteEditorProps>(functio
       <style>{`
         .arca-tiptap-prose {
           outline: none;
-          min-height: 280px;
+          min-height: 100px;
           font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Hiragino Sans", "Segoe UI", sans-serif;
           font-size: 1.02rem;
           line-height: 1.9;

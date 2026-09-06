@@ -718,8 +718,119 @@ describe("Notes 階層化・ハブ＆カード（Parent-Child Hub）統合テス
     );
   });
 
+  it("親ノートのサブノート一覧でNotion風リスト⇄Keep風カードの切り替えピルが動作し即時保存される", async () => {
+    const { onSnapshot, updateDoc } = await import("firebase/firestore");
+    const Notes = (await import("../components/Notes")).default;
+
+    (onSnapshot as any).mockImplementation((_q: any, callback: any) => {
+      callback({
+        forEach: (fn: any) => {
+          fn({
+            id: "hub-toggle",
+            data: () => ({
+              title: "ビュー切り替えハブ",
+              content: "ハブの本文",
+              tags: ["game"],
+              parentId: null,
+              isDeleted: false,
+              // childViewMode 未指定 -> デフォルトは 'list'
+            }),
+          });
+          fn({
+            id: "sub-child-1",
+            data: () => ({
+              title: "ゼルダ攻略メモ",
+              content: "祠の場所メモ",
+              tags: ["攻略"],
+              parentId: "hub-toggle",
+              isDeleted: false,
+            }),
+          });
+        },
+      });
+      return vi.fn();
+    });
+
+    render(<Notes initialNoteId="hub-toggle" />);
+
+    // 1. デフォルトはNotion風リスト表示
+    const listBtn = screen.getByRole("radio", { name: "リスト表示" });
+    const cardBtn = screen.getByRole("radio", { name: "カード表示" });
+    expect(listBtn).toHaveAttribute("aria-checked", "true");
+    expect(cardBtn).toHaveAttribute("aria-checked", "false");
+    expect(screen.getByTestId("subnotes-list-view")).toBeInTheDocument();
+    expect(screen.queryByTestId("subnotes-board-view")).not.toBeInTheDocument();
+    expect(screen.getByTestId("subnote-list-item-sub-child-1")).toBeInTheDocument();
+
+    // 2. 「カード」ボタンをクリック -> Keep風カード表示に切り替わり updateDoc が即座に呼ばれる
+    await userEvent.click(cardBtn);
+
+    expect(updateDoc).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({
+        childViewMode: "board",
+      })
+    );
+
+    // 3. 再度「リスト」ボタンをクリック -> リスト表示に戻り updateDoc が呼ばれる
+    await userEvent.click(listBtn);
+
+    expect(updateDoc).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({
+        childViewMode: "list",
+      })
+    );
+  });
+
+  it("親ノートの childViewMode が 'board' の場合、最初からKeep風カードグリッドで描画される", async () => {
+    const { onSnapshot } = await import("firebase/firestore");
+    const Notes = (await import("../components/Notes")).default;
+
+    (onSnapshot as any).mockImplementation((_q: any, callback: any) => {
+      callback({
+        forEach: (fn: any) => {
+          fn({
+            id: "hub-board-preset",
+            data: () => ({
+              title: "カフェ巡りハブ",
+              content: "行きたいお店",
+              tags: ["cafe"],
+              parentId: null,
+              isDeleted: false,
+              childViewMode: "board",
+            }),
+          });
+          fn({
+            id: "sub-cafe-1",
+            data: () => ({
+              title: "渋谷カフェ",
+              content: "美味しいコーヒー",
+              tags: ["コーヒー"],
+              parentId: "hub-board-preset",
+              isDeleted: false,
+            }),
+          });
+        },
+      });
+      return vi.fn();
+    });
+
+    render(<Notes initialNoteId="hub-board-preset" />);
+
+    // 最初からカード表示が選択されている
+    const listBtn = screen.getByRole("radio", { name: "リスト表示" });
+    const cardBtn = screen.getByRole("radio", { name: "カード表示" });
+    expect(listBtn).toHaveAttribute("aria-checked", "false");
+    expect(cardBtn).toHaveAttribute("aria-checked", "true");
+    expect(screen.getByTestId("subnotes-board-view")).toBeInTheDocument();
+    expect(screen.queryByTestId("subnotes-list-view")).not.toBeInTheDocument();
+    expect(screen.getByText("渋谷カフェ")).toBeInTheDocument();
+  });
+
   it("親ノート削除時にサブノートの警告ダイアログが表示され、親＋子ノートが一括論理削除＆Undoされる", async () => {
     const { onSnapshot, updateDoc } = await import("firebase/firestore");
+    (updateDoc as any).mockClear();
     const Notes = (await import("../components/Notes")).default;
 
     (onSnapshot as any).mockImplementation((_q: any, callback: any) => {
@@ -1101,6 +1212,304 @@ describe("Notes 階層化・ハブ＆カード（Parent-Child Hub）統合テス
       // 再びグリッド表示ボタンをクリック
       await userEvent.click(gridToggleBtn);
       expect(container.querySelector(".arca-note-card-grid")).toBeInTheDocument();
+    });
+  });
+
+  // ─────────────────────────────────────────
+  // 19. サブノート表示形式の3態切り替え（リスト ⇄ カード ⇄ ジャーナル）
+  // ─────────────────────────────────────────
+  describe("サブノート表示形式の3態切り替え（リスト ⇄ カード ⇄ ジャーナル）", () => {
+    it("親ノートを開いたとき、サブノートのセグメントコントロールに3つの選択肢が表示され、ジャーナル表示に切り替えられる", async () => {
+      const { onSnapshot, updateDoc } = await import("firebase/firestore");
+      (updateDoc as any).mockClear();
+      const Notes = (await import("../components/Notes")).default;
+
+      (onSnapshot as any).mockImplementation((_q: any, callback: any) => {
+        callback({
+          forEach: (fn: any) => {
+            fn({
+              id: "hub-parent-1",
+              data: () => ({
+                title: "ジャーナル親フォルダ",
+                content: "ライフログ管理",
+                tags: ["ライフログ"],
+                parentId: null,
+                isDeleted: false,
+                childViewMode: "list",
+              }),
+            });
+            fn({
+              id: "child-j-1",
+              data: () => ({
+                title: "2026-09-06 のジャーナル",
+                content: "本日の出来事",
+                tags: ["ジャーナル"],
+                parentId: "hub-parent-1",
+                isDeleted: false,
+                journalDate: "2026-09-06",
+                mood: "great",
+              }),
+            });
+          },
+        });
+        return vi.fn();
+      });
+
+      render(<Notes initialNoteId="hub-parent-1" />);
+
+      // 3つのラジオボタンが存在する
+      const listBtn = screen.getByRole("radio", { name: "リスト表示" });
+      const cardBtn = screen.getByRole("radio", { name: "カード表示" });
+      const journalBtn = screen.getByRole("radio", { name: "ジャーナル表示" });
+
+      expect(listBtn).toBeInTheDocument();
+      expect(cardBtn).toBeInTheDocument();
+      expect(journalBtn).toBeInTheDocument();
+
+      // 初期はリスト表示
+      expect(listBtn).toHaveAttribute("aria-checked", "true");
+      expect(journalBtn).toHaveAttribute("aria-checked", "false");
+
+      // ジャーナル表示ボタンをクリック
+      await userEvent.click(journalBtn);
+
+      // updateDoc で childViewMode: "journal" が即時保存される
+      expect(updateDoc).toHaveBeenCalledWith(
+        expect.anything(),
+        expect.objectContaining({
+          childViewMode: "journal",
+        })
+      );
+    });
+
+    it("初期 childViewMode が 'journal' の親ノートを開くと、タイムラインと「今日のジャーナルを書く」が表示される", async () => {
+      const { onSnapshot } = await import("firebase/firestore");
+      const Notes = (await import("../components/Notes")).default;
+
+      (onSnapshot as any).mockImplementation((_q: any, callback: any) => {
+        callback({
+          forEach: (fn: any) => {
+            fn({
+              id: "hub-journal-mode",
+              data: () => ({
+                title: "ライフログ",
+                content: "日記フォルダ",
+                tags: ["Life"],
+                parentId: null,
+                isDeleted: false,
+                childViewMode: "journal",
+              }),
+            });
+            fn({
+              id: "j-note-sep",
+              data: () => ({
+                title: "2026-09-06 のジャーナル",
+                content: "秋晴れの穏やかな日。",
+                tags: ["ジャーナル"],
+                parentId: "hub-journal-mode",
+                isDeleted: false,
+                journalDate: "2026-09-06",
+                mood: "good",
+              }),
+            });
+          },
+        });
+        return vi.fn();
+      });
+
+      render(<Notes initialNoteId="hub-journal-mode" />);
+
+      const journalBtn = screen.getByRole("radio", { name: "ジャーナル表示" });
+      expect(journalBtn).toHaveAttribute("aria-checked", "true");
+
+      // 「今日のジャーナルを書く / 開く」クイックバーが存在する
+      expect(screen.getByTestId("quick-today-journal-btn")).toBeInTheDocument();
+
+      // 月別ヘッダー（2026年9月）が存在する
+      expect(screen.getByText("2026年9月")).toBeInTheDocument();
+
+      // タイムラインカードの内容が表示される
+      expect(screen.getByText("2026-09-06 のジャーナル")).toBeInTheDocument();
+      expect(screen.getByText("秋晴れの穏やかな日。")).toBeInTheDocument();
+    });
+  });
+
+  // ─────────────────────────────────────────
+  // 20. ジャーナル統合（クイック作成、MoodPicker、足跡取り込み）
+  // ─────────────────────────────────────────
+  describe("ジャーナル統合（クイック作成、MoodPicker、足跡取り込み）", () => {
+    it("「今日のジャーナルを書く」をクリックすると、新規ジャーナルが作成され画面が開く", async () => {
+      const { onSnapshot, addDoc } = await import("firebase/firestore");
+      (addDoc as any).mockClear();
+      const Notes = (await import("../components/Notes")).default;
+
+      (onSnapshot as any).mockImplementation((_q: any, callback: any) => {
+        callback({
+          forEach: (fn: any) => {
+            fn({
+              id: "journal-parent-hub",
+              data: () => ({
+                title: "My Journal",
+                content: "",
+                tags: [],
+                parentId: null,
+                isDeleted: false,
+                childViewMode: "journal",
+              }),
+            });
+          },
+        });
+        return vi.fn();
+      });
+
+      render(<Notes initialNoteId="journal-parent-hub" />);
+
+      const quickWriteBtn = screen.getByTestId("quick-today-journal-btn");
+      await userEvent.click(quickWriteBtn);
+
+      // addDoc で当日のジャーナルノートが作成される
+      expect(addDoc).toHaveBeenCalledWith(
+        expect.anything(),
+        expect.objectContaining({
+          parentId: "journal-parent-hub",
+          tags: ["ジャーナル"],
+          title: expect.stringMatching(/のジャーナル$/),
+          journalDate: expect.stringMatching(/^\d{4}-\d{2}-\d{2}$/),
+        })
+      );
+    });
+
+    it("ジャーナルノート表示時に MoodPicker と「今日の足跡を取り込む」が表示され、Mood選択が即時保存される", async () => {
+      const { onSnapshot, updateDoc } = await import("firebase/firestore");
+      (updateDoc as any).mockClear();
+      const Notes = (await import("../components/Notes")).default;
+
+      (onSnapshot as any).mockImplementation((_q: any, callback: any) => {
+        callback({
+          forEach: (fn: any) => {
+            fn({
+              id: "journal-entry-1",
+              data: () => ({
+                title: "2026-09-06 のジャーナル",
+                content: "朝の散歩をした。",
+                tags: ["ジャーナル"],
+                parentId: null,
+                isDeleted: false,
+                journalDate: "2026-09-06",
+                mood: "neutral",
+              }),
+            });
+          },
+        });
+        return vi.fn();
+      });
+
+      render(<Notes initialNoteId="journal-entry-1" />);
+
+      // ジャーナルメタバーが表示されている
+      expect(screen.getByTestId("journal-meta-bar")).toBeInTheDocument();
+      expect(screen.getByText("今日の気分")).toBeInTheDocument();
+
+      // MoodPicker の各ボタンが存在する（role="radio"）
+      const greatMoodBtn = screen.getByRole("radio", { name: /最高/ });
+      expect(greatMoodBtn).toBeInTheDocument();
+
+      // 最高 (great) を選択
+      await userEvent.click(greatMoodBtn);
+
+      // updateDoc で mood: "great" が即時保存される
+      expect(updateDoc).toHaveBeenCalledWith(
+        expect.anything(),
+        expect.objectContaining({
+          mood: "great",
+        })
+      );
+    });
+
+    it("「今日の足跡を取り込む」をクリックすると、当日のタスクと予定が取得され、本文末尾にMarkdown形式で追記される", async () => {
+      const { onSnapshot, updateDoc, getDocs } = await import("firebase/firestore");
+      (updateDoc as any).mockClear();
+      const Notes = (await import("../components/Notes")).default;
+
+      // getDocs でタスクと予定を返すようモック
+      (getDocs as any).mockImplementation((q: any) => {
+        const colId = q?.id || q?.path || "";
+        if (colId.includes("tasks")) {
+          return Promise.resolve({
+            docs: [
+              {
+                id: "t-1",
+                data: () => ({
+                  title: "デザインシステム設計完了",
+                  completed: true,
+                  dueDate: "2026-09-06",
+                }),
+              },
+            ],
+            forEach(fn: any) {
+              this.docs.forEach(fn);
+            },
+          });
+        }
+        if (colId.includes("events")) {
+          return Promise.resolve({
+            docs: [
+              {
+                id: "e-1",
+                data: () => ({
+                  title: "スプリントレビュー",
+                  date: "2026-09-06",
+                  startTime: "15:00",
+                  endTime: "16:00",
+                }),
+              },
+            ],
+            forEach(fn: any) {
+              this.docs.forEach(fn);
+            },
+          });
+        }
+        return Promise.resolve({ docs: [], forEach: vi.fn() });
+      });
+
+      (onSnapshot as any).mockImplementation((_q: any, callback: any) => {
+        callback({
+          forEach: (fn: any) => {
+            fn({
+              id: "journal-entry-footprint",
+              data: () => ({
+                title: "2026-09-06 のジャーナル",
+                content: "今日はいろいろ進んだ。",
+                tags: ["ジャーナル"],
+                parentId: null,
+                isDeleted: false,
+                journalDate: "2026-09-06",
+                mood: "good",
+              }),
+            });
+          },
+        });
+        return vi.fn();
+      });
+
+      render(<Notes initialNoteId="journal-entry-footprint" />);
+
+      const importBtn = screen.getByTestId("import-footprint-btn");
+      expect(importBtn).toBeInTheDocument();
+
+      // 足跡取り込みボタンをクリック
+      await userEvent.click(importBtn);
+
+      // contextSnapshot が保存され、本文が更新される
+      expect(updateDoc).toHaveBeenCalledWith(
+        expect.anything(),
+        expect.objectContaining({
+          contextSnapshot: {
+            completedTasks: ["デザインシステム設計完了"],
+            events: ["15:00〜16:00 スプリントレビュー"],
+          },
+        })
+      );
     });
   });
 });

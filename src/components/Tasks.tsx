@@ -16,6 +16,8 @@ import {
   addDoc,
   updateDoc,
   deleteDoc,
+  setDoc,
+  writeBatch,
   doc,
   onSnapshot,
   query,
@@ -34,9 +36,15 @@ import {
   pushTaskStatusToGoogleTasks,
   pushTaskUpdateToGoogleTasks,
   removeTaskFromGoogleTasks,
+  batchRemoveTasksFromGoogleTasks,
+  pushSubTaskToGoogleTasks,
+  pushSubTaskStatusToGoogleTasks,
+  pushSubTaskUpdateToGoogleTasks,
+  removeSubTaskFromGoogleTasks,
   createGoogleTaskList,
   renameGoogleTaskList,
   deleteGoogleTaskList,
+  SHOPPING_LIST_NAMES,
 } from "../services/googleTasksSync";
 import { parseTaskInput } from "../lib/aetherCore";
 import type { TaskItem, TaskListCategory, SyncStatus } from "../types";
@@ -45,6 +53,8 @@ import { useUndoToast } from "../hooks/useUndoToast";
 import { UndoToast } from "./common/UndoToast";
 import { PMSection } from "./tasks/PMSection";
 import { TaskDetailModal } from "./tasks/TaskDetailModal";
+import { ConfirmModal } from "./notes/ConfirmModal";
+import { ListIcon, ListIconPicker, type ListIconId } from "./common/ListIcon";
 
 export interface TasksProps {
   initialTab?: string;
@@ -54,8 +64,8 @@ type Task = TaskItem;
 
 // ── 初期デフォルトカテゴリ ──
 const DEFAULT_CATEGORIES: TaskListCategory[] = [
-  { id: "default", title: "マイタスク", isDefault: true },
-  { id: "shopping", title: "買い物リスト" },
+  { id: "default", title: "マイタスク", isDefault: true, icon: "sparkle" },
+  { id: "shopping", title: "買い物リスト", icon: "cart" },
 ];
 
 const MAX_LIST_NAME_LENGTH = 15;
@@ -143,6 +153,27 @@ function TrashIcon() {
   );
 }
 
+function ChevronRight({ isRotated = false }: { isRotated?: boolean }) {
+  return (
+    <svg
+      viewBox="0 0 24 24"
+      fill="none"
+      strokeWidth={2.4}
+      stroke="currentColor"
+      style={{
+        width: "0.68rem",
+        height: "0.68rem",
+        flexShrink: 0,
+        transform: isRotated ? "rotate(90deg)" : "rotate(0deg)",
+        transformOrigin: "center",
+        transition: "transform 0.18s cubic-bezier(0.16, 1, 0.3, 1)",
+      }}
+    >
+      <path strokeLinecap="round" strokeLinejoin="round" d="m8.25 4.5 7.5 7.5-7.5 7.5" />
+    </svg>
+  );
+}
+
 // ---------- Google 同期バッジ ----------
 function SyncBadge({
   isReady,
@@ -150,12 +181,14 @@ function SyncBadge({
   syncStatus,
   onSignIn,
   onSignOut,
+  onSync,
 }: {
   isReady: boolean;
   isSignedIn: boolean;
   syncStatus: SyncStatus;
   onSignIn: () => void;
   onSignOut: () => void;
+  onSync: () => void;
 }) {
   if (!isReady) return null;
 
@@ -202,10 +235,33 @@ function SyncBadge({
     C.gold;
 
   return (
-    <div style={{ display: "flex", flexDirection: "column", alignItems: "flex-end", gap: "0.2rem" }}>
-      <span style={{ fontSize: "0.72rem", color: statusColor, fontWeight: 500, letterSpacing: "0.02em" }}>
-        {statusLabel}
-      </span>
+    <div style={{ display: "flex", flexDirection: "column", alignItems: "flex-end", gap: "0.25rem" }}>
+      <div style={{ display: "flex", alignItems: "center", gap: "0.45rem" }}>
+        <button
+          type="button"
+          onClick={onSync}
+          disabled={syncStatus === "syncing"}
+          data-testid="manual-sync-btn"
+          style={{
+            background: "var(--bg-nav-track)",
+            border: "1px solid var(--border-subtle)",
+            borderRadius: "7px",
+            padding: "0.18rem 0.55rem",
+            fontSize: "0.68rem",
+            fontWeight: 600,
+            color: syncStatus === "syncing" ? C.goldDark : C.charcoalMid,
+            cursor: syncStatus === "syncing" ? "default" : "pointer",
+            transition: "all 0.15s ease",
+            lineHeight: 1.2,
+          }}
+          title="今すぐGoogle Tasksと相互同期する"
+        >
+          {syncStatus === "syncing" ? "同期中…" : "今すぐ同期"}
+        </button>
+        <span style={{ fontSize: "0.72rem", color: statusColor, fontWeight: 500, letterSpacing: "0.02em" }}>
+          {statusLabel}
+        </span>
+      </div>
       <button
         onClick={onSignOut}
         style={{
@@ -223,21 +279,27 @@ function SyncBadge({
   );
 }
 
-// ---------- タスク行（クリック領域完全分離・直接削除ボタン付き） ----------
+// ---------- タスク行（クリック領域完全分離・直接削除ボタン・サブタスク開閉付き） ----------
 function TaskRow({
   task,
+  isLast = false,
   onToggle,
   onClickRow,
   onDelete,
+  onToggleSubTask,
 }: {
   task: Task;
+  isLast?: boolean;
   onToggle: (task: Task) => void;
   onClickRow: (task: Task) => void;
   onDelete: (task: Task) => void;
+  onToggleSubTask?: (task: Task, subTaskId: string) => void;
 }) {
+  const [isCollapsed, setIsCollapsed] = useState(false);
   const subtasks = task.subtasks || [];
   const totalSubtasks = subtasks.length;
   const completedSubtasks = subtasks.filter((s) => s.completed).length;
+  const hasSubtasks = totalSubtasks > 0;
 
   return (
     <li
@@ -245,182 +307,334 @@ function TaskRow({
       data-testid="task-item-row"
       style={{
         display: "flex",
-        alignItems: "center",
-        gap: "0.85rem",
-        padding: "0.85rem 0.6rem",
-        borderBottom: "1px solid rgba(0, 0, 0, 0.04)",
-        opacity: task.completed ? 0.45 : 1,
-        transition: "opacity 0.2s ease, background 0.15s ease",
-        cursor: "pointer",
+        flexDirection: "column",
+        borderBottom: isLast ? "none" : "1px solid rgba(0, 0, 0, 0.04)",
         borderRadius: "10px",
+        transition: "background 0.15s ease",
       }}
     >
-      {/* ─── 左端: 丸いチェックボタン（e.stopPropagation で完了トグルのみ） ─── */}
-      <button
-        type="button"
-        data-testid="task-toggle-btn"
-        onClick={(e) => {
-          e.stopPropagation();
-          onToggle(task);
-        }}
+      {/* ─── メインタスク行 ─── */}
+      <div
         style={{
-          background: "none",
-          border: "none",
-          padding: "0.25rem",
-          margin: "-0.25rem",
-          cursor: "pointer",
-          lineHeight: 0,
-          minWidth: "32px",
-          minHeight: "32px",
           display: "flex",
           alignItems: "center",
-          justifyContent: "center",
-          flexShrink: 0,
-        }}
-        title={task.completed ? "未完了に戻す" : "完了にする"}
-      >
-        <CheckCircle completed={task.completed} />
-      </button>
-
-      {/* ─── タスクタイトル ─── */}
-      <span
-        style={{
-          flex: 1,
-          fontSize: "0.9rem",
-          fontWeight: 450,
-          color: task.completed ? C.charcoalLight : C.charcoal,
-          textDecoration: task.completed ? "line-through" : "none",
-          transition: "text-decoration 0.2s ease",
-          letterSpacing: "0.01em",
-          lineHeight: 1.4,
-          wordBreak: "break-word",
+          gap: "0.55rem",
+          padding: "0.85rem 0.6rem",
+          opacity: task.completed ? 0.45 : 1,
+          transition: "opacity 0.2s ease, background 0.15s ease",
+          cursor: "pointer",
+          borderRadius: "10px",
         }}
       >
-        {task.title}
-      </span>
-
-      {/* ─── 右端情報（サブタスク進捗ピル・優先度・期限・ゴミ箱） ─── */}
-      <div style={{ display: "flex", alignItems: "center", gap: "0.5rem", flexShrink: 0 }}>
-        {/* サブタスク進捗ピルバッジ */}
-        {totalSubtasks > 0 && !task.completed && (
-          <span
-            style={{
-              fontSize: "0.68rem",
-              fontWeight: 600,
-              color: completedSubtasks === totalSubtasks ? C.sage : C.charcoalLight,
-              background: completedSubtasks === totalSubtasks ? "rgba(107, 142, 111, 0.12)" : "rgba(0, 0, 0, 0.04)",
-              padding: "0.15rem 0.45rem",
-              borderRadius: "6px",
-              whiteSpace: "nowrap",
+        {/* ─── 開閉トグルアイコン（サブタスクがある場合のみ表示、ない場合は同じ幅のプレースホルダー） ─── */}
+        {hasSubtasks ? (
+          <button
+            type="button"
+            data-testid="subtask-collapse-btn"
+            aria-label={isCollapsed ? "サブタスクを展開" : "サブタスクを折りたたむ"}
+            onClick={(e) => {
+              e.stopPropagation();
+              setIsCollapsed((prev) => !prev);
             }}
-            title={`${totalSubtasks}件中${completedSubtasks}件完了`}
-          >
-            {completedSubtasks}/{totalSubtasks}
-          </span>
-        )}
-
-        {/* 優先度バッジ（高・低） */}
-        {task.priority === "high" && !task.completed && (
-          <span
-            data-testid="priority-high-badge"
             style={{
-              fontSize: "0.65rem",
-              fontWeight: 600,
-              color: C.danger,
-              background: "rgba(224, 86, 74, 0.08)",
-              padding: "0.12rem 0.4rem",
+              background: "none",
+              border: "none",
+              padding: "0.2rem",
+              margin: "-0.2rem",
+              cursor: "pointer",
+              lineHeight: 0,
+              width: "22px",
+              height: "22px",
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+              flexShrink: 0,
+              color: C.charcoalLight,
               borderRadius: "5px",
-              whiteSpace: "nowrap",
+              transition: "color 0.15s ease, background 0.15s ease",
             }}
-          >
-            高
-          </span>
-        )}
-        {task.priority === "low" && !task.completed && (
-          <span
-            data-testid="priority-low-badge"
-            style={{
-              fontSize: "0.65rem",
-              fontWeight: 600,
-              color: "#4A709C",
-              background: "rgba(74, 112, 156, 0.08)",
-              padding: "0.12rem 0.4rem",
-              borderRadius: "5px",
-              whiteSpace: "nowrap",
+            onMouseEnter={(e) => {
+              (e.currentTarget as HTMLElement).style.color = C.charcoal;
+              (e.currentTarget as HTMLElement).style.background = "rgba(0, 0, 0, 0.04)";
             }}
+            onMouseLeave={(e) => {
+              (e.currentTarget as HTMLElement).style.color = C.charcoalLight;
+              (e.currentTarget as HTMLElement).style.background = "none";
+            }}
+            title={isCollapsed ? "サブタスクを展開" : "サブタスクを折りたたむ"}
           >
-            低
-          </span>
+            <ChevronRight isRotated={!isCollapsed} />
+          </button>
+        ) : (
+          <div style={{ width: "22px", height: "22px", flexShrink: 0 }} />
         )}
 
-        {/* 期限バッジ */}
-        {task.dueDate && !task.completed && (
-          <span
-            style={{
-              fontSize: "0.72rem",
-              letterSpacing: "0.02em",
-              fontWeight: 500,
-              color: dueColor(task.dueDate),
-              padding: "0.15rem 0.45rem",
-              borderRadius: "6px",
-              background: "rgba(0, 0, 0, 0.03)",
-              whiteSpace: "nowrap",
-            }}
-          >
-            {formatDue(task.dueDate)}
-          </span>
-        )}
-
-        {/* 一覧からの直接削除ボタン */}
+        {/* ─── 左端: 丸いチェックボタン（e.stopPropagation で完了トグルのみ） ─── */}
         <button
           type="button"
-          data-testid="task-delete-btn"
+          data-testid="task-toggle-btn"
           onClick={(e) => {
             e.stopPropagation();
-            onDelete(task);
+            onToggle(task);
           }}
           style={{
             background: "none",
             border: "none",
-            padding: "0.3rem",
-            margin: "-0.2rem",
+            padding: "0.25rem",
+            margin: "-0.25rem",
             cursor: "pointer",
-            color: C.charcoalLight,
-            opacity: 0.6,
             lineHeight: 0,
+            minWidth: "32px",
+            minHeight: "32px",
             display: "flex",
             alignItems: "center",
             justifyContent: "center",
-            transition: "opacity 0.15s ease, color 0.15s ease",
+            flexShrink: 0,
           }}
-          onMouseEnter={(e) => {
-            (e.currentTarget as HTMLElement).style.opacity = "1";
-            (e.currentTarget as HTMLElement).style.color = C.danger;
-          }}
-          onMouseLeave={(e) => {
-            (e.currentTarget as HTMLElement).style.opacity = "0.6";
-            (e.currentTarget as HTMLElement).style.color = C.charcoalLight;
-          }}
-          title="タスクを削除"
+          title={task.completed ? "未完了に戻す" : "完了にする"}
         >
-          <TrashIcon />
+          <CheckCircle completed={task.completed} />
         </button>
+
+        {/* ─── タスクタイトル ─── */}
+        <span
+          style={{
+            flex: 1,
+            fontSize: "0.9rem",
+            fontWeight: 450,
+            color: task.completed ? C.charcoalLight : C.charcoal,
+            textDecoration: task.completed ? "line-through" : "none",
+            transition: "text-decoration 0.2s ease",
+            letterSpacing: "0.01em",
+            lineHeight: 1.4,
+            wordBreak: "break-word",
+          }}
+        >
+          {task.title}
+        </span>
+
+        {/* ─── 右端情報（サブタスク進捗ピル・優先度・期限・ゴミ箱） ─── */}
+        <div style={{ display: "flex", alignItems: "center", gap: "0.5rem", flexShrink: 0 }}>
+          {/* サブタスク進捗ピルバッジ */}
+          {totalSubtasks > 0 && !task.completed && (
+            <span
+              style={{
+                fontSize: "0.68rem",
+                fontWeight: 600,
+                color: completedSubtasks === totalSubtasks ? C.sage : C.charcoalLight,
+                background: completedSubtasks === totalSubtasks ? "rgba(107, 142, 111, 0.12)" : "rgba(0, 0, 0, 0.04)",
+                padding: "0.15rem 0.45rem",
+                borderRadius: "6px",
+                whiteSpace: "nowrap",
+              }}
+              title={`${totalSubtasks}件中${completedSubtasks}件完了`}
+            >
+              {completedSubtasks}/{totalSubtasks}
+            </span>
+          )}
+
+          {/* 優先度バッジ（高・低） */}
+          {task.priority === "high" && !task.completed && (
+            <span
+              data-testid="priority-high-badge"
+              style={{
+                fontSize: "0.65rem",
+                fontWeight: 600,
+                color: C.danger,
+                background: "rgba(224, 86, 74, 0.08)",
+                padding: "0.12rem 0.4rem",
+                borderRadius: "5px",
+                whiteSpace: "nowrap",
+              }}
+            >
+              高
+            </span>
+          )}
+          {task.priority === "low" && !task.completed && (
+            <span
+              data-testid="priority-low-badge"
+              style={{
+                fontSize: "0.65rem",
+                fontWeight: 600,
+                color: "#4A709C",
+                background: "rgba(74, 112, 156, 0.08)",
+                padding: "0.12rem 0.4rem",
+                borderRadius: "5px",
+                whiteSpace: "nowrap",
+              }}
+            >
+              低
+            </span>
+          )}
+
+          {/* 期限バッジ */}
+          {task.dueDate && !task.completed && (
+            <span
+              style={{
+                fontSize: "0.72rem",
+                letterSpacing: "0.02em",
+                fontWeight: 500,
+                color: dueColor(task.dueDate),
+                padding: "0.15rem 0.45rem",
+                borderRadius: "6px",
+                background: "rgba(0, 0, 0, 0.03)",
+                whiteSpace: "nowrap",
+              }}
+            >
+              {formatDue(task.dueDate)}
+            </span>
+          )}
+
+          {/* 一覧からの直接削除ボタン */}
+          <button
+            type="button"
+            data-testid="task-delete-btn"
+            onClick={(e) => {
+              e.stopPropagation();
+              onDelete(task);
+            }}
+            style={{
+              background: "none",
+              border: "none",
+              padding: "0.3rem",
+              margin: "-0.2rem",
+              cursor: "pointer",
+              color: C.charcoalLight,
+              opacity: 0.6,
+              lineHeight: 0,
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+              transition: "opacity 0.15s ease, color 0.15s ease",
+            }}
+            onMouseEnter={(e) => {
+              (e.currentTarget as HTMLElement).style.opacity = "1";
+              (e.currentTarget as HTMLElement).style.color = C.danger;
+            }}
+            onMouseLeave={(e) => {
+              (e.currentTarget as HTMLElement).style.opacity = "0.6";
+              (e.currentTarget as HTMLElement).style.color = C.charcoalLight;
+            }}
+            title="タスクを削除"
+          >
+            <TrashIcon />
+          </button>
+        </div>
       </div>
+
+      {/* ─── インデントされたサブタスク一覧（デフォルト展開・トグル開閉） ─── */}
+      {hasSubtasks && !isCollapsed && (
+        <ul
+          data-testid="subtask-list"
+          style={{
+            listStyle: "none",
+            margin: 0,
+            padding: "0 0.6rem 0.55rem 2.85rem",
+            display: "flex",
+            flexDirection: "column",
+            gap: "0.2rem",
+          }}
+        >
+          {subtasks.map((st) => (
+            <li
+              key={st.id}
+              data-testid="subtask-item-row"
+              onClick={() => onClickRow(task)}
+              style={{
+                display: "flex",
+                alignItems: "center",
+                gap: "0.55rem",
+                padding: "0.32rem 0.45rem",
+                borderRadius: "6px",
+                cursor: "pointer",
+                opacity: st.completed || task.completed ? 0.55 : 1,
+                transition: "opacity 0.15s ease, background 0.15s ease",
+              }}
+              onMouseEnter={(e) => {
+                (e.currentTarget as HTMLElement).style.background = "rgba(0, 0, 0, 0.025)";
+              }}
+              onMouseLeave={(e) => {
+                (e.currentTarget as HTMLElement).style.background = "transparent";
+              }}
+            >
+              {/* サブタスク用チェックボタン */}
+              <button
+                type="button"
+                data-testid={`subtask-toggle-btn-${st.id}`}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  onToggleSubTask?.(task, st.id);
+                }}
+                style={{
+                  background: "none",
+                  border: "none",
+                  padding: "0.15rem",
+                  margin: "-0.15rem",
+                  cursor: "pointer",
+                  lineHeight: 0,
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "center",
+                  flexShrink: 0,
+                }}
+                title={st.completed ? "未完了に戻す" : "完了にする"}
+              >
+                <CheckCircle completed={st.completed} size="1.05rem" />
+              </button>
+
+              {/* サブタスクタイトル */}
+              <span
+                style={{
+                  flex: 1,
+                  fontSize: "0.82rem",
+                  fontWeight: 400,
+                  color: st.completed ? C.charcoalLight : C.charcoal,
+                  textDecoration: st.completed ? "line-through" : "none",
+                  letterSpacing: "0.01em",
+                  lineHeight: 1.35,
+                  wordBreak: "break-word",
+                }}
+              >
+                {st.title}
+              </span>
+            </li>
+          ))}
+        </ul>
+      )}
     </li>
   );
+}
+
+function resolveListId(tab?: string): string {
+  if (!tab || tab === "tasks" || tab === "default") return "default";
+  if (tab === "lists") return "shopping";
+  return tab;
 }
 
 // ---------- メインコンポーネント ----------
 export default function Tasks({ initialTab = "default" }: TasksProps = {}) {
   const [categories, setCategories] = useState<TaskListCategory[]>(DEFAULT_CATEGORIES);
-  const [activeListId, setActiveListId] = useState<string>(
-    initialTab === "shopping" ? "shopping" : "default"
-  );
+  const [activeListId, setActiveListId] = useState<string>(() => resolveListId(initialTab));
+
+  // initialTab プロパティ変更時の同期
+  useEffect(() => {
+    setActiveListId(resolveListId(initialTab));
+  }, [initialTab]);
+
+  // categories 読み込み後、存在しない ID が選択されていたらマイタスク ("default") に自動復旧
+  useEffect(() => {
+    if (categories.length > 0 && !categories.some((c) => c.id === activeListId)) {
+      setActiveListId("default");
+    }
+  }, [categories, activeListId]);
   const [tasks, setTasks] = useState<Task[]>([]);
   const [titleInput, setTitleInput] = useState("");
   const [dueInput, setDueInput] = useState("");
   const [isAdding, setIsAdding] = useState(false);
   const [syncStatus, setSyncStatus] = useState<SyncStatus>("idle");
+
+  // 完了済みタスク一括削除時の楽観的除外用 Ref（Firestoreスナップショットの遅延反映によるチラつき・ゾンビ復活を完全防止）
+  const clearingTaskIdsRef = useRef<Set<string>>(new Set());
 
   // 詳細編集モーダル用 State
   const [detailTask, setDetailTask] = useState<Task | null>(null);
@@ -428,8 +642,10 @@ export default function Tasks({ initialTab = "default" }: TasksProps = {}) {
   // リスト作成・編集モーダル用 State
   const [showAddListModal, setShowAddListModal] = useState(false);
   const [newListName, setNewListName] = useState("");
+  const [newListIcon, setNewListIcon] = useState<ListIconId>("folder");
   const [editingCategory, setEditingCategory] = useState<TaskListCategory | null>(null);
   const [showDeleteListConfirm, setShowDeleteListConfirm] = useState(false);
+  const listMetaMapRef = useRef<Record<string, { icon?: string }>>({});
 
   // 自然言語推論ステート
   const [parsedInfo, setParsedInfo] = useState<{
@@ -449,22 +665,15 @@ export default function Tasks({ initialTab = "default" }: TasksProps = {}) {
     width: number;
     height: number;
     ready: boolean;
-  }>({
-    left: 0,
-    top: 3,
-    width: 0,
-    height: 0,
-    ready: false,
-  });
+  }>({ left: 0, top: 0, width: 0, height: 0, ready: false });
 
   const { isReady, isSignedIn, accessToken, signIn, signOut } = useGoogleAuth();
   const { toast, showUndoToast, dismissToast, triggerUndo } = useUndoToast<Task>();
 
-  // Sliding Pill の位置・幅更新
+  // Sliding Pill の位置・サイズ計算
   const updatePill = useCallback(() => {
     const activeEl = tabItemRefs.current.get(activeListId);
-    const track = tabTrackRef.current;
-    if (!activeEl || !track) return;
+    if (!activeEl) return;
 
     const elLeft = activeEl.offsetLeft;
     const elTop = activeEl.offsetTop;
@@ -510,12 +719,21 @@ export default function Tasks({ initialTab = "default" }: TasksProps = {}) {
       const sanitizedTasks: Task[] = [];
 
       for (const t of rawTasks) {
+        // 削除中タスクはUIに再表示させない
+        if (clearingTaskIdsRef.current.has(t.id)) continue;
+
         if (seenIds.has(t.id)) continue;
         seenIds.add(t.id);
 
         if (t.googleTaskId) {
           if (seenGoogleTaskIds.has(t.googleTaskId)) continue;
           seenGoogleTaskIds.add(t.googleTaskId);
+        }
+
+        // 旧ランダム listId の自動修復（googleListId が存在し、default / shopping 以外で不一致の場合）
+        if (t.googleListId && t.listId && t.listId.startsWith("list-") && t.listId !== t.googleListId) {
+          updateDoc(doc(db, "tasks", t.id), { listId: t.googleListId }).catch(() => {});
+          t.listId = t.googleListId;
         }
 
         sanitizedTasks.push(t);
@@ -525,25 +743,141 @@ export default function Tasks({ initialTab = "default" }: TasksProps = {}) {
     });
   }, []);
 
-  // ---------- Google Tasks リスト & タスク初期同期 ----------
+  // ---------- Firestore リアルタイム購読（リストメタデータ・カスタムアイコン） ----------
+  useEffect(() => {
+    const unsub = onSnapshot(collection(db, "task_lists"), (snapshot) => {
+      const metaMap: Record<string, { icon?: string }> = {};
+      snapshot.docs.forEach((d) => {
+        const data = d.data();
+        if (data.icon) {
+          metaMap[d.id] = { icon: data.icon };
+        }
+      });
+      listMetaMapRef.current = metaMap;
+
+      // 現在のカテゴリStateにFirestoreのアイコン設定を反映
+      setCategories((prev) =>
+        prev.map((c) => {
+          const m = metaMap[c.id];
+          return m?.icon ? { ...c, icon: m.icon } : c;
+        })
+      );
+    });
+
+    return () => unsub();
+  }, []);
+
+  // カテゴリ用アイコン決定ヘルパー（Firestoreの保存設定優先、無ければフォールバック）
+  const getCategoryIcon = useCallback((catId: string, isShop: boolean, isMyTasks: boolean): string => {
+    const saved = listMetaMapRef.current[catId]?.icon;
+    if (saved) return saved;
+    if (isShop) return "cart";
+    if (isMyTasks) return "sparkle";
+    return "folder";
+  }, []);
+
+  // ---------- Google Tasks リスト & タスク同期関数 ----------
+  const lastSyncTimeRef = useRef<number>(0);
+
+  const runSync = useCallback(async (isManual = false) => {
+    if (!isSignedIn || !accessToken) return;
+
+    // 短時間の重複同期防止（手動実行でない場合は前回から15秒以上空ける）
+    const now = Date.now();
+    if (!isManual && now - lastSyncTimeRef.current < 15000) return;
+    lastSyncTimeRef.current = now;
+
+    try {
+      setSyncStatus("syncing");
+      const gLists: GTaskList[] = await getTaskLists(accessToken);
+      if (!gLists || gLists.length === 0) {
+        setSyncStatus("idle");
+        return;
+      }
+
+      // Google Tasks のリストをカテゴリにマッピング
+      const mappedCategories: TaskListCategory[] = [];
+      for (const gl of gLists) {
+        const isMyTasks = gl.title === "My Tasks" || gl.title === "マイタスク" || gl.id === "@default";
+        const isShop = SHOPPING_LIST_NAMES.some((name) => gl.title.trim() === name);
+
+        if (isMyTasks) {
+          mappedCategories.push({
+            id: "default",
+            title: "マイタスク",
+            googleListId: gl.id,
+            isDefault: true,
+            icon: getCategoryIcon("default", false, true),
+          });
+        } else if (isShop) {
+          mappedCategories.push({
+            id: "shopping",
+            title: gl.title,
+            googleListId: gl.id,
+            icon: getCategoryIcon("shopping", true, false),
+          });
+        } else {
+          mappedCategories.push({
+            id: gl.id,
+            title: gl.title,
+            googleListId: gl.id,
+            icon: getCategoryIcon(gl.id, false, false),
+          });
+        }
+      }
+
+      // 重複排除
+      const uniqueCategories: TaskListCategory[] = [];
+      for (const cat of mappedCategories) {
+        if (!uniqueCategories.some((u) => u.id === cat.id)) {
+          uniqueCategories.push(cat);
+        }
+      }
+      if (!uniqueCategories.some((u) => u.id === "default")) {
+        uniqueCategories.unshift({
+          ...DEFAULT_CATEGORIES[0],
+          icon: getCategoryIcon("default", false, true),
+        });
+      }
+      if (!uniqueCategories.some((u) => u.id === "shopping")) {
+        uniqueCategories.push({
+          ...DEFAULT_CATEGORIES[1],
+          icon: getCategoryIcon("shopping", true, false),
+        });
+      }
+
+      setCategories(uniqueCategories);
+
+      // 各カテゴリのタスクを同期（サブタスクおよび孤立タスクのクレンジング含む）
+      for (const cat of uniqueCategories) {
+        if (cat.googleListId) {
+          await syncGoogleTasksForList(accessToken, cat.googleListId, cat.id);
+        }
+      }
+
+      setSyncStatus("done");
+      setTimeout(() => {
+        setSyncStatus("idle");
+      }, 3000);
+    } catch (err) {
+      console.error("Google Tasks sync failed:", err);
+      setSyncStatus("error");
+    }
+  }, [isSignedIn, accessToken, getCategoryIcon]);
+
+  // Google Tasks リストカテゴリの取得（タスク同期はApp.tsx起動時に一括完了済みのためカテゴリ一覧のみ軽量に取得）
   useEffect(() => {
     if (!isSignedIn || !accessToken) return;
-    let isCancelled = false;
+    let isMounted = true;
 
-    async function initGoogleSync() {
-      try {
-        setSyncStatus("syncing");
-        const gLists: GTaskList[] = await getTaskLists(accessToken!);
-        if (isCancelled || !gLists || gLists.length === 0) {
-          setSyncStatus("idle");
-          return;
-        }
+    getTaskLists(accessToken)
+      .then((gLists) => {
+        if (!isMounted || !gLists || gLists.length === 0) return;
 
-        // Google Tasks のリストをカテゴリにマッピング
         const mappedCategories: TaskListCategory[] = [];
         for (const gl of gLists) {
           const isMyTasks = gl.title === "My Tasks" || gl.title === "マイタスク" || gl.id === "@default";
-          const isShop = gl.title === "買い物リスト" || gl.title === "買い物" || gl.title === "Shopping List";
+          const isShop = SHOPPING_LIST_NAMES.some((name) => gl.title.trim() === name);
 
           if (isMyTasks) {
             mappedCategories.push({
@@ -551,23 +885,25 @@ export default function Tasks({ initialTab = "default" }: TasksProps = {}) {
               title: "マイタスク",
               googleListId: gl.id,
               isDefault: true,
+              icon: getCategoryIcon("default", false, true),
             });
           } else if (isShop) {
             mappedCategories.push({
               id: "shopping",
               title: gl.title,
               googleListId: gl.id,
+              icon: getCategoryIcon("shopping", true, false),
             });
           } else {
             mappedCategories.push({
               id: gl.id,
               title: gl.title,
               googleListId: gl.id,
+              icon: getCategoryIcon(gl.id, false, false),
             });
           }
         }
 
-        // 重複排除
         const uniqueCategories: TaskListCategory[] = [];
         for (const cat of mappedCategories) {
           if (!uniqueCategories.some((u) => u.id === cat.id)) {
@@ -575,36 +911,28 @@ export default function Tasks({ initialTab = "default" }: TasksProps = {}) {
           }
         }
         if (!uniqueCategories.some((u) => u.id === "default")) {
-          uniqueCategories.unshift(DEFAULT_CATEGORIES[0]);
+          uniqueCategories.unshift({
+            ...DEFAULT_CATEGORIES[0],
+            icon: getCategoryIcon("default", false, true),
+          });
         }
         if (!uniqueCategories.some((u) => u.id === "shopping")) {
-          uniqueCategories.push(DEFAULT_CATEGORIES[1]);
+          uniqueCategories.push({
+            ...DEFAULT_CATEGORIES[1],
+            icon: getCategoryIcon("shopping", true, false),
+          });
         }
 
         setCategories(uniqueCategories);
+      })
+      .catch((err) => {
+        console.warn("Failed to load task categories:", err);
+      });
 
-        // 各カテゴリのタスクを同期
-        for (const cat of uniqueCategories) {
-          if (cat.googleListId) {
-            await syncGoogleTasksForList(accessToken!, cat.googleListId, cat.id);
-          }
-        }
-
-        setSyncStatus("done");
-        setTimeout(() => {
-          if (!isCancelled) setSyncStatus("idle");
-        }, 3000);
-      } catch (err) {
-        console.error("Google Tasks sync failed:", err);
-        if (!isCancelled) setSyncStatus("error");
-      }
-    }
-
-    initGoogleSync();
     return () => {
-      isCancelled = true;
+      isMounted = false;
     };
-  }, [isSignedIn, accessToken]);
+  }, [isSignedIn, accessToken, getCategoryIcon]);
 
   // ---------- タスク入力の自然言語推論 ----------
   const handleInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -643,6 +971,12 @@ export default function Tasks({ initialTab = "default" }: TasksProps = {}) {
 
     try {
       const currentCategory = categories.find((c) => c.id === activeListId);
+      const targetListId =
+        activeListId === "default"
+          ? "default"
+          : activeListId === "shopping"
+          ? "shopping"
+          : currentCategory?.googleListId || activeListId;
       let googleTaskId: string | undefined;
 
       if (isSignedIn && accessToken && currentCategory?.googleListId) {
@@ -651,19 +985,23 @@ export default function Tasks({ initialTab = "default" }: TasksProps = {}) {
             accessToken,
             currentCategory.googleListId,
             finalTitle,
-            finalDue
+            finalDue,
+            undefined,
+            finalPriority
           );
         } catch (gErr) {
           console.error("Failed to add task to Google Tasks:", gErr);
         }
       }
 
-      await addDoc(collection(db, "tasks"), {
+      const docId = googleTaskId || "task-" + Math.random().toString(36).slice(2, 9);
+      await setDoc(doc(db, "tasks", docId), {
         title: finalTitle,
         dueDate: finalDue,
         priority: finalPriority,
+        notes: "",
         completed: false,
-        listId: activeListId,
+        listId: targetListId,
         googleTaskId: googleTaskId || null,
         googleListId: currentCategory?.googleListId || null,
         subtasks: [],
@@ -707,23 +1045,64 @@ export default function Tasks({ initialTab = "default" }: TasksProps = {}) {
     [isSignedIn, accessToken, categories]
   );
 
+  // ---------- サブタスク完了トグル ----------
+  const handleToggleSubTask = useCallback(
+    async (task: Task, subTaskId: string) => {
+      const currentSubtasks = task.subtasks || [];
+      const targetSub = currentSubtasks.find((s) => s.id === subTaskId);
+      if (!targetSub) return;
+
+      const next = !targetSub.completed;
+      const updatedSubtasks = currentSubtasks.map((s) =>
+        s.id === subTaskId ? { ...s, completed: next } : s
+      );
+
+      // 楽観的ローカル更新
+      setTasks((prev) =>
+        prev.map((t) => (t.id === task.id ? { ...t, subtasks: updatedSubtasks } : t))
+      );
+
+      // Firestore 更新
+      try {
+        await updateDoc(doc(db, "tasks", task.id), {
+          subtasks: updatedSubtasks,
+        });
+      } catch (err) {
+        console.error("Failed to update subtask in Firestore:", err);
+      }
+
+      // Google Tasks へのステータス同期
+      if (isSignedIn && accessToken && targetSub.googleTaskId) {
+        const cat = categories.find((c) => c.id === (task.listId || "default"));
+        const targetGoogleListId = task.googleListId || cat?.googleListId;
+        if (targetGoogleListId) {
+          try {
+            await pushSubTaskStatusToGoogleTasks(
+              accessToken,
+              targetGoogleListId,
+              targetSub.googleTaskId,
+              next
+            );
+          } catch (gErr) {
+            console.warn("Failed to update Google SubTask status:", gErr);
+          }
+        }
+      }
+    },
+    [isSignedIn, accessToken, categories]
+  );
+
   // ---------- タスク詳細保存 ----------
   const handleSaveDetail = useCallback(
     async (updatedTask: Task) => {
-      await updateDoc(doc(db, "tasks", updatedTask.id), {
-        title: updatedTask.title,
-        dueDate: updatedTask.dueDate || null,
-        priority: updatedTask.priority || "medium",
-        listId: updatedTask.listId || "default",
-        subtasks: updatedTask.subtasks || [],
-        updatedAt: serverTimestamp(),
-      });
+      let finalSubtasks = updatedTask.subtasks || [];
 
       if (isSignedIn && accessToken && updatedTask.googleTaskId) {
         const cat = categories.find((c) => c.id === (updatedTask.listId || "default"));
         const targetGoogleListId = updatedTask.googleListId || cat?.googleListId;
         if (targetGoogleListId) {
           try {
+            // 親タスク自体の更新（メモと優先度もGoogle Tasksへ完全同期）
             await pushTaskUpdateToGoogleTasks(
               accessToken,
               targetGoogleListId,
@@ -731,15 +1110,81 @@ export default function Tasks({ initialTab = "default" }: TasksProps = {}) {
               {
                 title: updatedTask.title,
                 dueDate: updatedTask.dueDate || null,
+                notes: updatedTask.notes || null,
+                priority: updatedTask.priority || "medium",
+                completed: updatedTask.completed,
               }
+            );
+
+            // サブタスクの差分同期
+            const origTask = tasks.find((t) => t.id === updatedTask.id);
+            const origSubtasks = origTask?.subtasks || [];
+
+            // 削除されたサブタスクを Google から削除
+            for (const origSub of origSubtasks) {
+              if (origSub.googleTaskId && !finalSubtasks.some((s) => s.googleTaskId === origSub.googleTaskId)) {
+                try {
+                  await removeSubTaskFromGoogleTasks(accessToken, targetGoogleListId, origSub.googleTaskId);
+                } catch (delErr) {
+                  console.warn("Failed to delete subtask from Google:", delErr);
+                }
+              }
+            }
+
+            // 新規・更新サブタスクの処理
+            finalSubtasks = await Promise.all(
+              finalSubtasks.map(async (st) => {
+                if (!st.googleTaskId) {
+                  // 新規サブタスク -> Google Tasks へ作成
+                  try {
+                    const gSubId = await pushSubTaskToGoogleTasks(
+                      accessToken,
+                      targetGoogleListId,
+                      updatedTask.googleTaskId!,
+                      st.title
+                    );
+                    if (st.completed) {
+                      await pushSubTaskStatusToGoogleTasks(accessToken, targetGoogleListId, gSubId, true);
+                    }
+                    return { ...st, googleTaskId: gSubId };
+                  } catch (addErr) {
+                    console.warn("Failed to push subtask to Google:", addErr);
+                    return st;
+                  }
+                } else {
+                  // 既存サブタスク -> 状態やタイトルの差分があれば更新
+                  const origSub = origSubtasks.find((s) => s.googleTaskId === st.googleTaskId);
+                  if (origSub && (origSub.completed !== st.completed || origSub.title !== st.title)) {
+                    try {
+                      await pushSubTaskUpdateToGoogleTasks(accessToken, targetGoogleListId, st.googleTaskId, {
+                        title: st.title,
+                        completed: st.completed,
+                      });
+                    } catch (updateErr) {
+                      console.warn("Failed to update subtask on Google:", updateErr);
+                    }
+                  }
+                  return st;
+                }
+              })
             );
           } catch (gErr) {
             console.error("Failed to update Google Task:", gErr);
           }
         }
       }
+
+      await updateDoc(doc(db, "tasks", updatedTask.id), {
+        title: updatedTask.title,
+        dueDate: updatedTask.dueDate || null,
+        priority: updatedTask.priority || "medium",
+        notes: updatedTask.notes || "",
+        listId: updatedTask.listId || "default",
+        subtasks: finalSubtasks,
+        updatedAt: serverTimestamp(),
+      });
     },
-    [isSignedIn, accessToken, categories]
+    [isSignedIn, accessToken, categories, tasks]
   );
 
   // ---------- タスク削除（Undo対応） ----------
@@ -799,35 +1244,80 @@ export default function Tasks({ initialTab = "default" }: TasksProps = {}) {
       }
     }
 
-    const newId = "list-" + Math.random().toString(36).slice(2, 9);
+    const newId = googleListId || "list-" + Math.random().toString(36).slice(2, 9);
+    const chosenIcon = newListIcon || "folder";
     const newCat: TaskListCategory = {
       id: newId,
       title,
-      googleListId,
+      googleListId: googleListId || newId,
+      icon: chosenIcon,
     };
+
+    // Firestore にリストメタデータを永続保存
+    try {
+      await setDoc(
+        doc(db, "task_lists", newId),
+        {
+          id: newId,
+          icon: chosenIcon,
+          title,
+          updatedAt: serverTimestamp(),
+        },
+        { merge: true }
+      );
+      listMetaMapRef.current[newId] = { icon: chosenIcon };
+    } catch (err) {
+      console.warn("Failed to persist task list metadata:", err);
+    }
 
     setCategories((prev) => [...prev, newCat]);
     setActiveListId(newId);
     setNewListName("");
+    setNewListIcon("folder");
     setShowAddListModal(false);
   };
 
-  // ---------- リスト名変更 ----------
-  const handleRenameList = async () => {
+  // ---------- リスト設定更新（名前＆アイコン） ----------
+  const handleUpdateList = async () => {
     if (!editingCategory) return;
     const title = editingCategory.title.trim().slice(0, MAX_LIST_NAME_LENGTH);
-    if (!title) return;
+    if (!title && !editingCategory.isDefault) return;
 
-    if (isSignedIn && accessToken && editingCategory.googleListId) {
+    const finalTitle = editingCategory.isDefault ? editingCategory.title : title;
+    const finalIcon = editingCategory.icon || (editingCategory.id === "shopping" ? "cart" : "sparkle");
+
+    // Google Tasks 側のタイトル更新（デフォルトリスト以外）
+    if (!editingCategory.isDefault && isSignedIn && accessToken && editingCategory.googleListId) {
       try {
-        await renameGoogleTaskList(accessToken, editingCategory.googleListId, title);
+        await renameGoogleTaskList(accessToken, editingCategory.googleListId, finalTitle);
       } catch (err) {
         console.error("Failed to rename Google TaskList:", err);
       }
     }
 
+    // Firestore にリストメタデータ（アイコン等）を永続保存
+    try {
+      await setDoc(
+        doc(db, "task_lists", editingCategory.id),
+        {
+          id: editingCategory.id,
+          icon: finalIcon,
+          title: finalTitle,
+          updatedAt: serverTimestamp(),
+        },
+        { merge: true }
+      );
+      listMetaMapRef.current[editingCategory.id] = { icon: finalIcon };
+    } catch (err) {
+      console.warn("Failed to update task list metadata:", err);
+    }
+
     setCategories((prev) =>
-      prev.map((c) => (c.id === editingCategory.id ? { ...editingCategory, title } : c))
+      prev.map((c) =>
+        c.id === editingCategory.id
+          ? { ...editingCategory, title: finalTitle, icon: finalIcon }
+          : c
+      )
     );
     setEditingCategory(null);
   };
@@ -853,7 +1343,15 @@ export default function Tasks({ initialTab = "default" }: TasksProps = {}) {
       }
     }
 
-    // 3. カテゴリState更新
+    // 3. Firestore からリストメタデータを削除
+    try {
+      await deleteDoc(doc(db, "task_lists", listIdToDelete));
+      delete listMetaMapRef.current[listIdToDelete];
+    } catch (err) {
+      console.warn("Failed to delete task list metadata:", err);
+    }
+
+    // 4. カテゴリState更新
     setCategories((prev) => prev.filter((c) => c.id !== listIdToDelete));
     if (activeListId === listIdToDelete) {
       setActiveListId("default");
@@ -868,9 +1366,19 @@ export default function Tasks({ initialTab = "default" }: TasksProps = {}) {
   };
 
   // 選択中リストのタスクを抽出・分類
-  const currentTasks = tasks.filter(
-    (t) => (t.listId || "default") === activeListId
-  );
+  const currentCategory = categories.find((c) => c.id === activeListId);
+  const currentTasks = tasks.filter((t) => {
+    const taskListId = t.listId || "default";
+    if (taskListId === activeListId) return true;
+    // 互換性救済: 古いランダムIDまたはGoogleListIdのいずれかが一致する場合も許容
+    if (
+      currentCategory?.googleListId &&
+      (t.googleListId === currentCategory.googleListId || taskListId === currentCategory.googleListId)
+    ) {
+      return true;
+    }
+    return false;
+  });
 
   const pending = currentTasks.filter((t) => !t.completed).sort((a, b) => {
     if (a.dueDate && b.dueDate) return a.dueDate.localeCompare(b.dueDate);
@@ -880,11 +1388,78 @@ export default function Tasks({ initialTab = "default" }: TasksProps = {}) {
   });
   const done = currentTasks.filter((t) => t.completed);
 
+  // ---------- 完了済みタスクの一括削除 ----------
+  const [showClearConfirm, setShowClearConfirm] = useState(false);
+
+  const handleClearCompleted = useCallback(() => {
+    if (done.length === 0) return;
+    setShowClearConfirm(true);
+  }, [done.length]);
+
+  const executeClearCompleted = useCallback(() => {
+    setShowClearConfirm(false);
+    if (done.length === 0) return;
+
+    const tasksToDelete = [...done];
+    const count = tasksToDelete.length;
+    const taskIdsToDelete = new Set(tasksToDelete.map((t) => t.id));
+
+    // A. 楽観的UI更新（0ms）: 即座にフロントエンドの State から対象タスクを一括除外
+    tasksToDelete.forEach((t) => clearingTaskIdsRef.current.add(t.id));
+    setTasks((prev) => prev.filter((t) => !taskIdsToDelete.has(t.id)));
+
+    // C. Apple HIG / UIの静けさ維持: 控えめなトースト通知を表示
+    showUndoToast({
+      message: `${count}件の完了済みタスクを削除しました`,
+      item: null as any,
+      onUndo: () => {},
+    });
+
+    // B. バックグラウンド削除処理の並行化・高速化（非同期・非ブロッキング実行）
+    void (async () => {
+      try {
+        // 1. Firestore バッチ削除 (writeBatch で一括コミット)
+        const FIRESTORE_BATCH_LIMIT = 400;
+        for (let i = 0; i < tasksToDelete.length; i += FIRESTORE_BATCH_LIMIT) {
+          const batch = writeBatch(db);
+          const chunk = tasksToDelete.slice(i, i + FIRESTORE_BATCH_LIMIT);
+          for (const t of chunk) {
+            batch.delete(doc(db, "tasks", t.id));
+          }
+          await batch.commit();
+        }
+
+        // 2. Google Tasks API 並列削除 (Promise.allSettled によるチャンク並列)
+        if (isSignedIn && accessToken) {
+          const googleTasksWithList = tasksToDelete
+            .filter((t) => t.googleTaskId)
+            .map((t) => {
+              const cat = categories.find((c) => c.id === (t.listId || "default"));
+              const tasklistId = t.googleListId || cat?.googleListId;
+              return tasklistId ? { tasklistId, googleTaskId: t.googleTaskId! } : null;
+            })
+            .filter((item): item is { tasklistId: string; googleTaskId: string } => item !== null);
+
+          if (googleTasksWithList.length > 0) {
+            await batchRemoveTasksFromGoogleTasks(accessToken, googleTasksWithList, 5);
+          }
+        }
+      } catch (err) {
+        console.warn("Failed to complete background deletion of tasks:", err);
+      } finally {
+        // 削除完了後、少し余裕を持ってガードセットから解除
+        setTimeout(() => {
+          tasksToDelete.forEach((t) => clearingTaskIdsRef.current.delete(t.id));
+        }, 3000);
+      }
+    })();
+  }, [done, showUndoToast, isSignedIn, accessToken, categories]);
+
   return (
     <div className="w-full max-w-3xl mx-auto" style={{ padding: "2.4rem 1.2rem 6rem", boxSizing: "border-box" }}>
       
       {/* ─── ヘッダー ─── */}
-      <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", marginBottom: "1.2rem", padding: "0 0.25rem" }}>
+      <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", marginBottom: "1.5rem", padding: "0 0.25rem" }}>
         <div>
           <p style={{ fontSize: "0.68rem", fontWeight: 650, color: C.charcoalLight, letterSpacing: "0.1em", textTransform: "uppercase", margin: 0 }}>
             TASKS & LISTS
@@ -900,6 +1475,7 @@ export default function Tasks({ initialTab = "default" }: TasksProps = {}) {
           syncStatus={syncStatus}
           onSignIn={signIn}
           onSignOut={signOut}
+          onSync={() => runSync(true)}
         />
       </div>
 
@@ -985,24 +1561,16 @@ export default function Tasks({ initialTab = "default" }: TasksProps = {}) {
                   whiteSpace: "nowrap",
                 }}
               >
-                {cat.id === "shopping" && (
-                  <span style={{ marginRight: "4px", flexShrink: 0, opacity: isActive ? 1 : 0.65 }}>
-                    🛒
-                  </span>
-                )}
-                {cat.id === "default" && (
-                  <span
-                    style={{
-                      marginRight: "4px",
-                      flexShrink: 0,
-                      color: isActive ? "var(--text-main)" : C.charcoalLight,
-                      fontWeight: isActive ? 750 : 400,
-                      transition: "color 0.18s ease",
-                    }}
-                  >
-                    ✦
-                  </span>
-                )}
+                <ListIcon
+                  icon={cat.icon || (cat.id === "shopping" ? "cart" : cat.id === "default" ? "sparkle" : "folder")}
+                  size="0.88rem"
+                  style={{
+                    marginRight: "4px",
+                    color: isActive ? "var(--text-main)" : C.charcoalLight,
+                    opacity: isActive ? 1 : 0.65,
+                    transition: "color 0.18s ease, opacity 0.18s ease",
+                  }}
+                />
                 <span
                   style={{
                     maxWidth: "200px",
@@ -1018,31 +1586,30 @@ export default function Tasks({ initialTab = "default" }: TasksProps = {}) {
                 </span>
               </button>
 
-              {/* カスタムリストの編集・設定トリガー */}
-              {!cat.isDefault && (
-                <button
-                  type="button"
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    setEditingCategory({ ...cat });
-                  }}
-                  style={{
-                    background: "transparent",
-                    border: "none",
-                    padding: "0 0.15rem",
-                    cursor: "pointer",
-                    color: isActive ? "var(--text-main)" : C.charcoalLight,
-                    lineHeight: 1,
-                    display: "flex",
-                    alignItems: "center",
-                    flexShrink: 0,
-                    opacity: isActive ? 0.85 : 0.5,
-                  }}
-                  title="リスト設定"
-                >
-                  <PencilIcon />
-                </button>
-              )}
+              {/* リスト設定トリガー（すべてのリストで設定可能。マイタスクはアイコンのみ変更可能） */}
+              <button
+                type="button"
+                data-testid={`list-settings-btn-${cat.id}`}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  setEditingCategory({ ...cat });
+                }}
+                style={{
+                  background: "transparent",
+                  border: "none",
+                  padding: "0 0.15rem",
+                  cursor: "pointer",
+                  color: isActive ? "var(--text-main)" : C.charcoalLight,
+                  lineHeight: 1,
+                  display: "flex",
+                  alignItems: "center",
+                  flexShrink: 0,
+                  opacity: isActive ? 0.85 : 0.45,
+                }}
+                title="リスト設定"
+              >
+                <PencilIcon />
+              </button>
             </div>
           );
         })}
@@ -1217,13 +1784,15 @@ export default function Tasks({ initialTab = "default" }: TasksProps = {}) {
             </p>
           ) : (
             <ul style={{ listStyle: "none", margin: 0, padding: 0, display: "flex", flexDirection: "column" }}>
-              {pending.map((task) => (
+              {pending.map((task, index) => (
                 <TaskRow
                   key={task.id}
                   task={task}
+                  isLast={index === pending.length - 1}
                   onToggle={handleToggle}
                   onClickRow={(t) => setDetailTask(t)}
                   onDelete={handleDeleteTask}
+                  onToggleSubTask={handleToggleSubTask}
                 />
               ))}
             </ul>
@@ -1233,9 +1802,38 @@ export default function Tasks({ initialTab = "default" }: TasksProps = {}) {
         {/* 完了済みタスク */}
         {done.length > 0 && (
           <div>
-            <span style={{ fontSize: "0.72rem", color: C.charcoalLight, letterSpacing: "0.06em", padding: "0 0.5rem", display: "block", marginBottom: "0.6rem" }}>
-              完了済み ({done.length})
-            </span>
+            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: "0.6rem", padding: "0 0.5rem" }}>
+              <span style={{ fontSize: "0.72rem", color: C.charcoalLight, letterSpacing: "0.06em" }}>
+                完了済み ({done.length})
+              </span>
+              <button
+                type="button"
+                data-testid="clear-completed-tasks-btn"
+                onClick={handleClearCompleted}
+                style={{
+                  background: "transparent",
+                  border: "none",
+                  padding: "0.2rem 0.45rem",
+                  fontSize: "0.72rem",
+                  color: C.charcoalLight,
+                  cursor: "pointer",
+                  borderRadius: "6px",
+                  transition: "color 0.15s ease",
+                  display: "inline-flex",
+                  alignItems: "center",
+                  gap: "0.25rem",
+                }}
+                onMouseEnter={(e) => {
+                  (e.currentTarget as HTMLElement).style.color = C.danger;
+                }}
+                onMouseLeave={(e) => {
+                  (e.currentTarget as HTMLElement).style.color = C.charcoalLight;
+                }}
+                title="このリストの完了済みタスクを一括削除"
+              >
+                完了済みを一括削除
+              </button>
+            </div>
             <div
               className="arca-card"
               style={{
@@ -1245,13 +1843,15 @@ export default function Tasks({ initialTab = "default" }: TasksProps = {}) {
               }}
             >
               <ul style={{ listStyle: "none", margin: 0, padding: 0, display: "flex", flexDirection: "column" }}>
-                {done.map((task) => (
+                {done.map((task, index) => (
                   <TaskRow
                     key={task.id}
                     task={task}
+                    isLast={index === done.length - 1}
                     onToggle={handleToggle}
                     onClickRow={(t) => setDetailTask(t)}
                     onDelete={handleDeleteTask}
+                    onToggleSubTask={handleToggleSubTask}
                   />
                 ))}
               </ul>
@@ -1259,8 +1859,8 @@ export default function Tasks({ initialTab = "default" }: TasksProps = {}) {
           </div>
         )}
 
-        {/* ─── PM作業セクション ─── */}
-        <PMSection />
+        {/* ─── PM作業セクション（マイタスクグループのみ表示） ─── */}
+        {activeListId === "default" && <PMSection />}
 
       </div>
 
@@ -1341,6 +1941,13 @@ export default function Tasks({ initialTab = "default" }: TasksProps = {}) {
                 boxSizing: "border-box",
               }}
             />
+
+            {/* 12種類のSVGアイコン選択ピッカー */}
+            <ListIconPicker
+              selectedIcon={newListIcon}
+              onSelectIcon={setNewListIcon}
+            />
+
             <div style={{ display: "flex", justifyContent: "flex-end", gap: "0.6rem", marginTop: "0.3rem" }}>
               <button
                 type="button"
@@ -1380,7 +1987,7 @@ export default function Tasks({ initialTab = "default" }: TasksProps = {}) {
         </div>
       )}
 
-      {/* ─── リスト編集・削除モーダル ─── */}
+      {/* ─── リスト編集・設定モーダル ─── */}
       {editingCategory && (
         <div
           role="dialog"
@@ -1419,48 +2026,68 @@ export default function Tasks({ initialTab = "default" }: TasksProps = {}) {
               <h3 style={{ margin: 0, fontSize: "1rem", fontWeight: 700, color: C.charcoal }}>
                 リスト設定
               </h3>
-              <span style={{ fontSize: "0.72rem", color: editingCategory.title.length >= MAX_LIST_NAME_LENGTH ? C.danger : C.charcoalLight }}>
-                {editingCategory.title.length}/{MAX_LIST_NAME_LENGTH}
-              </span>
+              {!editingCategory.isDefault && (
+                <span style={{ fontSize: "0.72rem", color: editingCategory.title.length >= MAX_LIST_NAME_LENGTH ? C.danger : C.charcoalLight }}>
+                  {editingCategory.title.length}/{MAX_LIST_NAME_LENGTH}
+                </span>
+              )}
             </div>
-            <input
-              type="text"
-              value={editingCategory.title}
-              maxLength={MAX_LIST_NAME_LENGTH}
-              onChange={(e) =>
-                setEditingCategory({ ...editingCategory, title: e.target.value })
-              }
-              onKeyDown={(e) => {
-                if (e.key === "Enter") handleRenameList();
-              }}
-              style={{
-                width: "100%",
-                padding: "0.65rem 0.85rem",
-                borderRadius: "12px",
-                border: "1px solid var(--border-subtle)",
-                background: C.white,
-                fontSize: "0.9rem",
-                color: C.charcoal,
-                outline: "none",
-                boxSizing: "border-box",
-              }}
-            />
-            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginTop: "0.3rem" }}>
-              <button
-                type="button"
-                onClick={() => setShowDeleteListConfirm(true)}
-                style={{
-                  background: "transparent",
-                  border: "none",
-                  color: C.danger,
-                  fontSize: "0.78rem",
-                  fontWeight: 600,
-                  cursor: "pointer",
-                  padding: "0.4rem 0",
+
+            {editingCategory.isDefault ? (
+              <div style={{ fontSize: "0.8rem", color: C.charcoalLight, padding: "0.15rem 0" }}>
+                ※ マイタスクの名称・削除は固定ですが、お好みのマークを設定できます。
+              </div>
+            ) : (
+              <input
+                type="text"
+                value={editingCategory.title}
+                maxLength={MAX_LIST_NAME_LENGTH}
+                onChange={(e) =>
+                  setEditingCategory({ ...editingCategory, title: e.target.value })
+                }
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") handleUpdateList();
                 }}
-              >
-                リストを削除
-              </button>
+                style={{
+                  width: "100%",
+                  padding: "0.65rem 0.85rem",
+                  borderRadius: "12px",
+                  border: "1px solid var(--border-subtle)",
+                  background: C.white,
+                  fontSize: "0.9rem",
+                  color: C.charcoal,
+                  outline: "none",
+                  boxSizing: "border-box",
+                }}
+              />
+            )}
+
+            {/* 12種類のSVGアイコン選択ピッカー */}
+            <ListIconPicker
+              selectedIcon={editingCategory.icon || (editingCategory.id === "shopping" ? "cart" : editingCategory.id === "default" ? "sparkle" : "folder")}
+              onSelectIcon={(iconId) => setEditingCategory({ ...editingCategory, icon: iconId })}
+            />
+
+            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginTop: "0.3rem" }}>
+              {!editingCategory.isDefault && editingCategory.id !== "shopping" ? (
+                <button
+                  type="button"
+                  onClick={() => setShowDeleteListConfirm(true)}
+                  style={{
+                    background: "transparent",
+                    border: "none",
+                    color: C.danger,
+                    fontSize: "0.78rem",
+                    fontWeight: 600,
+                    cursor: "pointer",
+                    padding: "0.4rem 0",
+                  }}
+                >
+                  リストを削除
+                </button>
+              ) : (
+                <div />
+              )}
               <div style={{ display: "flex", gap: "0.5rem" }}>
                 <button
                   type="button"
@@ -1479,7 +2106,8 @@ export default function Tasks({ initialTab = "default" }: TasksProps = {}) {
                 </button>
                 <button
                   type="button"
-                  onClick={handleRenameList}
+                  data-testid="list-settings-save-btn"
+                  onClick={handleUpdateList}
                   style={{
                     background: C.gold,
                     border: "none",
@@ -1579,6 +2207,18 @@ export default function Tasks({ initialTab = "default" }: TasksProps = {}) {
 
       {/* ─── 共通 Undo トースト ─── */}
       <UndoToast toast={toast} onUndo={triggerUndo} onDismiss={dismissToast} />
+
+      {/* ─── 完了済みタスク一括削除 確認モーダル ─── */}
+      <ConfirmModal
+        isOpen={showClearConfirm}
+        title="完了したタスクをすべて削除しますか？"
+        message="完了したすべてのタスクがこのりすとから完全に削除されます。"
+        confirmLabel="削除"
+        cancelLabel="キャンセル"
+        isDestructive={true}
+        onConfirm={executeClearCompleted}
+        onCancel={() => setShowClearConfirm(false)}
+      />
     </div>
   );
 }

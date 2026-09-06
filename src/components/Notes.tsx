@@ -39,7 +39,22 @@ import {
   serverTimestamp,
 } from "firebase/firestore";
 import { db } from "../lib/firebase";
-import type { NoteItem, NoteBreadcrumb, ExtractedActionableItems } from "../types";
+import type {
+  NoteItem,
+  NoteBreadcrumb,
+  ExtractedActionableItems,
+  NoteChildViewMode,
+  JournalMood,
+  NoteContextSnapshot,
+} from "../types";
+import {
+  List,
+  LayoutGrid,
+  BookOpen,
+  Sparkles,
+  Folder,
+  FileText,
+} from "lucide-react";
 import { C } from "../lib/designSystem";
 import { useUndoToast } from "../hooks/useUndoToast";
 import { UndoToast } from "./common/UndoToast";
@@ -51,6 +66,12 @@ import { MarkdownGuideModal } from "./notes/MarkdownGuideModal";
 import { ConfirmModal } from "./notes/ConfirmModal";
 import { NoteBreadcrumbs } from "./notes/NoteBreadcrumbs";
 import { MoveNoteModal } from "./notes/MoveNoteModal";
+import { JournalTimeline } from "./notes/JournalTimeline";
+import { MoodPicker } from "./notes/MoodPicker";
+import {
+  fetchDailyFootprint,
+  formatFootprintMarkdown,
+} from "../services/footprintService";
 import {
   getBreadcrumbs,
   getChildNotes,
@@ -643,6 +664,11 @@ export function NoteViewer({
   onImportMarkdown,
   onToggleFullWidth,
   onToastMessage,
+  onChildViewModeChange,
+  onNewJournalNote,
+  onMoodChange,
+  onJournalDateChange,
+  onContextSnapshotChange,
 }: {
   note: NoteItem;
   allNotes: NoteItem[];
@@ -666,13 +692,60 @@ export function NoteViewer({
   onImportMarkdown?: () => void;
   onToggleFullWidth: () => void;
   onToastMessage?: (msg: string) => void;
+  onChildViewModeChange?: (mode: NoteChildViewMode) => void;
+  onNewJournalNote?: (targetDate: string) => void;
+  onMoodChange?: (mood: JournalMood) => void;
+  onJournalDateChange?: (date: string) => void;
+  onContextSnapshotChange?: (snapshot: NoteContextSnapshot) => void;
 }) {
   const [showToc, setShowToc] = useState(false);
   const [isSourceMode, setIsSourceMode] = useState(false);
   const [tagsInput, setTagsInput] = useState(note.tags.join(", "));
   const [showGuide, setShowGuide] = useState(false);
+  const [isImportingFootprint, setIsImportingFootprint] = useState(false);
   const editorRef = useRef<NoteEditorHandles>(null);
   const imageFileInputRef = useRef<HTMLInputElement>(null);
+
+  const isJournalNote = Boolean(
+    note.journalDate ||
+    (note.tags && note.tags.some((t) => t.toLowerCase() === "ジャーナル" || t.toLowerCase() === "journal"))
+  );
+
+  const handleImportFootprint = async () => {
+    if (isImportingFootprint) return;
+    setIsImportingFootprint(true);
+    try {
+      const targetDate =
+        note.journalDate ||
+        (note.createdAt ? note.createdAt.split("T")[0] : new Date().toISOString().split("T")[0]);
+      const footprint = await fetchDailyFootprint(targetDate);
+      const md = formatFootprintMarkdown(footprint, targetDate);
+      const updatedContent = note.content.trim()
+        ? `${note.content.trim()}\n\n${md.trim()}`
+        : md.trim();
+      onContentChange(updatedContent);
+      onContextSnapshotChange?.({
+        completedTasks: footprint.completedTasks,
+        events: footprint.events,
+      });
+      if (!note.journalDate) {
+        onJournalDateChange?.(targetDate);
+      }
+      const totalCount = footprint.completedTasks.length + footprint.events.length;
+      if (totalCount > 0) {
+        onToastMessage?.(
+          `「${targetDate}」の足跡（タスク${footprint.completedTasks.length}件、予定${footprint.events.length}件）を取り込みました`
+        );
+      } else {
+        onToastMessage?.(`「${targetDate}」の予定・完了タスクはありませんでした（テンプレートを挿入しました）`);
+      }
+    } catch (e) {
+      console.error("Footprint import failed", e);
+      onToastMessage?.("足跡の取り込みに失敗しました");
+    } finally {
+      setIsImportingFootprint(false);
+    }
+  };
 
   // Aether Core 抽出ステート
   const [isExtracting, setIsExtracting] = useState(false);
@@ -739,6 +812,7 @@ export function NoteViewer({
   }, []);
 
   const toc = extractToc(note.content);
+  const currentChildViewMode: NoteChildViewMode = note.childViewMode || "list";
 
   return (
     <div
@@ -885,11 +959,95 @@ export function NoteViewer({
                   flex: "0 1 auto",
                 }}
               />
+              {!isJournalNote && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    const today = new Date().toISOString().split("T")[0];
+                    const newTags = Array.from(new Set([...note.tags, "ジャーナル"]));
+                    onTagsChange(newTags);
+                    if (!note.journalDate) {
+                      onJournalDateChange?.(today);
+                    }
+                  }}
+                  className="appearance-none whitespace-nowrap shrink-0 flex items-center gap-1"
+                  style={{
+                    fontSize: "0.7rem",
+                    color: C.charcoalLight,
+                    background: "rgba(0,0,0,0.03)",
+                    borderRadius: "6px",
+                    padding: "0.15rem 0.5rem",
+                    border: "none",
+                    cursor: "pointer",
+                    transition: "all 0.15s ease",
+                  }}
+                  title="このノートをジャーナル形式として記録します"
+                >
+                  <span>+ ジャーナル化</span>
+                </button>
+              )}
             </div>
             <span style={{ fontSize: "0.7rem", color: C.charcoalXLight, whiteSpace: "nowrap", marginLeft: "auto" }}>
               {formatDateRelative(note.updatedAt)} 更新
             </span>
           </div>
+
+          {/* ジャーナル メタバー（コンディション / Mood & 足跡取り込み） */}
+          {isJournalNote && (
+            <div
+              className="flex items-center justify-between flex-wrap gap-3"
+              style={{
+                marginBottom: "1.6rem",
+                padding: "0.75rem 1.1rem",
+                background: "rgba(0, 0, 0, 0.025)",
+                borderRadius: "14px",
+                border: "1px solid rgba(0, 0, 0, 0.04)",
+              }}
+              data-testid="journal-meta-bar"
+            >
+              <div className="flex items-center gap-3 flex-wrap">
+                <span
+                  style={{
+                    fontSize: "0.76rem",
+                    fontWeight: 650,
+                    color: C.charcoalMid,
+                    letterSpacing: "-0.01em",
+                  }}
+                >
+                  今日の気分
+                </span>
+                <MoodPicker
+                  currentMood={note.mood}
+                  onChange={(m) => onMoodChange?.(m)}
+                />
+              </div>
+
+              <button
+                type="button"
+                onClick={handleImportFootprint}
+                disabled={isImportingFootprint}
+                className="appearance-none whitespace-nowrap shrink-0 flex items-center gap-1.5 transition-all active:scale-[0.98]"
+                style={{
+                  minHeight: "36px",
+                  background: C.goldFaint2,
+                  color: C.goldDark,
+                  border: "none",
+                  borderRadius: "9px",
+                  padding: "0.4rem 0.85rem",
+                  fontSize: "0.78rem",
+                  fontWeight: 650,
+                  cursor: isImportingFootprint ? "wait" : "pointer",
+                  opacity: isImportingFootprint ? 0.7 : 1,
+                  boxShadow: "0 1px 2px rgba(0,0,0,0.04)",
+                }}
+                title="当日のタスク・予定を本文末尾に取り込みます"
+                data-testid="import-footprint-btn"
+              >
+                <Sparkles size={14} style={{ color: C.gold }} />
+                <span>{isImportingFootprint ? "取り込み中…" : "今日の足跡を取り込む"}</span>
+              </button>
+            </div>
+          )}
 
           {/* 本文（完全インライン統合エディタ） */}
           <NoteEditor
@@ -904,8 +1062,8 @@ export function NoteViewer({
           {/* ────── サブノート（Sub-notes Hub）セクション ────── */}
           <div
             style={{
-              marginTop: "3.5rem",
-              paddingTop: "2rem",
+              marginTop: "2rem",
+              paddingTop: "1.5rem",
               borderTop: "1px solid rgba(0, 0, 0, 0.06)",
             }}
           >
@@ -919,37 +1077,126 @@ export function NoteViewer({
                 gap: "0.8rem",
               }}
             >
-              <div style={{ display: "flex", alignItems: "center", gap: "0.6rem" }}>
-                <h3
-                  style={{
-                    fontSize: "1.08rem",
-                    fontWeight: 700,
-                    color: C.charcoal,
-                    margin: 0,
-                    letterSpacing: "-0.02em",
-                  }}
-                >
-                  サブノート
-                </h3>
-                {childNotes.length > 0 && (
-                  <span
+              <div style={{ display: "flex", alignItems: "center", gap: "0.8rem", flexWrap: "wrap" }}>
+                <div style={{ display: "flex", alignItems: "center", gap: "0.6rem" }}>
+                  <h3
                     style={{
-                      fontSize: "0.72rem",
-                      color: C.charcoalMid,
-                      background: "rgba(0,0,0,0.04)",
-                      borderRadius: "12px",
-                      padding: "0.15rem 0.55rem",
-                      fontWeight: 600,
+                      fontSize: "1.08rem",
+                      fontWeight: 700,
+                      color: C.charcoal,
+                      margin: 0,
+                      letterSpacing: "-0.02em",
                     }}
                   >
-                    {childNotes.length}件
-                  </span>
-                )}
+                    サブノート
+                  </h3>
+                  {childNotes.length > 0 && (
+                    <span
+                      style={{
+                        fontSize: "0.72rem",
+                        color: C.charcoalMid,
+                        background: "rgba(0,0,0,0.04)",
+                        borderRadius: "12px",
+                        padding: "0.15rem 0.55rem",
+                        fontWeight: 600,
+                      }}
+                    >
+                      {childNotes.length}件
+                    </span>
+                  )}
+                </div>
+
+                {/* ビュー切り替えピル（セグメントコントロール）: [ リスト | カード | ジャーナル ] */}
+                <div
+                  role="radiogroup"
+                  aria-label="サブノート表示形式切り替え"
+                  className="flex items-center shrink-0"
+                  style={{
+                    background: "rgba(0, 0, 0, 0.04)",
+                    borderRadius: "9px",
+                    padding: "2px",
+                    gap: "2px",
+                  }}
+                >
+                  <button
+                    type="button"
+                    role="radio"
+                    aria-checked={currentChildViewMode === "list"}
+                    aria-label="リスト表示"
+                    title="Notion風リスト表示"
+                    onClick={() => onChildViewModeChange?.("list")}
+                    className="appearance-none whitespace-nowrap shrink-0 flex items-center gap-1.5"
+                    style={{
+                      background: currentChildViewMode === "list" ? "var(--bg-card-solid)" : "transparent",
+                      color: currentChildViewMode === "list" ? C.charcoal : C.charcoalLight,
+                      border: "none",
+                      borderRadius: "7px",
+                      padding: "0.35rem 0.65rem",
+                      cursor: "pointer",
+                      fontSize: "0.76rem",
+                      fontWeight: currentChildViewMode === "list" ? 650 : 500,
+                      boxShadow: currentChildViewMode === "list" ? "0 1px 3px rgba(0,0,0,0.08)" : "none",
+                      transition: "all 0.15s ease",
+                    }}
+                  >
+                    <List size={14} />
+                    <span>リスト</span>
+                  </button>
+                  <button
+                    type="button"
+                    role="radio"
+                    aria-checked={currentChildViewMode === "board"}
+                    aria-label="カード表示"
+                    title="Keep風カード表示"
+                    onClick={() => onChildViewModeChange?.("board")}
+                    className="appearance-none whitespace-nowrap shrink-0 flex items-center gap-1.5"
+                    style={{
+                      background: currentChildViewMode === "board" ? "var(--bg-card-solid)" : "transparent",
+                      color: currentChildViewMode === "board" ? C.charcoal : C.charcoalLight,
+                      border: "none",
+                      borderRadius: "7px",
+                      padding: "0.35rem 0.65rem",
+                      cursor: "pointer",
+                      fontSize: "0.76rem",
+                      fontWeight: currentChildViewMode === "board" ? 650 : 500,
+                      boxShadow: currentChildViewMode === "board" ? "0 1px 3px rgba(0,0,0,0.08)" : "none",
+                      transition: "all 0.15s ease",
+                    }}
+                  >
+                    <LayoutGrid size={14} />
+                    <span>カード</span>
+                  </button>
+                  <button
+                    type="button"
+                    role="radio"
+                    aria-checked={currentChildViewMode === "journal"}
+                    aria-label="ジャーナル表示"
+                    title="ジャーナルタイムライン表示"
+                    onClick={() => onChildViewModeChange?.("journal")}
+                    className="appearance-none whitespace-nowrap shrink-0 flex items-center gap-1.5"
+                    style={{
+                      background: currentChildViewMode === "journal" ? "var(--bg-card-solid)" : "transparent",
+                      color: currentChildViewMode === "journal" ? C.charcoal : C.charcoalLight,
+                      border: "none",
+                      borderRadius: "7px",
+                      padding: "0.35rem 0.65rem",
+                      cursor: "pointer",
+                      fontSize: "0.76rem",
+                      fontWeight: currentChildViewMode === "journal" ? 650 : 500,
+                      boxShadow: currentChildViewMode === "journal" ? "0 1px 3px rgba(0,0,0,0.08)" : "none",
+                      transition: "all 0.15s ease",
+                    }}
+                  >
+                    <BookOpen size={14} />
+                    <span>ジャーナル</span>
+                  </button>
+                </div>
               </div>
 
               <button
                 type="button"
                 onClick={onNewChildNote}
+                className="appearance-none whitespace-nowrap shrink-0"
                 style={{
                   display: "inline-flex",
                   alignItems: "center",
@@ -976,7 +1223,17 @@ export function NoteViewer({
               </button>
             </div>
 
-            {childNotes.length === 0 ? (
+            {currentChildViewMode === "journal" ? (
+              <JournalTimeline
+                childNotes={childNotes}
+                allNotes={allNotes}
+                onSelectChildNote={onSelectChildNote}
+                onNewJournalNote={onNewJournalNote || (() => onNewChildNote())}
+                onMoveChildNote={onMoveChildNote}
+                onDeleteChildNote={onDeleteChildNote}
+                onDownloadChildNote={onDownloadChildNote}
+              />
+            ) : childNotes.length === 0 ? (
               <div
                 style={{
                   background: "rgba(0, 0, 0, 0.015)",
@@ -990,13 +1247,43 @@ export function NoteViewer({
                   サブノートはまだありません
                 </p>
               </div>
+            ) : currentChildViewMode === "list" ? (
+              /* Notion風リスト表示 */
+              <div
+                className="flex flex-col w-full"
+                style={{ gap: "0.25rem" }}
+                data-testid="subnotes-list-view"
+              >
+                {childNotes.map((child) => (
+                  <NoteSubNoteListItem
+                    key={child.id}
+                    note={child}
+                    childCount={getChildCount(allNotes, child.id)}
+                    onClick={() => onSelectChildNote(child.id)}
+                    onMove={(e) => {
+                      e.stopPropagation();
+                      onMoveChildNote?.(child);
+                    }}
+                    onDelete={(e) => {
+                      e.stopPropagation();
+                      onDeleteChildNote(child);
+                    }}
+                    onDownload={(e) => {
+                      e.stopPropagation();
+                      onDownloadChildNote(child);
+                    }}
+                  />
+                ))}
+              </div>
             ) : (
+              /* Google Keep風カードグリッド表示 */
               <div
                 style={{
                   display: "grid",
                   gridTemplateColumns: "repeat(auto-fill, minmax(260px, 1fr))",
                   gap: "1rem",
                 }}
+                data-testid="subnotes-board-view"
               >
                 {childNotes.map((child) => (
                   <NoteCard
@@ -1209,6 +1496,267 @@ const NotesListIcon = () => (
   </svg>
 );
 
+/** ノートから先頭の画像URLを抽出するヘルパー */
+function getFirstImageUrl(note: NoteItem): string | null {
+  if (note.attachments) {
+    const fromAtt = Object.values(note.attachments).find(
+      (src) =>
+        src.startsWith("data:image") ||
+        /\.(png|jpe?g|webp|gif|svg)($|\?)/i.test(src) ||
+        src.includes("firebasestorage")
+    );
+    if (fromAtt) return fromAtt;
+  }
+  const match = note.content.match(/!\[.*?\]\((https?:\/\/[^\s)]+|data:image\/[^\s)]+)\)/);
+  return match ? match[1] : null;
+}
+
+/**
+ * Notion風リストアイテム（枠線なし、上品なホバー、1行コンパクト表示）
+ */
+function NoteSubNoteListItem({
+  note,
+  childCount = 0,
+  onClick,
+  onMove,
+  onDelete,
+  onDownload,
+}: {
+  note: NoteItem;
+  childCount?: number;
+  onClick: () => void;
+  onMove?: (e: React.MouseEvent) => void;
+  onDelete: (e: React.MouseEvent) => void;
+  onDownload: (e: React.MouseEvent) => void;
+}) {
+  const [menuOpen, setMenuOpen] = useState(false);
+  const menuRef = useRef<HTMLDivElement>(null);
+  const hasChildren = childCount > 0;
+
+  useEffect(() => {
+    if (!menuOpen) return;
+    const handler = (e: MouseEvent) => {
+      if (menuRef.current && !menuRef.current.contains(e.target as Node)) {
+        setMenuOpen(false);
+      }
+    };
+    document.addEventListener("mousedown", handler);
+    return () => document.removeEventListener("mousedown", handler);
+  }, [menuOpen]);
+
+  return (
+    <div
+      role="button"
+      tabIndex={0}
+      onClick={onClick}
+      onKeyDown={(e) => {
+        if (e.key === "Enter" || e.key === " ") {
+          e.preventDefault();
+          onClick();
+        }
+      }}
+      className="group w-full max-w-full overflow-x-hidden rounded-xl px-3.5 py-2.5 flex items-center justify-between cursor-pointer transition-colors duration-150 hover:bg-stone-100/60 dark:hover:bg-stone-800/60"
+      style={{
+        border: "none",
+        background: "transparent",
+        minHeight: "44px",
+        boxSizing: "border-box",
+      }}
+      data-testid={`subnote-list-item-${note.id}`}
+    >
+      {/* 左側: アイコン + タイトル + サブノート件数 + タグ */}
+      <div className="flex items-center gap-2.5 min-w-0 flex-1 mr-3">
+        {/* アイコン: フォルダまたはドキュメント */}
+        <span
+          className="shrink-0 flex items-center justify-center select-none"
+          style={{ opacity: 0.85, color: hasChildren ? C.gold : C.charcoalLight }}
+          aria-hidden="true"
+        >
+          {hasChildren ? <Folder size={16} /> : <FileText size={16} />}
+        </span>
+
+        {/* タイトル */}
+        <span
+          className="font-medium text-sm truncate"
+          style={{
+            color: C.charcoal,
+            letterSpacing: "-0.012em",
+          }}
+        >
+          {note.title || "（タイトルなし）"}
+        </span>
+
+        {/* 子ノート件数バッジ */}
+        {hasChildren && (
+          <span
+            className="shrink-0 whitespace-nowrap text-xs rounded px-1.5 py-0.5"
+            style={{
+              fontSize: "0.65rem",
+              color: C.charcoalMid,
+              background: "rgba(0,0,0,0.04)",
+              fontWeight: 600,
+            }}
+          >
+            {childCount}件
+          </span>
+        )}
+
+        {/* タグ */}
+        {note.tags && note.tags.length > 0 && (
+          <div className="hidden sm:flex items-center gap-1 shrink-0">
+            {note.tags.slice(0, 2).map((tag) => (
+              <span
+                key={tag}
+                className="whitespace-nowrap rounded px-1.5 py-0.5 font-medium"
+                style={{
+                  fontSize: "0.62rem",
+                  color: C.gold,
+                  background: C.goldFaint,
+                }}
+              >
+                #{tag}
+              </span>
+            ))}
+          </div>
+        )}
+      </div>
+
+      {/* 右側: 更新日時 + メニュー */}
+      <div className="flex items-center gap-3 shrink-0">
+        <span
+          className="text-xs whitespace-nowrap"
+          style={{ fontSize: "0.7rem", color: C.charcoalXLight }}
+        >
+          {formatDateRelative(note.updatedAt)}
+        </span>
+
+        {/* 「…」メニュー */}
+        <div
+          ref={menuRef}
+          className="relative shrink-0"
+          onClick={(e) => e.stopPropagation()}
+        >
+          <button
+            type="button"
+            onClick={(e) => {
+              e.stopPropagation();
+              setMenuOpen((o) => !o);
+            }}
+            aria-label="メニュー"
+            className="appearance-none shrink-0 flex items-center justify-center cursor-pointer transition-opacity"
+            style={{
+              background: menuOpen ? C.goldFaint2 : "transparent",
+              border: "none",
+              borderRadius: "6px",
+              width: "28px",
+              height: "28px",
+              color: C.charcoalLight,
+              fontSize: "0.9rem",
+              lineHeight: 1,
+            }}
+          >
+            ···
+          </button>
+          {menuOpen && (
+            <div
+              style={{
+                position: "absolute",
+                top: "calc(100% + 4px)",
+                right: 0,
+                background: "var(--bg-card-solid)",
+                borderRadius: "10px",
+                boxShadow: "var(--shadow-modal)",
+                padding: "0.35rem",
+                minWidth: "135px",
+                zIndex: 30,
+                border: "1px solid var(--border-subtle)",
+              }}
+            >
+              {onMove && (
+                <button
+                  type="button"
+                  onClick={(e) => {
+                    setMenuOpen(false);
+                    onMove(e);
+                  }}
+                  className="appearance-none whitespace-nowrap flex items-center gap-2 w-full text-left cursor-pointer transition-colors"
+                  style={{
+                    background: "transparent",
+                    border: "none",
+                    borderRadius: "7px",
+                    padding: "0.5rem 0.75rem",
+                    fontSize: "0.8rem",
+                    color: C.charcoal,
+                  }}
+                  onMouseEnter={(e) => {
+                    e.currentTarget.style.background = C.goldFaint;
+                  }}
+                  onMouseLeave={(e) => {
+                    e.currentTarget.style.background = "transparent";
+                  }}
+                >
+                  <MenuFolderMoveIcon />
+                  <span>移動</span>
+                </button>
+              )}
+              <button
+                type="button"
+                onClick={(e) => {
+                  setMenuOpen(false);
+                  onDownload(e);
+                }}
+                className="appearance-none whitespace-nowrap flex items-center gap-2 w-full text-left cursor-pointer transition-colors"
+                style={{
+                  background: "transparent",
+                  border: "none",
+                  borderRadius: "7px",
+                  padding: "0.5rem 0.75rem",
+                  fontSize: "0.8rem",
+                  color: C.charcoal,
+                }}
+                onMouseEnter={(e) => {
+                  e.currentTarget.style.background = C.goldFaint;
+                }}
+                onMouseLeave={(e) => {
+                  e.currentTarget.style.background = "transparent";
+                }}
+              >
+                <MenuFileDownloadIcon />
+                <span>md 保存</span>
+              </button>
+              <button
+                type="button"
+                onClick={(e) => {
+                  setMenuOpen(false);
+                  onDelete(e);
+                }}
+                className="appearance-none whitespace-nowrap flex items-center gap-2 w-full text-left cursor-pointer transition-colors"
+                style={{
+                  background: "transparent",
+                  border: "none",
+                  borderRadius: "7px",
+                  padding: "0.5rem 0.75rem",
+                  fontSize: "0.8rem",
+                  color: "#c0614a",
+                }}
+                onMouseEnter={(e) => {
+                  e.currentTarget.style.background = "rgba(192,97,74,0.07)";
+                }}
+                onMouseLeave={(e) => {
+                  e.currentTarget.style.background = "transparent";
+                }}
+              >
+                <MenuTrashIcon />
+                <span>削除</span>
+              </button>
+            </div>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function NoteCard({
   note,
   childCount = 0,
@@ -1230,6 +1778,7 @@ function NoteCard({
   const excerpt = getExcerpt(note.content, 100);
   const wordCount = note.content.trim().length;
   const menuRef = useRef<HTMLDivElement>(null);
+  const thumbnailImg = getFirstImageUrl(note);
 
   // メニュー外クリックで閉じる
   useEffect(() => {
@@ -1311,7 +1860,8 @@ function NoteCard({
                 }}
                 title={`${childCount}件のサブノート`}
               >
-                📁 {childCount}件
+                <Folder size={11} style={{ opacity: 0.75 }} />
+                <span>{childCount}件</span>
               </span>
             )}
 
@@ -1523,8 +2073,8 @@ function NoteCard({
       onClick={onClick}
       style={{
         background: "var(--bg-card-solid)",
-        borderRadius: "16px",
-        padding: "1.5rem 1.5rem 1.25rem",
+        borderRadius: "20px",
+        padding: "1.35rem 1.35rem 1.15rem",
         boxShadow: C.cardShadow,
         display: "flex",
         flexDirection: "column",
@@ -1533,8 +2083,35 @@ function NoteCard({
         position: "relative",
         cursor: "pointer",
         border: "1px solid var(--border-subtle)",
+        overflow: "hidden",
       }}
     >
+      {/* 添付画像サムネイル（存在する場合: Keep風カード） */}
+      {thumbnailImg && (
+        <div
+          style={{
+            width: "calc(100% + 2.7rem)",
+            height: "130px",
+            margin: "-1.35rem -1.35rem 0.5rem -1.35rem",
+            overflow: "hidden",
+            background: "rgba(0, 0, 0, 0.03)",
+            position: "relative",
+          }}
+        >
+          <img
+            src={thumbnailImg}
+            alt={note.title || "サムネイル"}
+            style={{
+              width: "100%",
+              height: "100%",
+              objectFit: "cover",
+              display: "block",
+            }}
+            loading="lazy"
+          />
+        </div>
+      )}
+
       {/* 「…」メニューボタン */}
       <div
         ref={menuRef}
@@ -1962,7 +2539,7 @@ function NoteDashboard({
         maxWidth: "100%",
         overflowX: "hidden",
         boxSizing: "border-box",
-        padding: "3.2rem clamp(1.5rem, 5vw, 4rem) 6rem",
+        padding: "2.4rem clamp(1.5rem, 5vw, 4rem) 6rem",
       }}
     >
       {/* ── ヘッダー部（タイトル） ── */}
@@ -1971,7 +2548,7 @@ function NoteDashboard({
           display: "flex",
           alignItems: "flex-end",
           justifyContent: "space-between",
-          marginBottom: "1.2rem",
+          marginBottom: "1.5rem",
           maxWidth: "1280px",
           marginInline: "auto",
         }}
@@ -2407,6 +2984,16 @@ export default function Notes({
           parentId: data.parentId ?? null,
           pinned: !!data.pinned,
           attachments: data.attachments || {},
+          childViewMode:
+            data.childViewMode === "board" ||
+            data.childViewMode === "list" ||
+            data.childViewMode === "journal"
+              ? data.childViewMode
+              : undefined,
+          journalDate: data.journalDate || undefined,
+          mood: data.mood || undefined,
+          photos: data.photos || undefined,
+          contextSnapshot: data.contextSnapshot || undefined,
         });
       });
       setNotes(fetched);
@@ -2422,14 +3009,19 @@ export default function Notes({
   const { toast, showUndoToast, showMessageToast, dismissToast, triggerUndo } = useUndoToast<NoteItem>();
 
   const mutateNote = useCallback(
-    (id: string, patch: Partial<Omit<NoteItem, "id" | "createdAt" | "updatedAt">>) => {
+    (
+      id: string,
+      patch: Partial<Omit<NoteItem, "id" | "createdAt" | "updatedAt">>,
+      immediate = false
+    ) => {
       setNotes((prev) =>
         prev.map((n) => (n.id === id ? { ...n, ...patch, updatedAt: nowIso() } : n))
       );
 
       setSaveStatus("saving");
       if (saveTimeoutRef.current) clearTimeout(saveTimeoutRef.current);
-      saveTimeoutRef.current = setTimeout(async () => {
+
+      const doSave = async () => {
         try {
           const docRef = doc(db, "notes", id);
           await updateDoc(docRef, {
@@ -2441,7 +3033,13 @@ export default function Notes({
         } catch (error) {
           console.error("Auto-save failed", error);
         }
-      }, 800);
+      };
+
+      if (immediate) {
+        void doSave();
+      } else {
+        saveTimeoutRef.current = setTimeout(doSave, 800);
+      }
     },
     []
   );
@@ -2586,6 +3184,43 @@ export default function Notes({
     }
   }, []);
 
+  // 新規ジャーナルノート作成
+  const handleNewJournalNote = useCallback(
+    async (targetDate: string) => {
+      if (!activeNote) return;
+      try {
+        const existing = notes.find(
+          (n) =>
+            !n.isDeleted &&
+            n.parentId === activeNote.id &&
+            (n.journalDate === targetDate || n.title === `${targetDate} のジャーナル`)
+        );
+        if (existing) {
+          setView({ type: "viewer", noteId: existing.id });
+          showMessageToast(`「${targetDate}」のジャーナルを開きました`);
+          return;
+        }
+
+        const docRef = await addDoc(collection(db, "notes"), {
+          title: `${targetDate} のジャーナル`,
+          content: "",
+          tags: ["ジャーナル"],
+          journalDate: targetDate,
+          createdAt: serverTimestamp(),
+          updatedAt: serverTimestamp(),
+          isDeleted: false,
+          parentId: activeNote.id,
+        });
+        setView({ type: "viewer", noteId: docRef.id });
+        showMessageToast(`「${targetDate}」のジャーナルを作成しました`);
+      } catch (e) {
+        console.error("Create journal failed", e);
+        showMessageToast("ジャーナルの作成に失敗しました");
+      }
+    },
+    [activeNote, notes, showMessageToast]
+  );
+
   const handleSelectNote = useCallback((id: string) => {
     setView({ type: "viewer", noteId: id });
   }, []);
@@ -2723,6 +3358,15 @@ export default function Notes({
             onImportMarkdown={() => fileInputRef.current?.click()}
             onToggleFullWidth={() => setIsFullWidth((v) => !v)}
             onToastMessage={showMessageToast}
+            onChildViewModeChange={(mode) =>
+              currentId && mutateNote(currentId, { childViewMode: mode }, true)
+            }
+            onNewJournalNote={handleNewJournalNote}
+            onMoodChange={(mood) => currentId && mutateNote(currentId, { mood }, true)}
+            onJournalDateChange={(date) => currentId && mutateNote(currentId, { journalDate: date }, true)}
+            onContextSnapshotChange={(snapshot) =>
+              currentId && mutateNote(currentId, { contextSnapshot: snapshot }, true)
+            }
           />
         </NoteErrorBoundary>
       )}

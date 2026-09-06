@@ -9,7 +9,7 @@
  *  - 各タイル内部スクロール（overflow-y-auto）とモバイル縦スクロール対応
  */
 
-import { useState, useEffect, useCallback, useRef } from "react";
+import { useState, useEffect, useCallback, useMemo, useRef } from "react";
 import {
   collection,
   query,
@@ -32,9 +32,9 @@ import {
 import { useGoogleAuth } from "../hooks/useGoogleAuth";
 import { syncGoogleCalendarToArca } from "../services/googleCalendarSync";
 import { getTaskLists, type GTaskList } from "../lib/googleTasks";
-import { createGoogleTaskList } from "../services/googleTasksSync";
 import { ShiftOverrideModal } from "./calendar/ShiftOverrideModal";
 import { ShiftBadge } from "./calendar/ShiftBadge";
+import { ListIcon } from "./common/ListIcon";
 
 // ---------- ユーティリティ ----------
 function toDateStr(y: number, m: number, d: number): string {
@@ -154,68 +154,128 @@ export default function Dashboard({ onNavigate, onSelectNote }: DashboardProps =
   const [notes, setNotes] = useState<NoteItem[]>([]);
   const [recipes, setRecipes] = useState<Recipe[]>([]);
   
-  // タスクグループ（動的タブ）
+  // タスクグループ（メタデータ購読用）
   const [categories, setCategories] = useState<TaskListCategory[]>([
-    { id: "default", title: "マイタスク", isDefault: true },
-    { id: "shopping", title: "買い物リスト" },
+    { id: "default", title: "マイタスク", isDefault: true, icon: "sparkle" },
+    { id: "shopping", title: "買い物リスト", icon: "cart" },
   ]);
-  const [activeListId, setActiveListId] = useState<string>("default");
+  const listMetaMapRef = useRef<Record<string, { icon?: string }>>({});
 
-  // 新規リスト作成モーダル
-  const [showAddListModal, setShowAddListModal] = useState(false);
-  const [newListName, setNewListName] = useState("");
-
-  // Sliding Pill アニメーション用の Ref & State
-  const tabTrackRef = useRef<HTMLDivElement>(null);
-  const tabItemRefs = useRef<Map<string, HTMLDivElement>>(new Map());
-  const [pillStyle, setPillStyle] = useState<{
-    left: number;
-    top: number;
-    width: number;
-    height: number;
-    ready: boolean;
-  }>({
-    left: 0,
-    top: 2,
-    width: 0,
-    height: 0,
-    ready: false,
-  });
-
-  // Sliding Pill の位置・幅更新
-  const updatePill = useCallback(() => {
-    const activeEl = tabItemRefs.current.get(activeListId);
-    const track = tabTrackRef.current;
-    if (!activeEl || !track) return;
-
-    const elLeft = activeEl.offsetLeft;
-    const elTop = activeEl.offsetTop;
-    const elWidth = activeEl.offsetWidth;
-    const elHeight = activeEl.offsetHeight;
-
-    setPillStyle({
-      left: elLeft,
-      top: elTop,
-      width: elWidth,
-      height: elHeight,
-      ready: true,
-    });
-  }, [activeListId]);
-
+  // ─── Firestore task_lists 購読 ───
   useEffect(() => {
-    updatePill();
-    const raf = requestAnimationFrame(updatePill);
-    const timer = setTimeout(updatePill, 60);
+    const unsub = onSnapshot(collection(db, "task_lists"), (snapshot) => {
+      const metaMap: Record<string, { icon?: string }> = {};
+      snapshot.docs.forEach((d) => {
+        const data = d.data();
+        if (data.icon) {
+          metaMap[d.id] = { icon: data.icon };
+        }
+      });
+      listMetaMapRef.current = metaMap;
 
-    const handleResize = () => updatePill();
-    window.addEventListener("resize", handleResize);
+      setCategories((prev) =>
+        prev.map((c) => {
+          const m = metaMap[c.id];
+          return m?.icon ? { ...c, icon: m.icon } : c;
+        })
+      );
+    });
 
-    return () => {
-      cancelAnimationFrame(raf);
-      clearTimeout(timer);
-      window.removeEventListener("resize", handleResize);
+    return () => unsub();
+  }, []);
+
+  // カテゴリ用アイコン決定ヘルパー
+  const getCategoryIcon = useCallback((catId: string, isShop: boolean, isMyTasks: boolean): string => {
+    const saved = listMetaMapRef.current[catId]?.icon;
+    if (saved) return saved;
+    if (isShop) return "cart";
+    if (isMyTasks) return "sparkle";
+    return "folder";
+  }, []);
+
+  // タスクグループ（リスト名・アイコン）取得ヘルパー
+  const getGroupInfo = useCallback((listId?: string) => {
+    const id = listId || "default";
+    const cat = categories.find((c) => c.id === id);
+    if (cat) {
+      return {
+        title: cat.title,
+        icon: cat.icon || (cat.id === "shopping" ? "cart" : cat.id === "default" ? "sparkle" : "folder"),
+      };
+    }
+    if (id === "shopping") return { title: "買い物リスト", icon: "cart" };
+    if (id === "default") return { title: "マイタスク", icon: "sparkle" };
+    return { title: "マイタスク", icon: "sparkle" };
+  }, [categories]);
+
+  // 1週間後（今日から+7日後）の日付 "YYYY-MM-DD"
+  const oneWeekLater = useMemo(() => {
+    const d = new Date(`${today}T00:00:00`);
+    d.setDate(d.getDate() + 7);
+    const yyyy = d.getFullYear();
+    const mm = String(d.getMonth() + 1).padStart(2, "0");
+    const dd = String(d.getDate()).padStart(2, "0");
+    return `${yyyy}-${mm}-${dd}`;
+  }, [today]);
+
+  // 期限表示用バッジ情報フォーマッター
+  const formatDueDateLabel = useCallback((dueDateStr: string) => {
+    const dueTime = new Date(`${dueDateStr}T00:00:00`).getTime();
+    const todayTime = new Date(`${today}T00:00:00`).getTime();
+    const diffDays = Math.round((dueTime - todayTime) / (1000 * 60 * 60 * 24));
+
+    if (diffDays < 0) {
+      return {
+        text: diffDays === -1 ? "昨日 (期限切れ)" : `${Math.abs(diffDays)}日前 (期限切れ)`,
+        color: C.danger,
+        background: "rgba(224, 86, 74, 0.08)",
+        isOverdue: true,
+      };
+    }
+    if (diffDays === 0) {
+      return {
+        text: "今日",
+        color: C.goldDark,
+        background: C.goldFaint,
+        isOverdue: false,
+      };
+    }
+    if (diffDays === 1) {
+      return {
+        text: "明日",
+        color: C.charcoalMid,
+        background: "rgba(0, 0, 0, 0.04)",
+        isOverdue: false,
+      };
+    }
+    const d = new Date(`${dueDateStr}T00:00:00`);
+    const dateFormatted = `${d.getMonth() + 1}/${d.getDate()}(${["日", "月", "火", "水", "木", "金", "土"][d.getDay()]})`;
+    return {
+      text: `${dateFormatted} (あと${diffDays}日)`,
+      color: C.charcoalLight,
+      background: "rgba(0, 0, 0, 0.03)",
+      isOverdue: false,
     };
-  }, [updatePill, categories]);
+  }, [today]);
+
+  // 期限が1週間より手前（期限切れを含む）の未完了タスクを一元抽出
+  const upcomingTasks = useMemo(() => {
+    return tasks
+      .filter((t) => {
+        if (t.completed) return false;
+        if (!t.dueDate) return false;
+        return t.dueDate <= oneWeekLater;
+      })
+      .sort((a, b) => {
+        // 期限昇順（過去の期限切れが先頭、今日、明日、…の順）
+        const cmp = a.dueDate!.localeCompare(b.dueDate!);
+        if (cmp !== 0) return cmp;
+        const pOrder: Record<string, number> = { high: 0, medium: 1, low: 2 };
+        const pa = a.priority ? pOrder[a.priority] ?? 3 : 3;
+        const pb = b.priority ? pOrder[b.priority] ?? 3 : 3;
+        return pa - pb;
+      });
+  }, [tasks, oneWeekLater]);
 
   // Google Tasks リスト同期
   useEffect(() => {
@@ -238,18 +298,21 @@ export default function Dashboard({ onNavigate, onSelectNote }: DashboardProps =
               title: "マイタスク",
               googleListId: gl.id,
               isDefault: true,
+              icon: getCategoryIcon("default", false, true),
             });
           } else if (isShop) {
             mappedCategories.push({
               id: "shopping",
               title: gl.title,
               googleListId: gl.id,
+              icon: getCategoryIcon("shopping", true, false),
             });
           } else {
             mappedCategories.push({
               id: gl.id,
               title: gl.title,
               googleListId: gl.id,
+              icon: getCategoryIcon(gl.id, false, false),
             });
           }
         }
@@ -261,10 +324,19 @@ export default function Dashboard({ onNavigate, onSelectNote }: DashboardProps =
           }
         }
         if (!uniqueCategories.some((u) => u.id === "default")) {
-          uniqueCategories.unshift({ id: "default", title: "マイタスク", isDefault: true });
+          uniqueCategories.unshift({
+            id: "default",
+            title: "マイタスク",
+            isDefault: true,
+            icon: getCategoryIcon("default", false, true),
+          });
         }
         if (!uniqueCategories.some((u) => u.id === "shopping")) {
-          uniqueCategories.push({ id: "shopping", title: "買い物リスト" });
+          uniqueCategories.push({
+            id: "shopping",
+            title: "買い物リスト",
+            icon: getCategoryIcon("shopping", true, false),
+          });
         }
 
         setCategories(uniqueCategories);
@@ -279,33 +351,7 @@ export default function Dashboard({ onNavigate, onSelectNote }: DashboardProps =
     };
   }, [isSignedIn, accessToken]);
 
-  // 新規リスト作成ハンドラ
-  const handleCreateList = async () => {
-    const title = newListName.trim().slice(0, 15);
-    if (!title) return;
 
-    let googleListId: string | undefined;
-    if (isSignedIn && accessToken) {
-      try {
-        const createdGList = await createGoogleTaskList(accessToken, title);
-        googleListId = createdGList.id;
-      } catch (err) {
-        console.error("Failed to create Google TaskList from Dashboard:", err);
-      }
-    }
-
-    const newId = "list-" + Math.random().toString(36).slice(2, 9);
-    const newCat: TaskListCategory = {
-      id: newId,
-      title,
-      googleListId,
-    };
-
-    setCategories((prev) => [...prev, newCat]);
-    setActiveListId(newId);
-    setNewListName("");
-    setShowAddListModal(false);
-  };
 
   // 手動同期ハンドラ
   const handleManualSync = useCallback(async () => {
@@ -335,7 +381,24 @@ export default function Dashboard({ onNavigate, onSelectNote }: DashboardProps =
 
   useEffect(() => {
     const unsub = onSnapshot(query(collection(db, "tasks"), orderBy("createdAt", "asc")), (snap) => {
-      setTasks(snap.docs.map((d) => ({ id: d.id, ...d.data() } as TaskItem)));
+      const rawTasks = snap.docs.map((d) => ({ id: d.id, ...d.data() } as TaskItem));
+      const seenIds = new Set<string>();
+      const seenGoogleTaskIds = new Set<string>();
+      const sanitized: TaskItem[] = [];
+
+      for (const t of rawTasks) {
+        if (seenIds.has(t.id)) continue;
+        seenIds.add(t.id);
+
+        if (t.googleTaskId) {
+          if (seenGoogleTaskIds.has(t.googleTaskId)) continue;
+          seenGoogleTaskIds.add(t.googleTaskId);
+        }
+
+        sanitized.push(t);
+      }
+
+      setTasks(sanitized);
     });
     return unsub;
   }, []);
@@ -426,18 +489,18 @@ export default function Dashboard({ onNavigate, onSelectNote }: DashboardProps =
     [today]
   );
 
-  // 日付の和風フォーマット
-  const displayDate = new Date().toLocaleDateString("ja-JP", {
+  // 日付の和風フォーマット（カレンダー画面と統一: 例「9月6日(日)」）
+  const displayFullDate = new Date().toLocaleDateString("ja-JP", {
     month: "long",
     day: "numeric",
-    weekday: "long",
+    weekday: "short",
   });
 
   return (
     <div
       className="w-full max-w-6xl mx-auto"
       style={{
-        padding: "1.8rem 1.25rem 4rem",
+        padding: "2.4rem 1.25rem 4rem",
         boxSizing: "border-box",
         minHeight: "100%",
         display: "flex",
@@ -450,7 +513,7 @@ export default function Dashboard({ onNavigate, onSelectNote }: DashboardProps =
           display: "flex",
           alignItems: "center",
           justifyContent: "space-between",
-          marginBottom: "1.25rem",
+          marginBottom: "1.5rem",
           padding: "0 0.25rem",
           flexWrap: "wrap",
           gap: "0.75rem",
@@ -465,16 +528,17 @@ export default function Dashboard({ onNavigate, onSelectNote }: DashboardProps =
           </h1>
         </div>
 
-        {/* 勤務ステータスバッジ（クリックで手動調整モーダルを開く） */}
-        <div style={{ display: "flex", alignItems: "center", gap: "0.6rem" }}>
+        {/* 日付・勤務ステータス表示（カレンダーと統一: 「9月6日(日)　休日 2日目」） */}
+        <div style={{ display: "flex", alignItems: "center", gap: "0.75rem", flexWrap: "wrap" }}>
+          <span style={{ fontSize: "1.15rem", fontWeight: 700, color: C.charcoal, letterSpacing: "-0.015em" }}>
+            {displayFullDate}
+          </span>
           <ShiftBadge
             shift={currentShift}
             onClick={() => setShowShiftOverrideModal(true)}
             testId="dashboard-shift-badge"
+            size="sm"
           />
-          <p style={{ fontSize: "0.78rem", color: C.charcoalLight, margin: 0, letterSpacing: "0.01em" }}>
-            {displayDate}
-          </p>
         </div>
       </div>
 
@@ -582,173 +646,27 @@ export default function Dashboard({ onNavigate, onSelectNote }: DashboardProps =
             </div>
           </div>
 
-          {/* ─── タイルB: タスク ＆ リスト（動的グループ・Sliding Pill付き） ─── */}
+          {/* ─── タイルB: 期限の近いタスク（全グループ一元表示） ─── */}
           <div
             className="arca-card"
             style={{
               padding: "1.3rem 1.5rem 1.1rem",
               display: "flex",
               flexDirection: "column",
-              minHeight: "280px",
+              minHeight: "260px",
               boxSizing: "border-box",
               borderRadius: "20px",
             }}
           >
-            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: "0.8rem", gap: "0.5rem" }}>
-              {/* 動的タスクグループタブ（Sliding Pill アニメーション付き） */}
-              <div
-                ref={tabTrackRef}
-                style={{
-                  position: "relative",
-                  display: "inline-flex",
-                  alignItems: "center",
-                  background: "var(--bg-nav-track)",
-                  padding: "2px",
-                  borderRadius: "9999px",
-                  gap: "2px",
-                  overflowX: "auto",
-                  scrollbarWidth: "none",
-                  maxWidth: "calc(100% - 70px)",
-                }}
-              >
-                {/* 移動する白い楕円ピル */}
-                <div
-                  style={{
-                    position: "absolute",
-                    top: pillStyle.top,
-                    left: 0,
-                    transform: `translate3d(${pillStyle.left}px, 0, 0)`,
-                    width: pillStyle.width,
-                    height: pillStyle.height,
-                    background: "var(--bg-nav-pill)",
-                    borderRadius: "9999px",
-                    boxShadow: "0 1px 3px rgba(0, 0, 0, 0.08)",
-                    transition: pillStyle.ready
-                      ? "transform 0.28s cubic-bezier(0.16, 1, 0.3, 1), width 0.28s cubic-bezier(0.16, 1, 0.3, 1)"
-                      : "none",
-                    pointerEvents: "none",
-                    zIndex: 0,
-                    opacity: pillStyle.width > 0 ? 1 : 0,
-                  }}
-                />
-
-                {categories.map((cat) => {
-                  const isActive = activeListId === cat.id;
-                  const count = tasks.filter(
-                    (t) => (t.listId || "default") === cat.id && !t.completed
-                  ).length;
-                  return (
-                    <div
-                      key={cat.id}
-                      ref={(el) => {
-                        if (el) tabItemRefs.current.set(cat.id, el);
-                        else tabItemRefs.current.delete(cat.id);
-                      }}
-                      style={{
-                        position: "relative",
-                        zIndex: 1,
-                        display: "inline-flex",
-                        alignItems: "center",
-                        justifyContent: "center",
-                        borderRadius: "9999px",
-                        padding: "0.3rem 0.75rem",
-                        minWidth: "auto",
-                        flexShrink: 0,
-                        boxSizing: "border-box",
-                      }}
-                    >
-                      <button
-                        type="button"
-                        data-testid={`dashboard-tab-${cat.id}`}
-                        onClick={() => setActiveListId(cat.id)}
-                        style={{
-                          border: "none",
-                          background: "transparent",
-                          fontSize: "0.78rem",
-                          fontWeight: isActive ? 700 : 500,
-                          color: isActive ? "var(--text-main)" : C.charcoalLight,
-                          cursor: "pointer",
-                          padding: 0,
-                          display: "flex",
-                          alignItems: "center",
-                          minWidth: 0,
-                          whiteSpace: "nowrap",
-                          transition: "color 0.18s ease",
-                        }}
-                      >
-                        {cat.id === "shopping" && (
-                          <span style={{ marginRight: "3px", flexShrink: 0, opacity: isActive ? 1 : 0.65 }}>
-                            🛒
-                          </span>
-                        )}
-                        {cat.id === "default" && (
-                          <span
-                            style={{
-                              marginRight: "3px",
-                              flexShrink: 0,
-                              color: isActive ? "var(--text-main)" : C.charcoalLight,
-                              fontWeight: isActive ? 750 : 400,
-                              transition: "color 0.18s ease",
-                            }}
-                          >
-                            ✦
-                          </span>
-                        )}
-                        <span
-                          style={{
-                            maxWidth: "160px",
-                            overflow: "hidden",
-                            textOverflow: "ellipsis",
-                            whiteSpace: "nowrap",
-                            color: isActive ? "var(--text-main)" : C.charcoalLight,
-                            transition: "color 0.18s ease",
-                          }}
-                          title={cat.title}
-                        >
-                          {cat.title}
-                        </span>
-                        <span
-                          style={{
-                            fontSize: "0.7rem",
-                            opacity: isActive ? 0.9 : 0.65,
-                            marginLeft: "4px",
-                            flexShrink: 0,
-                            fontWeight: 550,
-                            color: isActive ? "var(--text-main)" : C.charcoalLight,
-                          }}
-                        >
-                          ({count})
-                        </span>
-                      </button>
-                    </div>
-                  );
-                })}
-
-                {/* ＋ 新しいリスト追加ボタン */}
-                <button
-                  type="button"
-                  data-testid="dashboard-add-list-btn"
-                  onClick={() => setShowAddListModal(true)}
-                  style={{
-                    position: "relative",
-                    zIndex: 1,
-                    border: "none",
-                    background: "transparent",
-                    padding: "0.26rem 0.5rem",
-                    fontSize: "0.75rem",
-                    fontWeight: 650,
-                    color: C.goldDark,
-                    cursor: "pointer",
-                    flexShrink: 0,
-                    lineHeight: 1,
-                  }}
-                  title="新しいリストを作成"
-                >
-                  ＋
-                </button>
+            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: "0.8rem" }}>
+              <div style={{ display: "flex", alignItems: "center", gap: "0.45rem" }}>
+                <span style={{ fontSize: "0.85rem", fontWeight: 700, color: C.charcoal, letterSpacing: "0.02em" }}>
+                  期限の近いタスク
+                </span>
+                <span style={{ fontSize: "0.74rem", color: C.charcoalLight }}>
+                  ({upcomingTasks.length})
+                </span>
               </div>
-
-              {/* 遷移ボタン */}
               <TileNavButton
                 label="タスク"
                 onClick={() => onNavigate?.("tasks")}
@@ -757,87 +675,129 @@ export default function Dashboard({ onNavigate, onSelectNote }: DashboardProps =
 
             {/* 内部スクロールコンテンツ */}
             <div style={{ flex: 1, overflowY: "auto", maxHeight: "240px", paddingRight: "0.25rem" }}>
-              {(() => {
-                const currentFilteredTasks = tasks.filter(
-                  (t) => (t.listId || "default") === activeListId && !t.completed
-                );
+              {upcomingTasks.length === 0 ? (
+                <div style={{ height: "100%", display: "flex", alignItems: "center", justifyContent: "center", padding: "1.5rem 0" }}>
+                  <p style={{ margin: 0, fontSize: "0.85rem", color: C.charcoalLight }}>
+                    期限の近いタスクはありません
+                  </p>
+                </div>
+              ) : (
+                <ul style={{ listStyle: "none", margin: 0, padding: 0, display: "flex", flexDirection: "column", gap: "0.4rem" }}>
+                  {upcomingTasks.map((t, index) => {
+                    const group = getGroupInfo(t.listId);
+                    const dueInfo = formatDueDateLabel(t.dueDate!);
 
-                if (currentFilteredTasks.length === 0) {
-                  return (
-                    <div style={{ height: "100%", display: "flex", alignItems: "center", justifyContent: "center", padding: "1.5rem 0" }}>
-                      <p style={{ margin: 0, fontSize: "0.85rem", color: C.charcoalLight }}>
-                        残っているアイテムはありません
-                      </p>
-                    </div>
-                  );
-                }
-
-                return (
-                  <ul style={{ listStyle: "none", margin: 0, padding: 0, display: "flex", flexDirection: "column", gap: "0.4rem" }}>
-                    {currentFilteredTasks.map((t) => (
+                    return (
                       <li
                         key={t.id}
                         style={{
                           display: "flex",
                           alignItems: "center",
-                          gap: "0.75rem",
+                          justifyContent: "space-between",
+                          gap: "0.6rem",
                           padding: "0.4rem 0",
-                          borderBottom: "1px solid rgba(0, 0, 0, 0.03)",
+                          borderBottom: index === upcomingTasks.length - 1 ? "none" : "1px solid rgba(0, 0, 0, 0.03)",
                         }}
                       >
-                        <button
-                          onClick={() => toggleTask(t.id, t.completed)}
-                          style={{ background: "none", border: "none", cursor: "pointer", padding: 0, lineHeight: 0 }}
-                          title={t.completed ? "未完了に戻す" : "完了にする"}
-                        >
-                          <CheckCircle completed={t.completed} />
-                        </button>
-                        <span
+                        {/* 左側: チェックボタン ＋ タイトル ＋ 期限バッジ */}
+                        <div style={{ display: "flex", alignItems: "center", gap: "0.65rem", flex: 1, minWidth: 0 }}>
+                          <button
+                            onClick={() => toggleTask(t.id, t.completed)}
+                            style={{ background: "none", border: "none", cursor: "pointer", padding: 0, lineHeight: 0, flexShrink: 0 }}
+                            title={t.completed ? "未完了に戻す" : "完了にする"}
+                          >
+                            <CheckCircle completed={t.completed} />
+                          </button>
+                          <div style={{ display: "flex", alignItems: "center", gap: "0.45rem", flex: 1, minWidth: 0, overflow: "hidden" }}>
+                            <span
+                              style={{
+                                fontSize: "0.88rem",
+                                color: t.completed ? C.charcoalLight : C.charcoal,
+                                textDecoration: t.completed ? "line-through" : "none",
+                                lineHeight: 1.35,
+                                overflow: "hidden",
+                                textOverflow: "ellipsis",
+                                whiteSpace: "nowrap",
+                              }}
+                            >
+                              {t.title}
+                            </span>
+                            {/* 期限バッジ */}
+                            <span
+                              style={{
+                                fontSize: "0.65rem",
+                                fontWeight: dueInfo.isOverdue ? 700 : 550,
+                                color: dueInfo.color,
+                                background: dueInfo.background,
+                                padding: "0.1rem 0.38rem",
+                                borderRadius: "4px",
+                                flexShrink: 0,
+                                whiteSpace: "nowrap",
+                              }}
+                            >
+                              {dueInfo.text}
+                            </span>
+                          </div>
+
+                          {t.priority === "high" && (
+                            <span
+                              style={{
+                                fontSize: "0.65rem",
+                                fontWeight: 600,
+                                color: C.danger,
+                                background: "rgba(224, 86, 74, 0.08)",
+                                padding: "0.12rem 0.4rem",
+                                borderRadius: "4px",
+                                flexShrink: 0,
+                              }}
+                            >
+                              高
+                            </span>
+                          )}
+                          {t.priority === "low" && (
+                            <span
+                              style={{
+                                fontSize: "0.65rem",
+                                fontWeight: 600,
+                                color: "#4A709C",
+                                background: "rgba(74, 112, 156, 0.08)",
+                                padding: "0.12rem 0.4rem",
+                                borderRadius: "4px",
+                                flexShrink: 0,
+                              }}
+                            >
+                              低
+                            </span>
+                          )}
+                        </div>
+
+                        {/* 右側: タスクグループ表示 */}
+                        <div
                           style={{
-                            flex: 1,
-                            fontSize: "0.88rem",
-                            color: t.completed ? C.charcoalLight : C.charcoal,
-                            textDecoration: t.completed ? "line-through" : "none",
-                            lineHeight: 1.35,
+                            display: "inline-flex",
+                            alignItems: "center",
+                            gap: "0.28rem",
+                            padding: "0.15rem 0.45rem",
+                            borderRadius: "6px",
+                            background: "rgba(0, 0, 0, 0.035)",
+                            fontSize: "0.68rem",
+                            color: C.charcoalLight,
+                            fontWeight: 500,
+                            flexShrink: 0,
+                            maxWidth: "130px",
                           }}
+                          title={`タスクグループ: ${group.title}`}
                         >
-                          {t.title}
-                        </span>
-                        {t.priority === "high" && (
-                          <span
-                            style={{
-                              fontSize: "0.65rem",
-                              fontWeight: 600,
-                              color: C.danger,
-                              background: "rgba(224, 86, 74, 0.08)",
-                              padding: "0.12rem 0.4rem",
-                              borderRadius: "4px",
-                              flexShrink: 0,
-                            }}
-                          >
-                            高
+                          <ListIcon icon={group.icon} size="0.72rem" style={{ opacity: 0.75, flexShrink: 0 }} />
+                          <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                            {group.title}
                           </span>
-                        )}
-                        {t.priority === "low" && (
-                          <span
-                            style={{
-                              fontSize: "0.65rem",
-                              fontWeight: 600,
-                              color: "#4A709C",
-                              background: "rgba(74, 112, 156, 0.08)",
-                              padding: "0.12rem 0.4rem",
-                              borderRadius: "4px",
-                              flexShrink: 0,
-                            }}
-                          >
-                            低
-                          </span>
-                        )}
+                        </div>
                       </li>
-                    ))}
-                  </ul>
-                );
-              })()}
+                    );
+                  })}
+                </ul>
+              )}
             </div>
           </div>
 
@@ -915,20 +875,6 @@ export default function Dashboard({ onNavigate, onSelectNote }: DashboardProps =
                           </p>
                         )}
                       </div>
-                      {(recipe.servings || (recipe.tags && recipe.tags.length > 0)) && (
-                        <span
-                          style={{
-                            fontSize: "0.68rem",
-                            color: C.charcoalLight,
-                            background: "rgba(0, 0, 0, 0.04)",
-                            padding: "0.15rem 0.45rem",
-                            borderRadius: "6px",
-                            flexShrink: 0,
-                          }}
-                        >
-                          {recipe.servings || recipe.tags[0]}
-                        </span>
-                      )}
                     </li>
                   ))}
                 </ul>
@@ -1031,109 +977,6 @@ export default function Dashboard({ onNavigate, onSelectNote }: DashboardProps =
 
       </div>
 
-      {/* ─── 新規リスト作成モーダル ─── */}
-      {showAddListModal && (
-        <div
-          role="dialog"
-          aria-modal="true"
-          style={{
-            position: "fixed",
-            inset: 0,
-            zIndex: 1200,
-            background: "rgba(0, 0, 0, 0.45)",
-            backdropFilter: "blur(8px)",
-            WebkitBackdropFilter: "blur(8px)",
-            display: "flex",
-            alignItems: "center",
-            justifyContent: "center",
-            padding: "1rem",
-          }}
-          onClick={() => setShowAddListModal(false)}
-        >
-          <div
-            className="arca-card"
-            style={{
-              width: "100%",
-              maxWidth: "380px",
-              background: "var(--bg-card-solid)",
-              borderRadius: "18px",
-              border: "1px solid var(--border-subtle)",
-              padding: "1.4rem",
-              display: "flex",
-              flexDirection: "column",
-              gap: "0.85rem",
-              boxShadow: "var(--shadow-modal)",
-            }}
-            onClick={(e) => e.stopPropagation()}
-          >
-            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
-              <h3 style={{ margin: 0, fontSize: "1rem", fontWeight: 700, color: C.charcoal }}>
-                新しいリストを作成
-              </h3>
-              <span style={{ fontSize: "0.72rem", color: newListName.length >= 15 ? C.danger : C.charcoalLight }}>
-                {newListName.length}/15
-              </span>
-            </div>
-            <input
-              type="text"
-              value={newListName}
-              maxLength={15}
-              onChange={(e) => setNewListName(e.target.value)}
-              onKeyDown={(e) => {
-                if (e.key === "Enter") handleCreateList();
-              }}
-              placeholder="リスト名（最大15文字）"
-              autoFocus
-              style={{
-                width: "100%",
-                padding: "0.65rem 0.85rem",
-                borderRadius: "12px",
-                border: "1px solid var(--border-subtle)",
-                background: C.white,
-                fontSize: "0.9rem",
-                color: C.charcoal,
-                outline: "none",
-                boxSizing: "border-box",
-              }}
-            />
-            <div style={{ display: "flex", justifyContent: "flex-end", gap: "0.6rem", marginTop: "0.3rem" }}>
-              <button
-                type="button"
-                onClick={() => setShowAddListModal(false)}
-                style={{
-                  background: "var(--bg-nav-track)",
-                  border: "none",
-                  borderRadius: "8px",
-                  padding: "0.5rem 0.9rem",
-                  fontSize: "0.8rem",
-                  color: C.charcoalMid,
-                  cursor: "pointer",
-                }}
-              >
-                キャンセル
-              </button>
-              <button
-                type="button"
-                onClick={handleCreateList}
-                disabled={!newListName.trim()}
-                style={{
-                  background: C.gold,
-                  border: "none",
-                  borderRadius: "8px",
-                  padding: "0.5rem 1.1rem",
-                  fontSize: "0.8rem",
-                  fontWeight: 650,
-                  color: "#FDFCFA",
-                  cursor: !newListName.trim() ? "default" : "pointer",
-                  opacity: !newListName.trim() ? 0.6 : 1,
-                }}
-              >
-                作成する
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
     </div>
   );
 }

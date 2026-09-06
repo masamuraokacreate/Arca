@@ -19,18 +19,18 @@ export interface CategoryVisual {
 }
 
 export const CATEGORY_VISUALS: Record<ExpenseCategory, CategoryVisual> = {
-  食費: { color: "#C05621", bgColor: "rgba(192, 86, 33, 0.10)", borderColor: "rgba(192, 86, 33, 0.25)" },
-  日用品: { color: "#2E7D32", bgColor: "rgba(46, 125, 50, 0.10)", borderColor: "rgba(46, 125, 50, 0.25)" },
-  交通費: { color: "#1976D2", bgColor: "rgba(25, 118, 210, 0.10)", borderColor: "rgba(25, 118, 210, 0.25)" },
-  被服: { color: "#7B1FA2", bgColor: "rgba(123, 31, 162, 0.10)", borderColor: "rgba(123, 31, 162, 0.25)" },
-  交際費: { color: "#C2185B", bgColor: "rgba(194, 24, 91, 0.10)", borderColor: "rgba(194, 24, 91, 0.25)" },
-  娯楽費: { color: "#E65100", bgColor: "rgba(230, 81, 0, 0.10)", borderColor: "rgba(230, 81, 0, 0.25)" },
-  特別費: { color: "#C62828", bgColor: "rgba(198, 40, 40, 0.10)", borderColor: "rgba(198, 40, 40, 0.25)" },
-  通信費: { color: "#00838F", bgColor: "rgba(0, 131, 143, 0.10)", borderColor: "rgba(0, 131, 143, 0.25)" },
-  光熱費: { color: "#B78103", bgColor: "rgba(183, 129, 3, 0.10)", borderColor: "rgba(183, 129, 3, 0.25)" },
-  サブスク: { color: "#3949AB", bgColor: "rgba(57, 73, 171, 0.10)", borderColor: "rgba(57, 73, 171, 0.25)" },
-  車両係: { color: "#455A64", bgColor: "rgba(69, 90, 100, 0.10)", borderColor: "rgba(69, 90, 100, 0.25)" },
-  その他: { color: "#616161", bgColor: "rgba(97, 97, 97, 0.10)", borderColor: "rgba(97, 97, 97, 0.25)" },
+  食料品: { color: "#E07A5F", bgColor: "rgba(224, 122, 95, 0.12)", borderColor: "rgba(224, 122, 95, 0.25)" },
+  外食: { color: "#F28E2B", bgColor: "rgba(242, 142, 43, 0.12)", borderColor: "rgba(242, 142, 43, 0.25)" },
+  "日用品・消耗品": { color: "#4D908E", bgColor: "rgba(77, 144, 142, 0.12)", borderColor: "rgba(77, 144, 142, 0.25)" },
+  衣服: { color: "#DDA15E", bgColor: "rgba(221, 161, 94, 0.12)", borderColor: "rgba(221, 161, 94, 0.25)" },
+  ゲーム: { color: "#8B85C1", bgColor: "rgba(139, 133, 193, 0.12)", borderColor: "rgba(139, 133, 193, 0.25)" },
+  "推し活・配信": { color: "#D4729B", bgColor: "rgba(212, 114, 155, 0.12)", borderColor: "rgba(212, 114, 155, 0.25)" },
+  "イベント・旅行": { color: "#606C38", bgColor: "rgba(96, 108, 56, 0.12)", borderColor: "rgba(96, 108, 56, 0.25)" },
+  "交通・移動": { color: "#52796F", bgColor: "rgba(82, 121, 111, 0.12)", borderColor: "rgba(82, 121, 111, 0.25)" },
+  "サブスク・固定費": { color: "#817F75", bgColor: "rgba(129, 127, 117, 0.12)", borderColor: "rgba(129, 127, 117, 0.25)" },
+  "光熱費・住居": { color: "#4A6B82", bgColor: "rgba(74, 107, 130, 0.12)", borderColor: "rgba(74, 107, 130, 0.25)" },
+  大型出費: { color: "#9C6644", bgColor: "rgba(156, 102, 68, 0.12)", borderColor: "rgba(156, 102, 68, 0.25)" },
+  その他: { color: "#A8A29E", bgColor: "rgba(168, 162, 158, 0.12)", borderColor: "rgba(168, 162, 158, 0.25)" },
 };
 
 /** 金額を日本円形式にフォーマット (例: ¥1,234) */

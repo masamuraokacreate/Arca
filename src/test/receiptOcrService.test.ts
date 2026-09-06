@@ -14,9 +14,9 @@ describe("receiptOcrService - sanitizeOcrResult", () => {
       totalAmount: 3240,
       paymentMethod: "イオンカード",
       items: [
-        { name: "明治 おいしい牛乳 900ml", amount: 258, category: "食費" },
-        { name: "国産 豚ロース切り落とし", amount: 680, category: "食費" },
-        { name: "ティッシュペーパー 5P", amount: 398, category: "日用品" },
+        { name: "明治 おいしい牛乳 900ml", amount: 258, category: "食料品" },
+        { name: "国産 豚ロース切り落とし", amount: 680, category: "食料品" },
+        { name: "ティッシュペーパー 5P", amount: 398, category: "日用品・消耗品" },
       ],
     });
 
@@ -29,7 +29,7 @@ describe("receiptOcrService - sanitizeOcrResult", () => {
     expect(result?.items.length).toBe(3);
     expect(result?.items[0].name).toBe("明治 おいしい牛乳 900ml");
     expect(result?.items[0].amount).toBe(258);
-    expect(result?.items[0].category).toBe("食費");
+    expect(result?.items[0].category).toBe("食料品");
   });
 
   it("Markdownコードブロックで囲まれたJSONも正しく抽出・パースする", () => {
@@ -40,8 +40,8 @@ describe("receiptOcrService - sanitizeOcrResult", () => {
   "totalAmount": 750,
   "paymentMethod": "現金",
   "items": [
-    { "name": "おにぎり 鮭", "amount": 160, "category": "食費" },
-    { "name": "緑茶 600ml", "amount": 140, "category": "食費" }
+    { "name": "おにぎり 鮭", "amount": 160, "category": "食料品" },
+    { "name": "緑茶 600ml", "amount": 140, "category": "食料品" }
   ]
 }
 \`\`\``;
@@ -60,9 +60,9 @@ describe("receiptOcrService - sanitizeOcrResult", () => {
       totalAmount: 1100,
       paymentMethod: "Oliveカード",
       items: [
-        { name: "パスタ 500g", amount: 120, category: "食費" },
-        { name: "パスタソース", amount: 200, category: "食費" },
-        { name: "クーポン割引", amount: -50, category: "食費" },
+        { name: "パスタ 500g", amount: 120, category: "食料品" },
+        { name: "パスタソース", amount: 200, category: "食料品" },
+        { name: "クーポン割引", amount: -50, category: "食料品" },
         { name: "外税8%", "amount": 21, category: "その他" },
       ],
     });

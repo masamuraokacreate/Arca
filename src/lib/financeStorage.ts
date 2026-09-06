@@ -30,7 +30,70 @@ import type {
 const COLLECTION_NAME = "finance_transactions";
 
 /**
- * 品目リストの安全なシリアライズ（undefined を防ぐ）
+ * 過去の旧カテゴリ名を新12分類に安全にマイグレーションする (Sprint 10.13)
+ */
+export function migrateLegacyCategory(legacyCategory: string | undefined): ExpenseCategory {
+  if (!legacyCategory) return "その他";
+  const cat = legacyCategory.trim();
+
+  switch (cat) {
+    case "食料品":
+    case "食費":
+    case "自炊・食料品":
+      return "食料品";
+
+    case "外食":
+    case "外食・カフェ":
+    case "交際費":
+      return "外食";
+
+    case "日用品・消耗品":
+    case "日用品":
+      return "日用品・消耗品";
+
+    case "衣服":
+    case "被服":
+    case "衣服・美容":
+      return "衣服";
+
+    case "ゲーム":
+    case "娯楽費":
+      return "ゲーム";
+
+    case "推し活・配信":
+      return "推し活・配信";
+
+    case "イベント・旅行":
+    case "特別費":
+    case "旅行・イベント":
+    case "レジャー・お出かけ":
+      return "イベント・旅行";
+
+    case "交通・移動":
+    case "交通費":
+    case "車両係":
+      return "交通・移動";
+
+    case "サブスク・固定費":
+    case "サブスク":
+    case "通信費":
+      return "サブスク・固定費";
+
+    case "光熱費・住居":
+    case "光熱費":
+      return "光熱費・住居";
+
+    case "大型出費":
+      return "大型出費";
+
+    case "その他":
+    default:
+      return "その他";
+  }
+}
+
+/**
+ * 品目リストの安全なシリアライズ（undefined を防ぐ & 新カテゴリへ移行）
  */
 function sanitizeExpenseItems(items: ExpenseItem[] | undefined): ExpenseItem[] {
   if (!Array.isArray(items)) return [];
@@ -38,7 +101,7 @@ function sanitizeExpenseItems(items: ExpenseItem[] | undefined): ExpenseItem[] {
     id: item.id || `item-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
     name: item.name?.trim() || "",
     amount: Number(item.amount) || 0,
-    category: item.category || "その他",
+    category: migrateLegacyCategory(item.category),
     quantity: item.quantity !== undefined ? Number(item.quantity) : 1,
   }));
 }
@@ -54,11 +117,14 @@ function sanitizeForFirestore(
   out.date = tx.date?.trim() || new Date().toISOString().slice(0, 10);
   out.title = tx.title?.trim() || "支出";
   out.totalAmount = Number(tx.totalAmount) || 0;
-  out.category = tx.category || "その他";
+  out.category = migrateLegacyCategory(tx.category);
   out.paymentMethod = tx.paymentMethod || "その他";
   out.items = sanitizeExpenseItems(tx.items);
   out.isReconciled = Boolean(tx.isReconciled);
   out.matchedCsvRowId = typeof tx.matchedCsvRowId === "string" ? tx.matchedCsvRowId : "";
+  out.csvRowFingerprint = typeof tx.csvRowFingerprint === "string" ? tx.csvRowFingerprint : "";
+  out.emailMessageId = typeof tx.emailMessageId === "string" ? tx.emailMessageId : "";
+  out.source = typeof tx.source === "string" ? tx.source : "manual";
   out.receiptImageUrl = typeof tx.receiptImageUrl === "string" ? tx.receiptImageUrl : "";
   out.memo = typeof tx.memo === "string" ? tx.memo : "";
   out.createdAt = tx.createdAt || new Date().toISOString();
@@ -79,11 +145,14 @@ function sanitizePatchForFirestore(
   if ("date" in patch) out.date = patch.date?.trim() || "";
   if ("title" in patch) out.title = patch.title?.trim() || "支出";
   if ("totalAmount" in patch) out.totalAmount = Number(patch.totalAmount) || 0;
-  if ("category" in patch) out.category = patch.category || "その他";
+  if ("category" in patch) out.category = migrateLegacyCategory(patch.category);
   if ("paymentMethod" in patch) out.paymentMethod = patch.paymentMethod || "その他";
   if ("items" in patch) out.items = sanitizeExpenseItems(patch.items);
   if ("isReconciled" in patch) out.isReconciled = Boolean(patch.isReconciled);
   if ("matchedCsvRowId" in patch) out.matchedCsvRowId = typeof patch.matchedCsvRowId === "string" ? patch.matchedCsvRowId : "";
+  if ("csvRowFingerprint" in patch) out.csvRowFingerprint = typeof patch.csvRowFingerprint === "string" ? patch.csvRowFingerprint : "";
+  if ("emailMessageId" in patch) out.emailMessageId = typeof patch.emailMessageId === "string" ? patch.emailMessageId : "";
+  if ("source" in patch) out.source = typeof patch.source === "string" ? patch.source : "manual";
   if ("receiptImageUrl" in patch) out.receiptImageUrl = typeof patch.receiptImageUrl === "string" ? patch.receiptImageUrl : "";
   if ("memo" in patch) out.memo = typeof patch.memo === "string" ? patch.memo : "";
   if ("updatedAt" in patch) out.updatedAt = patch.updatedAt;
@@ -93,12 +162,12 @@ function sanitizePatchForFirestore(
 }
 
 /** 新規品目の空オブジェクトを生成 */
-export function createEmptyExpenseItem(category: ExpenseCategory = "食費"): ExpenseItem {
+export function createEmptyExpenseItem(category: ExpenseCategory = "食料品"): ExpenseItem {
   return {
     id: `item-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
     name: "",
     amount: 0,
-    category,
+    category: migrateLegacyCategory(category),
     quantity: 1,
   };
 }
@@ -111,11 +180,14 @@ export function createDefaultTransaction(dateStr?: string): Omit<ExpenseTransact
     date: today,
     title: "",
     totalAmount: 0,
-    category: "食費",
+    category: "食料品",
     paymentMethod: "Oliveカード",
     items: [],
     isReconciled: false,
     matchedCsvRowId: "",
+    csvRowFingerprint: "",
+    emailMessageId: "",
+    source: "manual",
     memo: "",
     createdAt: nowStr,
     updatedAt: nowStr,
@@ -146,11 +218,14 @@ export function subscribeExpenseTransactions(
             date: data.date || "",
             title: data.title || "",
             totalAmount: Number(data.totalAmount) || 0,
-            category: (data.category as ExpenseCategory) || "その他",
+            category: migrateLegacyCategory(data.category),
             paymentMethod: (data.paymentMethod as PaymentMethod) || "その他",
-            items: Array.isArray(data.items) ? data.items : [],
+            items: sanitizeExpenseItems(data.items),
             isReconciled: Boolean(data.isReconciled),
             matchedCsvRowId: data.matchedCsvRowId || undefined,
+            csvRowFingerprint: data.csvRowFingerprint || undefined,
+            emailMessageId: data.emailMessageId || undefined,
+            source: data.source || "manual",
             receiptImageUrl: data.receiptImageUrl || undefined,
             memo: data.memo || undefined,
             createdAt: typeof data.createdAt === "string" ? data.createdAt : new Date().toISOString(),
@@ -166,11 +241,14 @@ export function subscribeExpenseTransactions(
             date: data.date || "",
             title: data.title || "",
             totalAmount: Number(data.totalAmount) || 0,
-            category: (data.category as ExpenseCategory) || "その他",
+            category: migrateLegacyCategory(data.category),
             paymentMethod: (data.paymentMethod as PaymentMethod) || "その他",
-            items: Array.isArray(data.items) ? data.items : [],
+            items: sanitizeExpenseItems(data.items),
             isReconciled: Boolean(data.isReconciled),
             matchedCsvRowId: data.matchedCsvRowId || undefined,
+            csvRowFingerprint: data.csvRowFingerprint || undefined,
+            emailMessageId: data.emailMessageId || undefined,
+            source: data.source || "manual",
             receiptImageUrl: data.receiptImageUrl || undefined,
             memo: data.memo || undefined,
             createdAt: typeof data.createdAt === "string" ? data.createdAt : new Date().toISOString(),

@@ -269,6 +269,28 @@ export function TransactionList({
                           {tx.paymentMethod}
                         </span>
 
+                        {/* メール速報バッジ */}
+                        {(tx.source === "email_notice" || tx.emailMessageId) && (
+                          <span
+                            data-testid="email-notice-badge"
+                            style={{
+                              display: "inline-flex",
+                              alignItems: "center",
+                              gap: "0.2rem",
+                              fontSize: "0.68rem",
+                              fontWeight: 650,
+                              color: "#856404",
+                              background: "rgba(255, 193, 7, 0.15)",
+                              padding: "0.18rem 0.45rem",
+                              borderRadius: "9999px",
+                            }}
+                            title="Gmail利用速報メールより取得"
+                          >
+                            <span>✉️</span>
+                            <span className="hidden sm:inline">速報</span>
+                          </span>
+                        )}
+
                         {tx.isReconciled ? (
                           <span
                             style={{

@@ -233,7 +233,7 @@ describe("Calendar コンポーネント", () => {
     await user.click(shiftBadge);
     expect(screen.getByText("出勤ステータス確認")).toBeInTheDocument();
     expect(screen.getByText("✦ 出勤日")).toBeInTheDocument();
-    expect(screen.getByText("🌙 休日（休み）")).toBeInTheDocument();
+    expect(screen.getByText("休日（休み）")).toBeInTheDocument();
   });
 
   it("勤務イベントが存在する場合に「出勤 1日目」のバッジが表示される", () => {

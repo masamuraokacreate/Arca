@@ -10,8 +10,9 @@
 
 import {
   collection,
-  addDoc,
   updateDoc,
+  deleteDoc,
+  setDoc,
   getDocs,
   doc,
   serverTimestamp,
@@ -329,19 +330,79 @@ export async function updateGoogleCalendarEvent(
 }
 
 /**
- * Google カレンダーの予定を削除する
+ * Google カレンダーの予定を削除する（すでに削除済みの 410/404 は正常終了として扱う）
  */
 export async function deleteGoogleCalendarEvent(
   token: string,
   googleEventId: string
 ): Promise<void> {
-  await calendarFetch<void>(
-    token,
-    `/events/${encodeURIComponent(googleEventId)}`,
-    {
-      method: "DELETE",
+  try {
+    await calendarFetch<void>(
+      token,
+      `/events/${encodeURIComponent(googleEventId)}`,
+      {
+        method: "DELETE",
+      }
+    );
+  } catch (err) {
+    // 410 (Gone: Resource has been deleted) または 404 (Not Found) の場合はすでにGoogle側で削除済みなので正常完了とする
+    if (err instanceof GoogleCalendarApiError && (err.status === 410 || err.status === 404)) {
+      console.info(`[Google Calendar] Event ${googleEventId} is already deleted on Google.`);
+      return;
     }
-  );
+    throw err;
+  }
+}
+
+/**
+ * Firestore内の重複イベントを安全にクレンジングする（Google APIへの削除は一切行わない）
+ */
+export async function cleanDuplicateEvents(
+  existingEvents: CalendarEvent[]
+): Promise<CalendarEvent[]> {
+  const seenGoogleIds = new Set<string>();
+  const seenTitleDateTimes = new Set<string>();
+  const uniqueEvents: CalendarEvent[] = [];
+  const duplicatesToDelete: CalendarEvent[] = [];
+
+  for (const event of existingEvents) {
+    let isDuplicate = false;
+
+    if (event.googleEventId) {
+      if (seenGoogleIds.has(event.googleEventId)) {
+        isDuplicate = true;
+      } else {
+        seenGoogleIds.add(event.googleEventId);
+      }
+    } else {
+      const key = `${event.title.trim()}__${event.date}__${event.startTime || ""}`;
+      if (seenTitleDateTimes.has(key)) {
+        isDuplicate = true;
+      } else {
+        seenTitleDateTimes.add(key);
+      }
+    }
+
+    if (isDuplicate) {
+      duplicatesToDelete.push(event);
+    } else {
+      uniqueEvents.push(event);
+    }
+  }
+
+  // 重複ドキュメントを Firestore から安全に削除（Google側には一切触らない）
+  if (duplicatesToDelete.length > 0) {
+    console.info(`[Google Calendar Sync] Cleaning up ${duplicatesToDelete.length} duplicate events in Firestore.`);
+    for (const dup of duplicatesToDelete) {
+      try {
+        await deleteDoc(doc(db, "events", dup.id));
+      } catch (delErr) {
+        console.warn(`Failed to cleanup duplicate event document ${dup.id}:`, delErr);
+      }
+    }
+  }
+
+  return uniqueEvents;
 }
 
 // 同期多重実行防止用フラグ
@@ -425,10 +486,16 @@ export async function syncGoogleCalendarToArca(
       }
     }
 
-    // 4. Upsert 処理
+    // 既存の重複ドキュメントを安全に自動クレンジング（Google側は一切触らない）
+    existingEvents = await cleanDuplicateEvents(existingEvents);
+
+    // 4. Upsert 処理（Googleマスター：ドキュメントIDを Google Event ID に決定論的統一）
+    const fetchedGoogleIdSet = new Set<string>();
+
     for (const item of fetchedEventsWithFlag) {
       const gEvent = item.event;
       const isShiftOnly = item.isShiftOnly;
+      fetchedGoogleIdSet.add(gEvent.id);
 
       const { date, startTime, endTime } = parseGoogleEventDateTime(
         gEvent.start,
@@ -437,9 +504,9 @@ export async function syncGoogleCalendarToArca(
       const title = (gEvent.summary || "(無題)").trim();
       const note = (gEvent.description || "").trim();
 
-      // 1) googleEventId が完全一致する既存予定
+      // 1) googleEventId または docId が完全一致する既存予定
       const matchById = existingEvents.find(
-        (e) => e.googleEventId === gEvent.id
+        (e) => e.googleEventId === gEvent.id || e.id === gEvent.id
       );
 
       if (matchById) {
@@ -459,6 +526,7 @@ export async function syncGoogleCalendarToArca(
             endTime,
             note,
             isShiftOnly,
+            googleEventId: gEvent.id,
           });
           matchById.title = title;
           matchById.date = date;
@@ -466,6 +534,7 @@ export async function syncGoogleCalendarToArca(
           matchById.endTime = endTime;
           matchById.note = note;
           matchById.isShiftOnly = isShiftOnly;
+          matchById.googleEventId = gEvent.id;
           updated++;
         }
         continue;
@@ -493,8 +562,9 @@ export async function syncGoogleCalendarToArca(
         continue;
       }
 
-      // 3) どちらにも該当しない場合のみ新規追加
-      const docRef = await addDoc(collection(db, "events"), {
+      // 3) どちらにも該当しない新規追加：ドキュメントIDを Google Event ID に統一（setDoc）
+      // これにより物理的に同一イベントの重複作成が絶対に発生しない
+      await setDoc(doc(db, "events", gEvent.id), {
         title,
         date,
         startTime,
@@ -505,7 +575,7 @@ export async function syncGoogleCalendarToArca(
         createdAt: serverTimestamp(),
       });
       existingEvents.push({
-        id: docRef.id,
+        id: gEvent.id,
         title,
         date,
         startTime,
@@ -516,6 +586,27 @@ export async function syncGoogleCalendarToArca(
         createdAt: null,
       });
       added++;
+    }
+
+    // 5. Google カレンダー側で削除された予定の追従ミラーリング（Reconciliation）
+    // 取得対象期間（前月1日〜翌月末日）に属するイベントで、Googleに存在しなくなったものをFirestoreから削除
+    const now = new Date();
+    const prevMonth = new Date(now.getFullYear(), now.getMonth() - 1, 1);
+    const minDateStr = `${prevMonth.getFullYear()}-${String(prevMonth.getMonth() + 1).padStart(2, "0")}-01`;
+    const nextMonthEnd = new Date(now.getFullYear(), now.getMonth() + 2, 0);
+    const maxDateStr = `${nextMonthEnd.getFullYear()}-${String(nextMonthEnd.getMonth() + 1).padStart(2, "0")}-${String(nextMonthEnd.getDate()).padStart(2, "0")}`;
+
+    for (const ev of existingEvents) {
+      if (!ev.googleEventId) continue;
+      if (ev.date >= minDateStr && ev.date <= maxDateStr) {
+        if (!fetchedGoogleIdSet.has(ev.googleEventId)) {
+          try {
+            await deleteDoc(doc(db, "events", ev.id));
+          } catch (delErr) {
+            console.warn(`Failed to cleanup removed Google event ${ev.id}:`, delErr);
+          }
+        }
+      }
     }
 
     return { added, updated };

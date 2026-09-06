@@ -20,7 +20,9 @@ export interface GTask {
   title: string;
   status: "needsAction" | "completed";
   due?: string; // RFC 3339 (e.g. "2026-08-20T00:00:00.000Z")
+  notes?: string; // 詳細メモ
   completed?: string; // ISO 8601
+  parent?: string; // 親タスクID（サブタスクの場合）
 }
 
 // ---------- ヘルパー ----------
@@ -101,18 +103,36 @@ export async function deleteTaskList(
   );
 }
 
-// ---------- タスク ----------
-
-/** 指定タスクリストのタスク一覧を取得する */
+/** 指定タスクリストのタスク一覧を取得する（ページネーション & 隠しタスク対応） */
 export async function getTasks(
   token: string,
   tasklistId: string
 ): Promise<GTask[]> {
-  const data = await gFetch<{ items?: GTask[] }>(
-    token,
-    `/lists/${encodeURIComponent(tasklistId)}/tasks?showCompleted=true&maxResults=100`
-  );
-  return data.items ?? [];
+  const allTasks: GTask[] = [];
+  let pageToken: string | undefined = undefined;
+
+  do {
+    const queryParams = new URLSearchParams({
+      showCompleted: "true",
+      showHidden: "true",
+      maxResults: "100",
+    });
+    if (pageToken) {
+      queryParams.set("pageToken", pageToken);
+    }
+
+    const data = await gFetch<{ items?: GTask[]; nextPageToken?: string }>(
+      token,
+      `/lists/${encodeURIComponent(tasklistId)}/tasks?${queryParams.toString()}`
+    );
+
+    if (data.items && data.items.length > 0) {
+      allTasks.push(...data.items);
+    }
+    pageToken = data.nextPageToken;
+  } while (pageToken);
+
+  return allTasks;
 }
 
 /** 新しいタスクをタスクリストに追加し、生成されたIDを返す */
@@ -120,11 +140,15 @@ export async function addTask(
   token: string,
   tasklistId: string,
   title: string,
-  dueDate?: string // "YYYY-MM-DD"
+  dueDate?: string, // "YYYY-MM-DD"
+  notes?: string
 ): Promise<string> {
-  const body: { title: string; due?: string } = { title };
+  const body: { title: string; due?: string; notes?: string } = { title };
   if (dueDate && /^\d{4}-\d{2}-\d{2}$/.test(dueDate)) {
     body.due = `${dueDate}T00:00:00.000Z`;
+  }
+  if (notes !== undefined) {
+    body.notes = notes;
   }
 
   const task = await gFetch<GTask>(
@@ -133,6 +157,24 @@ export async function addTask(
     {
       method: "POST",
       body: JSON.stringify(body),
+    }
+  );
+  return task.id;
+}
+
+/** 新しいサブタスクを親タスクの配下に追加し、生成されたIDを返す */
+export async function addSubTask(
+  token: string,
+  tasklistId: string,
+  parentTaskId: string,
+  title: string
+): Promise<string> {
+  const task = await gFetch<GTask>(
+    token,
+    `/lists/${encodeURIComponent(tasklistId)}/tasks?parent=${encodeURIComponent(parentTaskId)}`,
+    {
+      method: "POST",
+      body: JSON.stringify({ title }),
     }
   );
   return task.id;
@@ -158,7 +200,7 @@ export async function updateTaskStatus(
   );
 }
 
-/** タスクのタイトルや期限日を更新する */
+/** タスクのタイトルや期限日、メモを更新する */
 export async function updateTask(
   token: string,
   tasklistId: string,
@@ -167,6 +209,7 @@ export async function updateTask(
     title?: string;
     completed?: boolean;
     dueDate?: string | null; // "YYYY-MM-DD" or null to clear
+    notes?: string | null;
   }
 ): Promise<void> {
   const body: Record<string, unknown> = {};
@@ -181,6 +224,9 @@ export async function updateTask(
     } else {
       body.due = null;
     }
+  }
+  if (patch.notes !== undefined) {
+    body.notes = patch.notes;
   }
 
   await gFetch<GTask>(
@@ -199,11 +245,20 @@ export async function deleteTask(
   tasklistId: string,
   taskId: string
 ): Promise<void> {
-  await gFetch<void>(
-    token,
-    `/lists/${encodeURIComponent(tasklistId)}/tasks/${encodeURIComponent(taskId)}`,
-    {
-      method: "DELETE",
+  try {
+    await gFetch<void>(
+      token,
+      `/lists/${encodeURIComponent(tasklistId)}/tasks/${encodeURIComponent(taskId)}`,
+      {
+        method: "DELETE",
+      }
+    );
+  } catch (err: any) {
+    // すでにGoogle側で削除済みの場合はエラーとせず正常終了
+    if (err?.message && (err.message.includes("404") || err.message.includes("410"))) {
+      console.info(`[Google Tasks] Task ${taskId} is already deleted on Google.`);
+      return;
     }
-  );
+    throw err;
+  }
 }

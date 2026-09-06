@@ -42,6 +42,7 @@ export interface SubTaskItem {
   id: string;
   title: string;
   completed: boolean;
+  googleTaskId?: string | null;
 }
 
 /** タスクリストカテゴリ（動的タブ用） */
@@ -50,6 +51,8 @@ export interface TaskListCategory {
   title: string;
   googleListId?: string;
   isDefault?: boolean;
+  /** リストアイコンID (例: 'sparkle', 'cart', 'briefcase' 等) */
+  icon?: string;
 }
 
 /** タスク1件 */
@@ -60,6 +63,8 @@ export interface TaskItem {
   dueDate?: string | null;
   completed: boolean;
   priority?: "low" | "medium" | "high";
+  /** 詳細メモ（Google Tasksのnotesと相互同期） */
+  notes?: string;
   /** 所属リストID（デフォルト: 'default'） */
   listId?: string;
   googleTaskId?: string | null;
@@ -135,6 +140,18 @@ export interface NoteBreadcrumb {
   title: string;
 }
 
+/** 子ノートの表示形式 */
+export type NoteChildViewMode = "list" | "board" | "journal";
+
+/** ジャーナルのコンディション / 気分 */
+export type JournalMood = "great" | "good" | "neutral" | "tired" | "low";
+
+/** ジャーナル当日の足跡スナップショット */
+export interface NoteContextSnapshot {
+  completedTasks?: string[];
+  events?: string[];
+}
+
 /** メモ1件（Step 1: ローカルステート用。Step 2でFirestore Timestampに移行予定） */
 export interface NoteItem {
   id: string;
@@ -155,6 +172,18 @@ export interface NoteItem {
   pinned?: boolean;
   /** 添付ファイルマップ（attachmentId -> DataURL / URL） */
   attachments?: Record<string, string>;
+  /** 配下の子ノートの表示形式 ('list' | 'board' | 'journal', デフォルト: 'list') */
+  childViewMode?: NoteChildViewMode;
+
+  /** ジャーナル専用フィールド (Sprint: Journal / Memory) */
+  /** 日記の日付（YYYY-MM-DD） */
+  journalDate?: string;
+  /** コンディション / 気分 */
+  mood?: JournalMood;
+  /** 写真・添付画像URL配列 */
+  photos?: string[];
+  /** 当日のタスク・予定の足跡スナップショット */
+  contextSnapshot?: NoteContextSnapshot;
 }
 
 // ─────────────────────────────────────────

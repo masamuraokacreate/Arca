@@ -10,12 +10,14 @@
  * - 5秒間復元可能な UndoToast ＆ 削除確認ダイアログ
  */
 
-import { useState, useEffect, useMemo } from "react";
+import { useState, useEffect, useMemo, useRef } from "react";
 import type {
   CreditCardCsvRow,
   ExpenseCategory,
   ExpenseTransaction,
   FinanceViewTab,
+  MonthlyCardReconcileStatus,
+  PaymentMethod,
   ReceiptOcrResult,
 } from "../../types/finance";
 import { EXPENSE_CATEGORIES, PAYMENT_METHODS } from "../../types/finance";
@@ -27,6 +29,13 @@ import {
   restoreExpenseTransaction,
   setTransactionReconciled,
 } from "../../lib/financeStorage";
+import {
+  subscribeMonthlyReconcileStatuses,
+  toggleMonthlyCardReconcile,
+} from "../../services/csvReconcileService";
+import { fetchAndProcessCardNoticeEmails } from "../../services/gmailFinanceService";
+import { useGoogleAuth } from "../../hooks/useGoogleAuth";
+import { loadSavedToken } from "../../services/googleAuth";
 import {
   getCurrentMonth,
   getPrevMonth,
@@ -55,6 +64,12 @@ export default function Finance() {
   const [selectedCategory, setSelectedCategory] = useState<string>("all");
   const [selectedPaymentMethod, setSelectedPaymentMethod] = useState<string>("all");
   const [reconcileFilter, setReconcileFilter] = useState<"all" | "reconciled" | "unreconciled">("all");
+  const [reconcileStatuses, setReconcileStatuses] = useState<MonthlyCardReconcileStatus[]>([]);
+
+  // メール取得状態
+  const [isFetchingEmails, setIsFetchingEmails] = useState(false);
+  const [syncToastMessage, setSyncToastMessage] = useState<string | null>(null);
+  const { requestAccessToken } = useGoogleAuth();
 
   // モーダル状態
   const [isModalOpen, setIsModalOpen] = useState(false);
@@ -65,13 +80,63 @@ export default function Finance() {
   // 共通トースト
   const { toast, showUndoToast, dismissToast, triggerUndo } = useUndoToast<ExpenseTransaction>();
 
-  // ── Firestore リアルタイム購読 ──
+  // ── Firestore リアルタイム購読（取引 & 照合ステータス） ──
   useEffect(() => {
-    const unsubscribe = subscribeExpenseTransactions((fetched) => {
+    const unsubTx = subscribeExpenseTransactions((fetched) => {
       setTransactions(fetched);
     });
-    return () => unsubscribe();
+    const unsubReconcile = subscribeMonthlyReconcileStatuses((fetched) => {
+      setReconcileStatuses(fetched);
+    });
+    return () => {
+      unsubTx();
+      unsubReconcile();
+    };
   }, []);
+
+  // ── 起動時バックグラウンド自動同期 (直近5分以内の多重実行防止 ＆ サイレント処理) ──
+  const hasAutoSyncedRef = useRef(false);
+  const AUTO_SYNC_INTERVAL_MS = 5 * 60 * 1000; // 5分
+
+  useEffect(() => {
+    if (hasAutoSyncedRef.current) return;
+
+    try {
+      const lastSyncStr = sessionStorage.getItem("arca_gmail_last_sync");
+      if (lastSyncStr && Date.now() - parseInt(lastSyncStr, 10) < AUTO_SYNC_INTERVAL_MS) {
+        return;
+      }
+    } catch {
+      // sessionStorage エラー無視
+    }
+
+    const savedToken = loadSavedToken();
+    if (!savedToken) return;
+
+    hasAutoSyncedRef.current = true;
+    try {
+      sessionStorage.setItem("arca_gmail_last_sync", String(Date.now()));
+    } catch {}
+
+    // バックグラウンドでサイレント同期を実行
+    setIsFetchingEmails(true);
+    fetchAndProcessCardNoticeEmails(savedToken, transactions)
+      .then((result) => {
+        if (result.createdCount > 0 || result.linkedCount > 0) {
+          const parts: string[] = [];
+          if (result.createdCount > 0) parts.push(`${result.createdCount}件の速報決済を取り込み`);
+          if (result.linkedCount > 0) parts.push(`${result.linkedCount}件を既存レコードに紐付け`);
+          setSyncToastMessage(`✉️ ${parts.join("、")}しました`);
+          setTimeout(() => setSyncToastMessage(null), 4500);
+        }
+      })
+      .catch((err) => {
+        console.warn("[Finance AutoSync] Silent Gmail sync skipped or failed:", err);
+      })
+      .finally(() => {
+        setIsFetchingEmails(false);
+      });
+  }, [transactions]);
 
   // 有効取引（論理削除除外）
   const activeTransactions = useMemo(() => {
@@ -128,6 +193,97 @@ export default function Finance() {
     searchQuery,
   ]);
 
+  // 選択月における各支払方法の照合ステータスマップ
+  const currentMonthReconcileMap = useMemo(() => {
+    const map = new Map<PaymentMethod, MonthlyCardReconcileStatus>();
+    for (const st of reconcileStatuses) {
+      if (st.month === selectedMonth) {
+        map.set(st.paymentMethod, st);
+      }
+    }
+    return map;
+  }, [reconcileStatuses, selectedMonth]);
+
+  // 主要なカード（Oliveカード, dカード, イオンカード）または選択中カードの照合状況
+  const currentMonthReconciledInfo = useMemo(() => {
+    const monthLabel = formatMonthLabel(selectedMonth);
+    if (selectedPaymentMethod !== "all") {
+      const pm = selectedPaymentMethod as PaymentMethod;
+      const status = currentMonthReconcileMap.get(pm);
+      if (status?.isReconciled) {
+        return {
+          isReconciled: true,
+          label: `${monthLabel}の${pm}明細はCSV照合済みです（全件確認完了）`,
+        };
+      }
+      return { isReconciled: false, label: "" };
+    }
+
+    // 「すべて」選択時：主要カード（Olive, dカード, イオンカード）が照合されているか
+    const mainCards: PaymentMethod[] = ["Oliveカード", "dカード", "イオンカード"];
+    const allReconciled = mainCards.every((card) => currentMonthReconcileMap.get(card)?.isReconciled);
+    const anyReconciled = mainCards.some((card) => currentMonthReconcileMap.get(card)?.isReconciled);
+
+    if (allReconciled) {
+      return {
+        isReconciled: true,
+        label: `${monthLabel}の主要カード明細はすべてCSV照合済みです（全件確認完了）`,
+      };
+    } else if (anyReconciled) {
+      const reconciledCardNames = mainCards.filter((card) => currentMonthReconcileMap.get(card)?.isReconciled).join("・");
+      return {
+        isReconciled: true,
+        label: `${monthLabel}の${reconciledCardNames}はCSV照合済みです`,
+      };
+    }
+
+    return { isReconciled: false, label: "" };
+  }, [selectedMonth, selectedPaymentMethod, currentMonthReconcileMap]);
+
+  // 手動トグルハンドラ
+  const handleToggleCardReconcile = async (pm: PaymentMethod, e?: React.MouseEvent) => {
+    e?.stopPropagation();
+    const current = currentMonthReconcileMap.get(pm)?.isReconciled || false;
+    await toggleMonthlyCardReconcile(selectedMonth, pm, current);
+  };
+
+  // ── Gmail カード利用速報メールの取得＆下書き生成ハンドラ ──
+  const handleSyncGmailNotices = async () => {
+    if (isFetchingEmails) return;
+    setIsFetchingEmails(true);
+    try {
+      let token: string;
+      try {
+        token = await requestAccessToken(false);
+      } catch {
+        token = await requestAccessToken(true);
+      }
+
+      const result = await fetchAndProcessCardNoticeEmails(token, transactions);
+
+      try {
+        sessionStorage.setItem("arca_gmail_last_sync", String(Date.now()));
+      } catch {}
+
+      if (result.createdCount > 0 || result.linkedCount > 0) {
+        const parts: string[] = [];
+        if (result.createdCount > 0) parts.push(`${result.createdCount}件の新規決済を作成`);
+        if (result.linkedCount > 0) parts.push(`${result.linkedCount}件を既存レコードに紐付け`);
+        setSyncToastMessage(`✉️ ${parts.join("、")}しました`);
+      } else if (result.totalFound > 0) {
+        setSyncToastMessage("✉️ 利用速報メールはすべて取り込み済みです");
+      } else {
+        setSyncToastMessage("✉️ 直近14日以内の新しい利用速報メールはありませんでした");
+      }
+    } catch (err: any) {
+      console.error("Gmail sync error:", err);
+      setSyncToastMessage(`✉️ 速報メール取得に失敗: ${err?.message || "認証エラー"}`);
+    } finally {
+      setIsFetchingEmails(false);
+      setTimeout(() => setSyncToastMessage(null), 4500);
+    }
+  };
+
   // ── 新規作成 / 編集 / 複製ハンドラ ──
   const handleOpenNew = () => {
     setEditingTransaction(null);
@@ -175,12 +331,12 @@ export default function Finance() {
     const totalAmount = result.totalAmount || result.items.reduce((s, it) => s + it.amount, 0);
     const paymentMethod = result.paymentMethod || "現金";
 
-    // 主カテゴリの推定（品目中最も頻出するもの、または食費）
-    let mainCategory: ExpenseCategory = "食費";
+    // 主カテゴリの推定（品目中最も頻出するもの、または食料品）
+    let mainCategory: ExpenseCategory = "食料品";
     if (result.items.length > 0) {
       const catCount: Record<string, number> = {};
       for (const item of result.items) {
-        const cat = item.category || "食費";
+        const cat = item.category || "食料品";
         catCount[cat] = (catCount[cat] || 0) + 1;
       }
       const topCat = Object.entries(catCount).sort((a, b) => b[1] - a[1])[0];
@@ -270,7 +426,7 @@ export default function Finance() {
         style={{
           minHeight: "100vh",
           width: "100%",
-          padding: "3.2rem clamp(1.5rem, 5vw, 4rem) 6rem",
+          padding: "2.4rem clamp(1.5rem, 5vw, 4rem) 6rem",
           boxSizing: "border-box",
         }}
       >
@@ -280,7 +436,7 @@ export default function Finance() {
             display: "flex",
             alignItems: "flex-end",
             justifyContent: "space-between",
-            marginBottom: "1.8rem",
+            marginBottom: "1.5rem",
             maxWidth: "1280px",
             marginInline: "auto",
             flexWrap: "wrap",
@@ -408,6 +564,60 @@ export default function Finance() {
               </button>
             </div>
 
+            {/* Gmail速報メール取得ボタン */}
+            <button
+              onClick={handleSyncGmailNotices}
+              disabled={isFetchingEmails}
+              data-testid="gmail-sync-btn"
+              style={{
+                display: "flex",
+                alignItems: "center",
+                gap: "0.45rem",
+                background: "var(--bg-card-solid)",
+                border: "1px solid var(--border-subtle)",
+                borderRadius: "11px",
+                padding: "0.62rem 0.95rem",
+                cursor: isFetchingEmails ? "not-allowed" : "pointer",
+                color: C.charcoal,
+                fontSize: "0.82rem",
+                fontWeight: 650,
+                letterSpacing: "0.02em",
+                boxShadow: "0 1px 4px rgba(0, 0, 0, 0.04)",
+                transition: "background 0.15s, transform 0.15s",
+                opacity: isFetchingEmails ? 0.75 : 1,
+              }}
+              onMouseEnter={(e) => {
+                if (!isFetchingEmails) {
+                  e.currentTarget.style.background = C.goldFaint;
+                  e.currentTarget.style.transform = "translateY(-1px)";
+                }
+              }}
+              onMouseLeave={(e) => {
+                if (!isFetchingEmails) {
+                  e.currentTarget.style.background = "var(--bg-card-solid)";
+                  e.currentTarget.style.transform = "translateY(0)";
+                }
+              }}
+              title="三井住友/Olive・dカード・イオン・ViewカードのGmail利用速報メールから支出下書きを即時生成"
+            >
+              {isFetchingEmails ? (
+                <span
+                  style={{
+                    display: "inline-block",
+                    width: "14px",
+                    height: "14px",
+                    border: "2px solid rgba(0,0,0,0.15)",
+                    borderTopColor: C.goldDark,
+                    borderRadius: "50%",
+                    animation: "spin 0.8s linear infinite",
+                  }}
+                />
+              ) : (
+                <span style={{ fontSize: "0.85rem", color: C.goldDark }}>✉️</span>
+              )}
+              <span>{isFetchingEmails ? "メール取得中..." : "速報メール取得"}</span>
+            </button>
+
             {/* レシートカメラ読取ボタン */}
             <button
               onClick={() => setIsScannerOpen(true)}
@@ -479,12 +689,58 @@ export default function Finance() {
           </div>
         </div>
 
+        {/* ── 月次サマリー上部の安心インジケータバナー ── */}
+        {currentMonthReconciledInfo.isReconciled && (
+          <div
+            style={{
+              maxWidth: "1280px",
+              marginInline: "auto",
+              marginBottom: "1.2rem",
+              background: "rgba(82, 121, 111, 0.10)",
+              border: "1px solid rgba(82, 121, 111, 0.22)",
+              borderRadius: "12px",
+              padding: "0.55rem 1rem",
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "space-between",
+              gap: "0.6rem",
+              animation: "arca-view-in 0.2s ease-out",
+            }}
+          >
+            <div style={{ display: "flex", alignItems: "center", gap: "0.5rem" }}>
+              <span
+                style={{
+                  display: "inline-flex",
+                  alignItems: "center",
+                  justifyContent: "center",
+                  width: "18px",
+                  height: "18px",
+                  borderRadius: "50%",
+                  background: C.sage,
+                  color: "#FFF",
+                  fontSize: "0.68rem",
+                  fontWeight: 700,
+                  flexShrink: 0,
+                }}
+              >
+                ✓
+              </span>
+              <span style={{ fontSize: "0.8rem", fontWeight: 650, color: "#3B5E53", letterSpacing: "0.01em" }}>
+                ✦ {currentMonthReconciledInfo.label}
+              </span>
+            </div>
+            <span style={{ fontSize: "0.68rem", color: C.charcoalLight }}>
+              {formatMonthLabel(selectedMonth)} 照合完了
+            </span>
+          </div>
+        )}
+
         {/* ── メインタブバー（支出一覧 / 分析・グラフ / クレカ明細突合） ── */}
         <div
           style={{
             maxWidth: "1280px",
             marginInline: "auto",
-            marginBottom: "1.8rem",
+            marginBottom: "1.2rem",
             display: "flex",
             alignItems: "center",
             justifyContent: "space-between",
@@ -671,6 +927,109 @@ export default function Finance() {
           )}
         </div>
 
+        {/* ── カード別絞込フィルター（Pill Tabs ＆ 照合バッジ） ── */}
+        {activeTab === "transactions" && (
+          <div
+            style={{
+              maxWidth: "1280px",
+              marginInline: "auto",
+              marginBottom: "1rem",
+              display: "flex",
+              alignItems: "center",
+              gap: "0.45rem",
+              overflowX: "auto",
+              paddingBottom: "4px",
+              scrollbarWidth: "none",
+            }}
+            className="no-scrollbar"
+          >
+            <button
+              onClick={() => setSelectedPaymentMethod("all")}
+              style={{
+                display: "inline-flex",
+                alignItems: "center",
+                gap: "0.35rem",
+                padding: "0.36rem 0.85rem",
+                borderRadius: "9999px",
+                border: "none",
+                fontSize: "0.76rem",
+                fontWeight: selectedPaymentMethod === "all" ? 650 : 500,
+                background: selectedPaymentMethod === "all" ? "var(--bg-nav-pill)" : "var(--bg-nav-track)",
+                color: selectedPaymentMethod === "all" ? "var(--text-main)" : C.charcoalLight,
+                boxShadow: selectedPaymentMethod === "all" ? "0 1px 4px rgba(0,0,0,0.08)" : "none",
+                cursor: "pointer",
+                whiteSpace: "nowrap",
+                transition: "all 0.15s ease",
+                flexShrink: 0,
+              }}
+            >
+              <span>すべての支払方法</span>
+            </button>
+
+            {PAYMENT_METHODS.map((pm) => {
+              const isSelected = selectedPaymentMethod === pm;
+              const status = currentMonthReconcileMap.get(pm);
+              const isReconciled = Boolean(status?.isReconciled);
+
+              return (
+                <button
+                  key={pm}
+                  data-testid={`card-filter-${pm}`}
+                  onClick={() => setSelectedPaymentMethod(pm)}
+                  title={`${formatMonthLabel(selectedMonth)} ${pm} ${isReconciled ? "照合完了" : "未照合"}（バッジクリックで手動切替）`}
+                  style={{
+                    display: "inline-flex",
+                    alignItems: "center",
+                    gap: "0.45rem",
+                    padding: "0.36rem 0.85rem",
+                    borderRadius: "9999px",
+                    border: "none",
+                    fontSize: "0.76rem",
+                    fontWeight: isSelected ? 650 : 500,
+                    background: isSelected ? "var(--bg-nav-pill)" : "var(--bg-nav-track)",
+                    color: isSelected ? "var(--text-main)" : C.charcoalLight,
+                    boxShadow: isSelected ? "0 1px 4px rgba(0,0,0,0.08)" : "none",
+                    cursor: "pointer",
+                    whiteSpace: "nowrap",
+                    transition: "all 0.15s ease",
+                    flexShrink: 0,
+                  }}
+                >
+                  <span>{pm}</span>
+
+                  {/* 照合ステータスバッジ（クリックで手動トグル可能） */}
+                  <span
+                    data-testid={`reconcile-badge-${pm}`}
+                    onClick={(e) => handleToggleCardReconcile(pm, e)}
+                    title={
+                      isReconciled
+                        ? `${formatMonthLabel(selectedMonth)} ${pm} 照合完了（クリックで未照合に変更）`
+                        : `${formatMonthLabel(selectedMonth)} ${pm} 未照合（クリックで照合済みに変更）`
+                    }
+                    style={{
+                      display: "inline-flex",
+                      alignItems: "center",
+                      justifyContent: "center",
+                      width: "16px",
+                      height: "16px",
+                      borderRadius: "50%",
+                      fontSize: "0.65rem",
+                      fontWeight: 750,
+                      background: isReconciled ? C.sage : "rgba(128, 128, 128, 0.18)",
+                      color: isReconciled ? "#FFFFFF" : C.charcoalLight,
+                      transition: "all 0.15s ease",
+                      cursor: "pointer",
+                      lineHeight: 1,
+                    }}
+                  >
+                    {isReconciled ? "✓" : "○"}
+                  </span>
+                </button>
+              );
+            })}
+          </div>
+        )}
+
         {/* ── コンテンツ表示エリア ── */}
         <div style={{ maxWidth: "1280px", marginInline: "auto" }}>
           {activeTab === "transactions" && (
@@ -738,6 +1097,33 @@ export default function Finance() {
 
       {/* ── 共通 Undo トースト ── */}
       <UndoToast toast={toast} onUndo={triggerUndo} onDismiss={dismissToast} />
+
+      {/* ── メール同期結果トースト ── */}
+      {syncToastMessage && (
+        <div
+          data-testid="sync-toast"
+          style={{
+            position: "fixed",
+            bottom: "5rem",
+            left: "50%",
+            transform: "translateX(-50%)",
+            zIndex: 9999,
+            background: "rgba(33, 37, 41, 0.94)",
+            backdropFilter: "blur(8px)",
+            color: "#FFF",
+            padding: "0.6rem 1.25rem",
+            borderRadius: "9999px",
+            fontSize: "0.82rem",
+            fontWeight: 650,
+            boxShadow: "0 4px 16px rgba(0, 0, 0, 0.22)",
+            animation: "arca-view-in 0.2s ease-out",
+            pointerEvents: "none",
+            whiteSpace: "nowrap",
+          }}
+        >
+          {syncToastMessage}
+        </div>
+      )}
     </>
   );
 }

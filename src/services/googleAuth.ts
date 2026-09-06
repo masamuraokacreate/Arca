@@ -17,6 +17,7 @@ export const GOOGLE_OAUTH_SCOPES = [
   "https://www.googleapis.com/auth/calendar.readonly",
   "https://www.googleapis.com/auth/tasks",
   "https://www.googleapis.com/auth/drive.file",
+  "https://www.googleapis.com/auth/gmail.readonly",
 ].join(" ");
 
 export const LS_TOKEN = "arca_g_token";
@@ -36,6 +37,9 @@ export function loadSavedToken(): string | null {
   clearSavedToken();
   return null;
 }
+
+/** loadSavedToken のエイリアス（仕様書互換） */
+export const getSavedToken = loadSavedToken;
 
 /** アクセストークンと有効期限（秒）を保存する */
 export function saveToken(token: string, expiresIn: number): void {

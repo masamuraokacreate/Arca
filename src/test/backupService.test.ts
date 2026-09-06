@@ -61,7 +61,19 @@ describe("backupService", () => {
           docs: [
             {
               id: "note-1",
-              data: () => ({ title: "設計ノート", content: "アイデアメモ", tags: ["tech"] }),
+              data: () => ({
+                title: "設計ノート",
+                content: "アイデアメモ",
+                tags: ["tech", "ジャーナル"],
+                childViewMode: "journal",
+                journalDate: "2026-09-06",
+                mood: "great",
+                photos: ["https://example.com/photo.jpg"],
+                contextSnapshot: {
+                  completedTasks: ["タスク1"],
+                  events: ["予定1"],
+                },
+              }),
             },
           ],
         });
@@ -117,7 +129,18 @@ describe("backupService", () => {
       expect(backup.data.lists[0]).toMatchObject({ id: "list-1", text: "牛乳" });
       expect(backup.data.tasks[0]).toMatchObject({ id: "task-1", title: "報告書作成" });
       expect(backup.data.events[0]).toMatchObject({ id: "event-1", title: "ミーティング" });
-      expect(backup.data.notes[0]).toMatchObject({ id: "note-1", title: "設計ノート" });
+      expect(backup.data.notes[0]).toMatchObject({
+        id: "note-1",
+        title: "設計ノート",
+        childViewMode: "journal",
+        journalDate: "2026-09-06",
+        mood: "great",
+        photos: ["https://example.com/photo.jpg"],
+        contextSnapshot: {
+          completedTasks: ["タスク1"],
+          events: ["予定1"],
+        },
+      });
     });
   });
 
@@ -319,6 +342,57 @@ describe("backupService", () => {
       if (batchInstance) {
         expect(batchInstance.set).toHaveBeenCalled();
       }
+    });
+
+    it("journalDate, mood, photos, contextSnapshot, childViewMode を含むジャーナルノートが復元時に保持される", async () => {
+      const journalBackup: BackupData = {
+        version: "1.0",
+        exportedAt: "2026-09-06T12:00:00.000Z",
+        owner: "test@example.com",
+        counts: { lists: 0, tasks: 0, events: 0, notes: 1 },
+        data: {
+          lists: [],
+          tasks: [],
+          events: [],
+          notes: [
+            {
+              id: "journal-note-1",
+              title: "2026-09-06 のジャーナル",
+              content: "今日の振り返り",
+              tags: ["ジャーナル"],
+              childViewMode: "journal",
+              journalDate: "2026-09-06",
+              mood: "great",
+              photos: ["https://example.com/photo.jpg"],
+              contextSnapshot: {
+                completedTasks: ["タスクA"],
+                events: ["予定A"],
+              },
+            },
+          ],
+        },
+      };
+
+      const res = await restoreFromJson(journalBackup, "merge");
+      expect(res.success).toBe(true);
+      expect(res.importedCounts.notes).toBe(1);
+
+      const batchInstance = (writeBatch as Mock).mock.results[0]?.value;
+      expect(batchInstance.set).toHaveBeenCalledWith(
+        expect.anything(),
+        expect.objectContaining({
+          title: "2026-09-06 のジャーナル",
+          childViewMode: "journal",
+          journalDate: "2026-09-06",
+          mood: "great",
+          photos: ["https://example.com/photo.jpg"],
+          contextSnapshot: {
+            completedTasks: ["タスクA"],
+            events: ["予定A"],
+          },
+        }),
+        { merge: true }
+      );
     });
   });
 });

@@ -11,6 +11,7 @@ import {
   createGoogleCalendarEvent,
   updateGoogleCalendarEvent,
   deleteGoogleCalendarEvent,
+  cleanDuplicateEvents,
   syncGoogleCalendarToArca,
   GoogleCalendarApiError,
 } from "./googleCalendarSync";
@@ -18,9 +19,24 @@ import {
   collection,
   addDoc,
   updateDoc,
+  setDoc,
+  deleteDoc,
   doc,
 } from "firebase/firestore";
 import type { CalendarEvent } from "../types";
+
+function createMockEvent(overrides: Partial<CalendarEvent> = {}): CalendarEvent {
+  return {
+    id: "test-id",
+    title: "テスト予定",
+    date: "2026-08-21",
+    startTime: "",
+    endTime: "",
+    note: "",
+    createdAt: null,
+    ...overrides,
+  };
+}
 
 describe("googleCalendarSync", () => {
   beforeEach(() => {
@@ -28,6 +44,8 @@ describe("googleCalendarSync", () => {
     (collection as Mock).mockImplementation((_db, path) => path);
     (doc as Mock).mockImplementation((_db, path, id) => `${path}/${id}`);
     (addDoc as Mock).mockResolvedValue({ id: "new-firestore-id" });
+    (setDoc as Mock).mockResolvedValue(undefined);
+    (deleteDoc as Mock).mockResolvedValue(undefined);
     (updateDoc as Mock).mockResolvedValue(undefined);
   });
 
@@ -175,6 +193,68 @@ describe("googleCalendarSync", () => {
         })
       );
     });
+
+    it("410 Gone または 404 Not Found の場合はエラーにせず正常終了する", async () => {
+      globalThis.fetch = vi.fn().mockResolvedValue({
+        ok: false,
+        status: 410,
+        text: async () => JSON.stringify({ error: { message: "Resource has been deleted" } }),
+      });
+
+      await expect(
+        deleteGoogleCalendarEvent("test-token", "g-already-deleted")
+      ).resolves.toBeUndefined();
+    });
+  });
+
+  describe("cleanDuplicateEvents", () => {
+    it("同一 googleEventId の重複を検出し、1件のみ残して余分なドキュメントを deleteDoc で安全に削除する", async () => {
+      const existingEvents: CalendarEvent[] = [
+        createMockEvent({
+          id: "doc-1",
+          title: "会議",
+          date: "2026-08-21",
+          startTime: "10:00",
+          endTime: "11:00",
+          googleEventId: "same-google-id",
+        }),
+        createMockEvent({
+          id: "doc-2",
+          title: "会議 (複製)",
+          date: "2026-08-21",
+          startTime: "10:00",
+          endTime: "11:00",
+          googleEventId: "same-google-id",
+        }),
+      ];
+
+      const result = await cleanDuplicateEvents(existingEvents);
+      expect(result).toHaveLength(1);
+      expect(result[0].id).toBe("doc-1");
+      expect(deleteDoc).toHaveBeenCalledTimes(1);
+    });
+
+    it("同一タイトル・日付・開始時刻の未連携重複もクレンジングする", async () => {
+      const existingEvents: CalendarEvent[] = [
+        createMockEvent({
+          id: "doc-a",
+          title: "ランチ",
+          date: "2026-08-22",
+          startTime: "12:00",
+        }),
+        createMockEvent({
+          id: "doc-b",
+          title: "ランチ",
+          date: "2026-08-22",
+          startTime: "12:00",
+        }),
+      ];
+
+      const result = await cleanDuplicateEvents(existingEvents);
+      expect(result).toHaveLength(1);
+      expect(result[0].id).toBe("doc-a");
+      expect(deleteDoc).toHaveBeenCalledTimes(1);
+    });
   });
 
   describe("syncGoogleCalendarToArca (双方向 Upsert)", () => {
@@ -251,7 +331,7 @@ describe("googleCalendarSync", () => {
       expect((updateDoc as Mock).mock.calls[0][1].googleEventId).toBe("g2");
     });
 
-    it("新規予定の場合は addDoc で Arca に追加する", async () => {
+    it("新規予定の場合は setDoc で Google Event ID をキーにして Arca に追加する", async () => {
       const gEvents = [
         {
           id: "g3",
@@ -273,9 +353,9 @@ describe("googleCalendarSync", () => {
       const result = await syncGoogleCalendarToArca("test-token", existingEvents);
       expect(result.added).toBe(1);
       expect(result.updated).toBe(0);
-      expect(addDoc).toHaveBeenCalledTimes(1);
-      expect((addDoc as Mock).mock.calls[0][1].title).toBe("完全新規の予定");
-      expect((addDoc as Mock).mock.calls[0][1].googleEventId).toBe("g3");
+      expect(setDoc).toHaveBeenCalledTimes(1);
+      expect((setDoc as Mock).mock.calls[0][1].title).toBe("完全新規の予定");
+      expect((setDoc as Mock).mock.calls[0][1].googleEventId).toBe("g3");
     });
 
     it("「出勤予定」別カレンダーの予定は isShiftOnly: true として同期される", async () => {
@@ -336,10 +416,10 @@ describe("googleCalendarSync", () => {
       const result = await syncGoogleCalendarToArca("test-token", existingEvents);
 
       expect(result.added).toBe(2);
-      expect(addDoc).toHaveBeenCalledTimes(2);
+      expect(setDoc).toHaveBeenCalledTimes(2);
 
       // プライマリ予定は isShiftOnly: false
-      const addedCalls = (addDoc as Mock).mock.calls;
+      const addedCalls = (setDoc as Mock).mock.calls;
       const mainCall = addedCalls.find((c) => c[1].googleEventId === "main-event-1");
       expect(mainCall?.[1].isShiftOnly).toBe(false);
 
@@ -347,6 +427,32 @@ describe("googleCalendarSync", () => {
       const shiftCall = addedCalls.find((c) => c[1].googleEventId === "shift-event-1");
       expect(shiftCall?.[1].isShiftOnly).toBe(true);
       expect(shiftCall?.[1].title).toBe("遅番(15時)");
+    });
+
+    it("Googleカレンダー側で削除された予定はArca側でも追従削除される (Reconciliation)", async () => {
+      // Google API の返却予定（空配列 = Google上で予定が削除された）
+      globalThis.fetch = vi.fn().mockResolvedValue({
+        ok: true,
+        status: 200,
+        text: async () => JSON.stringify({ items: [] }),
+      });
+
+      const today = new Date();
+      const currentMonthDateStr = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, "0")}-15`;
+
+      const existingEvents: CalendarEvent[] = [
+        createMockEvent({
+          id: "deleted-on-google",
+          title: "削除された予定",
+          date: currentMonthDateStr,
+          googleEventId: "g-deleted-1",
+        }),
+      ];
+
+      await syncGoogleCalendarToArca("test-token", existingEvents);
+
+      // Googleに存在しないため deleteDoc で削除される
+      expect(deleteDoc).toHaveBeenCalledWith("events/deleted-on-google");
     });
 
     it("403 ACCESS_TOKEN_SCOPE_INSUFFICIENT の場合にトークンを破棄して GoogleCalendarApiError をスローする", async () => {

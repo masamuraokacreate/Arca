@@ -16,6 +16,8 @@ import type {
   PaymentMethod,
   ReconcileCandidate,
   ReconcileConfidence,
+  ReconcilePreviewItem,
+  ReconcilePreviewResult,
 } from "../types/finance";
 
 /**
@@ -136,6 +138,40 @@ export function normalizeAmountNumber(amountStr: string | number): number {
 }
 
 /**
+ * CSV バッファ (ArrayBuffer / Uint8Array) のエンコーディングを自動判定し、文字列として安全にデコードする
+ * UTF-8 および 日本の各社クレジットカードCSVで標準的な Shift-JIS (windows-31j / CP932) に完全対応
+ */
+export function decodeCsvBuffer(buffer: ArrayBuffer | Uint8Array): string {
+  const bytes = buffer instanceof Uint8Array ? buffer : new Uint8Array(buffer);
+
+  // 1. まず UTF-8 としてデコードを試みる (fatal: true でバイト不整合を検出)
+  try {
+    const utf8Decoder = new TextDecoder("utf-8", { fatal: true });
+    const text = utf8Decoder.decode(bytes);
+    if (!text.includes("\uFFFD")) {
+      return text.replace(/^\uFEFF/, ""); // BOM 除去
+    }
+  } catch {
+    // UTF-8 デコード例外発生時は Shift-JIS にフォールバック
+  }
+
+  // 2. Shift-JIS (windows-31j / CP932) としてデコード
+  try {
+    const sjisDecoder = new TextDecoder("shift-jis", { fatal: false });
+    const text = sjisDecoder.decode(bytes);
+    return text.replace(/^\uFEFF/, "");
+  } catch {
+    try {
+      const fallbackDecoder = new TextDecoder("windows-31j");
+      return fallbackDecoder.decode(bytes).replace(/^\uFEFF/, "");
+    } catch {
+      const defaultDecoder = new TextDecoder();
+      return defaultDecoder.decode(bytes).replace(/^\uFEFF/, "");
+    }
+  }
+}
+
+/**
  * CSVテキストを行・列に安全に分割（クォート内のカンマや改行を考慮）
  */
 export function parseCsvToGrid(csvText: string): string[][] {
@@ -189,6 +225,21 @@ export function parseCsvToGrid(csvText: string): string[][] {
   }
 
   return rows.filter((r) => r.length > 0 && r.some((cell) => cell.length > 0));
+}
+
+/**
+ * CSV行ごとに固有のフィンガープリントを生成する
+ * 形式: `${paymentMethod}_${date}_${cleanTitle}_${amount}_row${rowIndex}`
+ */
+export function generateCsvRowFingerprint(
+  paymentMethod: PaymentMethod,
+  date: string,
+  title: string,
+  amount: number,
+  rowIndex: number
+): string {
+  const cleanTitle = title.replace(/[\s\u3000]+/g, "");
+  return `${paymentMethod}_${date}_${cleanTitle}_${amount}_row${rowIndex}`;
 }
 
 /**
@@ -292,12 +343,15 @@ export function parseCreditCardCsv(
 
     // 金額が0以上かつ有効な日付と店名がある行のみ採用
     if (date && title && amount > 0) {
+      const rowIndex = resultRows.length;
+      const fp = generateCsvRowFingerprint(detectedMethod, date, title, amount, rowIndex);
       resultRows.push({
         rowId: `csv-row-${r}-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
         date,
         title,
         amount,
         paymentMethod: detectedMethod,
+        fingerprint: fp,
       });
     }
   }
@@ -459,5 +513,109 @@ export function runAutoReconcile(
     candidates,
     reconciledCount,
     unmatchedCsvRows,
+  };
+}
+
+/**
+ * CSV行リストと既存取引リストから、二重取込防止 ＆ 1対1ペアリング消費モデルに基づく照合プレビュー結果を生成する
+ */
+export function buildReconcilePreview(
+  csvRows: CreditCardCsvRow[],
+  transactions: ExpenseTransaction[],
+  targetPaymentMethod?: PaymentMethod
+): ReconcilePreviewResult {
+  const activeTransactions = transactions.filter((t) => !t.isDeleted);
+  
+  // 1. 既に確定・紐付け済みの CSV 行フィンガープリント / matchedCsvRowId のセットを構築
+  const committedFingerprints = new Set<string>();
+  for (const t of activeTransactions) {
+    if (t.isReconciled) {
+      if (t.matchedCsvRowId) committedFingerprints.add(t.matchedCsvRowId);
+      if (t.csvRowFingerprint) committedFingerprints.add(t.csvRowFingerprint);
+    }
+  }
+
+  // 2. 未突合の既存取引プールを作成（1対1ペアリング消費用）
+  const unreconciledPool: ExpenseTransaction[] = activeTransactions.filter(
+    (t) => !t.isReconciled
+  );
+
+  const previewItems: ReconcilePreviewItem[] = [];
+  const affectedMonthsSet = new Set<string>();
+  let matchedCount = 0;
+  let createdCount = 0;
+  let skippedCount = 0;
+
+  const defaultMethod = targetPaymentMethod || (csvRows[0]?.paymentMethod) || "Oliveカード";
+
+  for (let i = 0; i < csvRows.length; i++) {
+    const row = csvRows[i];
+    const fp = row.fingerprint || generateCsvRowFingerprint(row.paymentMethod || defaultMethod, row.date, row.title, row.amount, i);
+    const rowWithFp = { ...row, fingerprint: fp, paymentMethod: row.paymentMethod || defaultMethod };
+
+    if (row.date && row.date.length >= 7) {
+      affectedMonthsSet.add(row.date.slice(0, 7));
+    }
+
+    // A. 既に確定済みのフィンガープリントが存在する場合 -> スキップ (二重取込防止)
+    if (committedFingerprints.has(fp)) {
+      previewItems.push({
+        csvRow: rowWithFp,
+        action: "skip",
+        matchReason: "既に確定・登録済みです（二重取込防止）",
+      });
+      skippedCount++;
+      continue;
+    }
+
+    // B. 未突合プールから最善のペアリング候補を探索
+    let bestMatchIndex = -1;
+    let bestScore = -1;
+    let bestEval: { confidence: ReconcileConfidence; score: number; reason: string; daysDiff: number } | null = null;
+
+    for (let p = 0; p < unreconciledPool.length; p++) {
+      const candidateTx = unreconciledPool[p];
+      const evalResult = evaluateMatchCandidate(rowWithFp, candidateTx);
+
+      // 完全一致(exact)または高信頼度(high)または中信頼度(medium)
+      if (evalResult.confidence !== "none" && evalResult.score > bestScore) {
+        bestScore = evalResult.score;
+        bestMatchIndex = p;
+        bestEval = evalResult;
+      }
+    }
+
+    if (bestMatchIndex !== -1 && bestEval && (bestEval.confidence === "exact" || bestEval.confidence === "high" || bestEval.confidence === "medium")) {
+      const matchedTx = unreconciledPool[bestMatchIndex];
+      // ★ 1対1ペアリング消費：プールから除外
+      unreconciledPool.splice(bestMatchIndex, 1);
+
+      previewItems.push({
+        csvRow: rowWithFp,
+        action: "match",
+        matchedTransaction: matchedTx,
+        confidence: bestEval.confidence,
+        matchReason: bestEval.reason,
+      });
+      matchedCount++;
+    } else {
+      // C. 一致する未突合レコードがない場合 -> 新規作成
+      previewItems.push({
+        csvRow: rowWithFp,
+        action: "create",
+        matchReason: "新規支出として登録",
+      });
+      createdCount++;
+    }
+  }
+
+  return {
+    items: previewItems,
+    matchedCount,
+    createdCount,
+    skippedCount,
+    totalCsvRows: csvRows.length,
+    paymentMethod: defaultMethod,
+    affectedMonths: Array.from(affectedMonthsSet).sort(),
   };
 }

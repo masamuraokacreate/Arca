@@ -21,6 +21,30 @@ export interface ShiftBadgeProps {
   size?: "sm" | "md";
 }
 
+export function MoonIcon({ size = "0.82rem", style }: { size?: string; style?: React.CSSProperties }) {
+  return (
+    <svg
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth={2}
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      style={{
+        width: size,
+        height: size,
+        flexShrink: 0,
+        display: "inline-block",
+        verticalAlign: "middle",
+        ...style,
+      }}
+      aria-label="moon"
+    >
+      <path d="M12 3a6 6 0 0 0 9 9 9 9 0 1 1-9-9Z" />
+    </svg>
+  );
+}
+
 export function ShiftBadge({
   shift,
   onClick,
@@ -75,8 +99,8 @@ export function ShiftBadge({
         }
       }}
     >
-      <span style={{ fontSize: isSmall ? "0.7rem" : "0.8rem", lineHeight: 1 }}>
-        {isWork ? "✦" : "🌙"}
+      <span style={{ fontSize: isSmall ? "0.7rem" : "0.8rem", lineHeight: 1, display: "inline-flex", alignItems: "center" }}>
+        {isWork ? "✦" : <MoonIcon size={isSmall ? "0.72rem" : "0.82rem"} />}
       </span>
       <span>{displayText}</span>
       {shift.isOverridden && (

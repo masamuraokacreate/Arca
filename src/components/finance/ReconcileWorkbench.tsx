@@ -8,11 +8,19 @@ import type {
   CreditCardCsvRow,
   ExpenseTransaction,
   PaymentMethod,
+  ReconcilePreviewResult,
 } from "../../types/finance";
 import {
   parseCreditCardCsv,
   runAutoReconcile,
+  decodeCsvBuffer,
+  buildReconcilePreview,
 } from "../../utils/csvReconcile";
+import {
+  markMonthCardReconciled,
+  commitBatchReconcile,
+} from "../../services/csvReconcileService";
+import { ReconcilePreviewModal } from "./ReconcilePreviewModal";
 import { formatCurrency } from "../../utils/financeSummary";
 import { C } from "../../lib/designSystem";
 
@@ -61,24 +69,26 @@ export function ReconcileWorkbench({
   const [detectedMethod, setDetectedMethod] = useState<PaymentMethod>("Oliveカード");
   const [isProcessing, setIsProcessing] = useState(false);
   const [manualSelectCsvRowId, setManualSelectCsvRowId] = useState<string | null>(null);
+  const [isPreviewModalOpen, setIsPreviewModalOpen] = useState(false);
+  const [batchSuccessMessage, setBatchSuccessMessage] = useState<string | null>(null);
 
-  // ファイル読み込みハンドラ
+  // ファイル読み込みハンドラ (UTF-8 / Shift-JIS 自動判別対応)
   const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
 
-    // Shift_JIS または UTF-8 の対応
     const reader = new FileReader();
     reader.onload = (event) => {
-      const text = event.target?.result as string;
+      const buffer = event.target?.result as ArrayBuffer;
+      const text = decodeCsvBuffer(buffer);
       setCsvText(text);
       const parsed = parseCreditCardCsv(text, detectedMethod);
       setCsvRows(parsed.rows);
       setDetectedMethod(parsed.detectedMethod);
     };
 
-    // まず UTF-8 で読み込み
-    reader.readAsText(file, "UTF-8");
+    // ArrayBuffer として読み込み、自動判別デコード
+    reader.readAsArrayBuffer(file);
   };
 
   // テキスト貼り付けからパース
@@ -89,7 +99,23 @@ export function ReconcileWorkbench({
     setDetectedMethod(parsed.detectedMethod);
   };
 
-  // 自動突合の実行と候補算出
+  // 1対1ペアリング消費モデル ＆ 二重取込防止に基づく照合プレビュー
+  const previewResult = useMemo(() => {
+    if (csvRows.length === 0) return null;
+    return buildReconcilePreview(csvRows, transactions, detectedMethod);
+  }, [csvRows, transactions, detectedMethod]);
+
+  // 一括確定コミットハンドラ
+  const handleCommitBatch = async (preview: ReconcilePreviewResult) => {
+    const result = await commitBatchReconcile(preview);
+    const parts: string[] = [];
+    if (result.matchedCount > 0) parts.push(`${result.matchedCount}件を突合`);
+    if (result.createdCount > 0) parts.push(`${result.createdCount}件を新規登録`);
+    setBatchSuccessMessage(`✓ ${parts.join("・")}しました`);
+    setTimeout(() => setBatchSuccessMessage(null), 4500);
+  };
+
+  // 自動突合の実行と候補算出 (個別突合UI用)
   const reconcileResult = useMemo(() => {
     if (csvRows.length === 0) {
       return { candidates: [], reconciledCount: 0, unmatchedCsvRows: [] };
@@ -101,6 +127,9 @@ export function ReconcileWorkbench({
   const handleBatchReconcile = async () => {
     setIsProcessing(true);
     try {
+      let matchedCount = 0;
+      const affectedMonths = new Set<string>();
+
       for (const candidate of reconcileResult.candidates) {
         if (
           candidate.matchedTransaction &&
@@ -108,7 +137,16 @@ export function ReconcileWorkbench({
           !candidate.matchedTransaction.isReconciled
         ) {
           await onReconcile(candidate.matchedTransaction.id, candidate.csvRow.rowId);
+          matchedCount++;
+          if (candidate.csvRow.date) {
+            affectedMonths.add(candidate.csvRow.date.slice(0, 7));
+          }
         }
+      }
+
+      // 該当月×カードの照合完了ステータスを自動更新
+      for (const m of affectedMonths) {
+        await markMonthCardReconciled(m, detectedMethod, matchedCount);
       }
     } catch (err) {
       console.error("Batch reconcile failed:", err);
@@ -318,34 +356,75 @@ export function ReconcileWorkbench({
               gap: "0.6rem",
             }}
           >
-            <div style={{ display: "flex", alignItems: "center", gap: "0.8rem" }}>
+            <div style={{ display: "flex", alignItems: "center", gap: "0.8rem", flexWrap: "wrap" }}>
               <span style={{ fontSize: "0.82rem", fontWeight: 700, color: C.charcoal }}>
                 {detectedMethod} 明細: {csvRows.length}件 読み込み完了
               </span>
-              <span style={{ fontSize: "0.74rem", color: "#2E7D32", fontWeight: 650 }}>
-                突合候補: {reconcileResult.reconciledCount}件
-              </span>
+              {previewResult && (
+                <div style={{ display: "flex", gap: "0.4rem" }}>
+                  <span style={{ fontSize: "0.72rem", color: "#2E7D32", fontWeight: 650 }}>
+                    突合: {previewResult.matchedCount}件
+                  </span>
+                  <span style={{ fontSize: "0.72rem", color: "#1565C0", fontWeight: 650 }}>
+                    新規: {previewResult.createdCount}件
+                  </span>
+                  {previewResult.skippedCount > 0 && (
+                    <span style={{ fontSize: "0.72rem", color: C.charcoalLight, fontWeight: 600 }}>
+                      スキップ: {previewResult.skippedCount}件
+                    </span>
+                  )}
+                </div>
+              )}
             </div>
 
-            {reconcileResult.reconciledCount > 0 && (
-              <button
-                onClick={handleBatchReconcile}
-                disabled={isProcessing}
-                style={{
-                  background: "#2E7D32",
-                  color: "#FFF",
-                  border: "none",
-                  borderRadius: "8px",
-                  padding: "0.45rem 1rem",
-                  fontSize: "0.78rem",
-                  fontWeight: 650,
-                  cursor: isProcessing ? "not-allowed" : "pointer",
-                  boxShadow: "0 2px 8px rgba(46, 125, 50, 0.3)",
-                }}
-              >
-                {isProcessing ? "突合処理中..." : "高信頼度候補を一括突合"}
-              </button>
-            )}
+            <div style={{ display: "flex", alignItems: "center", gap: "0.5rem" }}>
+              {previewResult && (previewResult.matchedCount > 0 || previewResult.createdCount > 0) && (
+                <button
+                  onClick={() => setIsPreviewModalOpen(true)}
+                  data-testid="open-preview-modal-btn"
+                  style={{
+                    background: C.gold,
+                    color: "#FFF",
+                    border: "none",
+                    borderRadius: "8px",
+                    padding: "0.45rem 1.1rem",
+                    fontSize: "0.78rem",
+                    fontWeight: 700,
+                    cursor: "pointer",
+                    boxShadow: "0 2px 8px rgba(197, 160, 89, 0.3)",
+                    display: "flex",
+                    alignItems: "center",
+                    gap: "0.35rem",
+                  }}
+                >
+                  <span>📊</span>
+                  <span>
+                    すべて登録して確定 (
+                    {previewResult.matchedCount + previewResult.createdCount}件)
+                  </span>
+                </button>
+              )}
+
+              {reconcileResult.reconciledCount > 0 && (
+                <button
+                  onClick={handleBatchReconcile}
+                  disabled={isProcessing}
+                  style={{
+                    background: "#2E7D32",
+                    color: "#FFF",
+                    border: "none",
+                    borderRadius: "8px",
+                    padding: "0.45rem 0.9rem",
+                    fontSize: "0.76rem",
+                    fontWeight: 650,
+                    cursor: isProcessing ? "not-allowed" : "pointer",
+                    boxShadow: "0 2px 8px rgba(46, 125, 50, 0.25)",
+                  }}
+                >
+                  {isProcessing ? "突合処理中..." : "高信頼度のみ突合"}
+                </button>
+              )}
+            </div>
           </div>
         )}
       </div>
@@ -620,6 +699,41 @@ export function ReconcileWorkbench({
               );
             })}
           </div>
+        </div>
+      )}
+
+      {/* ── 照合プレビュー & 一括確定モーダル ── */}
+      <ReconcilePreviewModal
+        isOpen={isPreviewModalOpen}
+        onClose={() => setIsPreviewModalOpen(false)}
+        previewResult={previewResult}
+        onConfirm={handleCommitBatch}
+      />
+
+      {/* ── 一括確定トースト ── */}
+      {batchSuccessMessage && (
+        <div
+          data-testid="batch-success-toast"
+          style={{
+            position: "fixed",
+            bottom: "5rem",
+            left: "50%",
+            transform: "translateX(-50%)",
+            zIndex: 9999,
+            background: "rgba(33, 37, 41, 0.94)",
+            backdropFilter: "blur(8px)",
+            color: "#FFF",
+            padding: "0.6rem 1.25rem",
+            borderRadius: "9999px",
+            fontSize: "0.82rem",
+            fontWeight: 650,
+            boxShadow: "0 4px 16px rgba(0, 0, 0, 0.22)",
+            animation: "arca-view-in 0.2s ease-out",
+            pointerEvents: "none",
+            whiteSpace: "nowrap",
+          }}
+        >
+          {batchSuccessMessage}
         </div>
       )}
     </div>

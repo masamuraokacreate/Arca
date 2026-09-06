@@ -56,18 +56,103 @@ describe("Dashboard コンポーネント", () => {
     expect(handleNavigate).toHaveBeenCalledWith("notes");
   });
 
-  it("ダッシュボード上から「＋」ボタンで新規タスクグループ（リスト）を追加できること", async () => {
-    const user = userEvent.setup();
+  it("期限が1週間より手前（期限切れ含む）のタスクが一元表示され、右側にタスクグループ名が表示されること", async () => {
+    const now = new Date();
+    const todayStr = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")}`;
+
+    const pastDate = new Date();
+    pastDate.setDate(pastDate.getDate() - 2);
+    const pastStr = `${pastDate.getFullYear()}-${String(pastDate.getMonth() + 1).padStart(2, "0")}-${String(pastDate.getDate()).padStart(2, "0")}`;
+
+    const futureDate = new Date();
+    futureDate.setDate(futureDate.getDate() + 3);
+    const futureStr = `${futureDate.getFullYear()}-${String(futureDate.getMonth() + 1).padStart(2, "0")}-${String(futureDate.getDate()).padStart(2, "0")}`;
+
+    const farFutureDate = new Date();
+    farFutureDate.setDate(farFutureDate.getDate() + 12);
+    const farFutureStr = `${farFutureDate.getFullYear()}-${String(farFutureDate.getMonth() + 1).padStart(2, "0")}-${String(farFutureDate.getDate()).padStart(2, "0")}`;
+
+    (onSnapshot as Mock).mockImplementation((q: any, callback: (snap: unknown) => void) => {
+      const isTasksQuery = q?._query?.path?.segments?.includes("tasks") || JSON.stringify(q || {}).includes("tasks");
+      const isTaskListsQuery = q?._query?.path?.segments?.includes("task_lists") || JSON.stringify(q || {}).includes("task_lists");
+
+      if (isTasksQuery) {
+        callback({
+          docs: [
+            {
+              id: "task-overdue",
+              data: () => ({
+                title: "期限切れの牛乳購入",
+                completed: false,
+                listId: "shopping",
+                dueDate: pastStr,
+              }),
+            },
+            {
+              id: "task-today",
+              data: () => ({
+                title: "今日のレポート提出",
+                completed: false,
+                listId: "default",
+                dueDate: todayStr,
+              }),
+            },
+            {
+              id: "task-upcoming",
+              data: () => ({
+                title: "週末の食材買い出し",
+                completed: false,
+                listId: "shopping",
+                dueDate: futureStr,
+              }),
+            },
+            {
+              id: "task-far",
+              data: () => ({
+                title: "2週間後の旅行計画",
+                completed: false,
+                listId: "default",
+                dueDate: farFutureStr,
+              }),
+            },
+            {
+              id: "task-nodue",
+              data: () => ({
+                title: "いつか読む本",
+                completed: false,
+                listId: "default",
+                dueDate: null,
+              }),
+            },
+          ],
+        });
+      } else if (isTaskListsQuery) {
+        callback({
+          docs: [],
+        });
+      } else {
+        callback({ docs: [] });
+      }
+      return vi.fn();
+    });
+
     render(<Dashboard />);
 
-    const addBtn = screen.getByTestId("dashboard-add-list-btn");
-    await user.click(addBtn);
+    // カード見出し
+    expect(screen.getByText("期限の近いタスク")).toBeInTheDocument();
 
-    expect(screen.getByText("新しいリストを作成")).toBeInTheDocument();
-    const input = screen.getByPlaceholderText(/リスト名/);
-    await user.type(input, "出張準備{Enter}");
+    // 期限切れ・今日・1週間以内のタスクが表示されていること
+    expect(screen.getByText("期限切れの牛乳購入")).toBeInTheDocument();
+    expect(screen.getByText("今日のレポート提出")).toBeInTheDocument();
+    expect(screen.getByText("週末の食材買い出し")).toBeInTheDocument();
 
-    expect(screen.getByText("出張準備")).toBeInTheDocument();
+    // 1週間より先のタスクや期限なしタスクは表示されないこと
+    expect(screen.queryByText("2週間後の旅行計画")).not.toBeInTheDocument();
+    expect(screen.queryByText("いつか読む本")).not.toBeInTheDocument();
+
+    // タスクグループ名が表示されていること（買い物リスト、マイタスク）
+    expect(screen.getAllByText("買い物リスト").length).toBeGreaterThanOrEqual(1);
+    expect(screen.getAllByText("マイタスク").length).toBeGreaterThanOrEqual(1);
   });
 
   it("最近のノート行をクリックした際に onSelectNote が正しく noteId で呼び出されること", async () => {
@@ -113,7 +198,7 @@ describe("Dashboard コンポーネント", () => {
     await user.click(badge);
     expect(screen.getByText("出勤ステータス確認")).toBeInTheDocument();
     expect(screen.getByText("✦ 出勤日")).toBeInTheDocument();
-    expect(screen.getByText("🌙 休日（休み）")).toBeInTheDocument();
+    expect(screen.getByText("休日（休み）")).toBeInTheDocument();
   });
 
   it("無題の空ノートおよび削除済みノート（isDeleted: true）はダッシュボードに表示されないこと", () => {
@@ -189,6 +274,7 @@ describe("Dashboard コンポーネント", () => {
     render(<Dashboard />);
     expect(screen.getByText("濃厚カルボナーラ")).toBeInTheDocument();
     expect(screen.getByText("料理レシピ")).toBeInTheDocument();
+    expect(screen.queryByText("2人前")).not.toBeInTheDocument();
   });
 
   it("isShiftOnly な予定（出勤予定カレンダー由来）は今日の予定タイルに表示されないこと", () => {
@@ -254,7 +340,7 @@ describe("Dashboard コンポーネント", () => {
                 title: "部屋の片付け",
                 completed: false,
                 listId: "default",
-                dueDate: null,
+                dueDate: new Date().toISOString().slice(0, 10),
               }),
             },
           ],

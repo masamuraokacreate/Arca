@@ -14,6 +14,7 @@ import {
 } from "../../types/finance";
 import { createEmptyExpenseItem } from "../../lib/financeStorage";
 import { formatCurrency } from "../../utils/financeSummary";
+import { CategoryGuideModal } from "./CategoryGuideModal";
 import { C } from "../../lib/designSystem";
 
 interface TransactionModalProps {
@@ -34,13 +35,14 @@ export function TransactionModal({
   const [date, setDate] = useState("");
   const [title, setTitle] = useState("");
   const [totalAmount, setTotalAmount] = useState<number | "">("");
-  const [category, setCategory] = useState<ExpenseCategory>("食費");
+  const [category, setCategory] = useState<ExpenseCategory>("食料品");
   const [paymentMethod, setPaymentMethod] = useState<PaymentMethod>("Oliveカード");
   const [items, setItems] = useState<ExpenseItem[]>([]);
   const [memo, setMemo] = useState("");
   const [receiptImageUrl, setReceiptImageUrl] = useState<string | undefined>(undefined);
   const [isAutoSum, setIsAutoSum] = useState(true);
   const [isSaving, setIsSaving] = useState(false);
+  const [isGuideModalOpen, setIsGuideModalOpen] = useState(false);
 
   useEffect(() => {
     if (isOpen) {
@@ -65,7 +67,7 @@ export function TransactionModal({
         setDate(today);
         setTitle("");
         setTotalAmount("");
-        setCategory("食費");
+        setCategory("食料品");
         setPaymentMethod("Oliveカード");
         setItems([]);
         setMemo("");
@@ -384,9 +386,32 @@ export function TransactionModal({
               </div>
 
               <div>
-                <label style={{ display: "block", fontSize: "0.75rem", fontWeight: 650, color: C.charcoalMid, marginBottom: "0.3rem" }}>
-                  カテゴリ
-                </label>
+                <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: "0.3rem" }}>
+                  <label style={{ fontSize: "0.75rem", fontWeight: 650, color: C.charcoalMid }}>
+                    カテゴリ
+                  </label>
+                  <button
+                    type="button"
+                    onClick={() => setIsGuideModalOpen(true)}
+                    data-testid="open-category-guide-btn"
+                    style={{
+                      background: "transparent",
+                      border: "none",
+                      cursor: "pointer",
+                      color: C.goldDark,
+                      fontSize: "0.72rem",
+                      fontWeight: 650,
+                      padding: "0 0.2rem",
+                      display: "inline-flex",
+                      alignItems: "center",
+                      gap: "0.2rem",
+                    }}
+                    title="12カテゴリの具体例と分類ガイドを開く"
+                  >
+                    <span>📖</span>
+                    <span>ガイド</span>
+                  </button>
+                </div>
                 <select
                   value={category}
                   onChange={(e) => setCategory(e.target.value as ExpenseCategory)}
@@ -790,6 +815,14 @@ export function TransactionModal({
           </div>
         </form>
       </div>
+
+      {/* ── 支出カテゴリ分類ガイド モーダル ── */}
+      <CategoryGuideModal
+        isOpen={isGuideModalOpen}
+        onClose={() => setIsGuideModalOpen(false)}
+        selectedCategory={category}
+        onSelectCategory={(selected) => setCategory(selected)}
+      />
     </div>
   );
 }

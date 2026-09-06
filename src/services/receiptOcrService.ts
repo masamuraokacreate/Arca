@@ -99,9 +99,9 @@ const OCR_PROMPT = `
 5. items: 印字されている品目を上から順に配列で抽出。
    - name: 印字された商品名そのまま（例: "ｺｸｳﾏ ｷﾑﾁ 300G", "明治 おいしい牛乳"）。
    - amount: その品目の小計・金額（整数値）。
-   - category: "食費", "日用品", "交通費", "被服", "交際費", "娯楽費", "特別費", "通信費", "光熱費", "サブスク", "車両係", "その他" の中から最も適切なもの。
+   - category: "食料品", "外食", "日用品・消耗品", "衣服", "ゲーム", "推し活・配信", "イベント・旅行", "交通・移動", "サブスク・固定費", "光熱費・住居", "大型出費", "その他" の中から最も適切なもの。
 6. 【外税・値引きの重要ルール】:
-   - 外税（「外税8%」「外税10%」「消費税」など、合計金額に含まれる税金行が別行として印字されている場合）は、品目リスト（items）の末尾に独立した品目として追加してください（name: "消費税" または "外税8%" など、amount: 税額、category: "食費" または "その他"）。
+   - 外税（「外税8%」「外税10%」「消費税」など、合計金額に含まれる税金行が別行として印字されている場合）は、品目リスト（items）の末尾に独立した品目として追加してください（name: "消費税" または "外税8%" など、amount: 税額、category: "その他" または "食料品"）。
    - 値引き・割引（「値引」「割引」「クーポン」など）がある場合は、負の整数（例: amount: -50）として品目リストに追加してください。
    - これにより、itemsの全amountの合計が totalAmount と一致するようにしてください。
 
@@ -112,9 +112,9 @@ const OCR_PROMPT = `
   "totalAmount": 1234,
   "paymentMethod": "現金",
   "items": [
-    { "name": "牛乳", "amount": 238, "category": "食費" },
-    { "name": "値引き", "amount": -30, "category": "食費" },
-    { "name": "外税8%", "amount": 16, "category": "食費" }
+    { "name": "牛乳", "amount": 238, "category": "食料品" },
+    { "name": "値引き", "amount": -30, "category": "食料品" },
+    { "name": "外税8%", "amount": 16, "category": "その他" }
   ]
 }
 `.trim();
@@ -248,8 +248,11 @@ export function sanitizeOcrResult(rawJsonText: string): ReceiptOcrResult | null 
           category = it.category as ExpenseCategory;
         } else if (name.includes("外税") || name.includes("消費税")) {
           category = "その他";
+        } else if (it.category) {
+          // 旧カテゴリからのマイグレーション
+          category = (it.category === "食費" ? "食料品" : it.category === "日用品" ? "日用品・消耗品" : "その他") as ExpenseCategory;
         } else {
-          category = "食費";
+          category = "食料品";
         }
         return {
           name,

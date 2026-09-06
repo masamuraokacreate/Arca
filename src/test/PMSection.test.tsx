@@ -93,7 +93,7 @@ describe("PMSection", () => {
     });
   });
 
-  it("「⚙ PM計画表」ボタンをクリックすると PMSettingsModal が開く", async () => {
+  it("「PM計画表」ボタンをクリックすると PMSettingsModal が開く", async () => {
     (getDoc as Mock).mockResolvedValue({
       exists: () => false,
       data: () => undefined,

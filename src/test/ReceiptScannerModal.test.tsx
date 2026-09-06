@@ -56,7 +56,7 @@ describe("ReceiptScannerModal コンポーネント", () => {
       date: "2026-08-25",
       totalAmount: 1500,
       paymentMethod: "現金",
-      items: [{ name: "テスト品目", amount: 1500, category: "食費" }],
+      items: [{ name: "テスト品目", amount: 1500, category: "食料品" }],
     });
 
     const { container } = render(

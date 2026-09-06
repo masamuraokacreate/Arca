@@ -78,6 +78,7 @@ export function TaskDetailModal({
   const [title, setTitle] = useState(task.title);
   const [dueDate, setDueDate] = useState(task.dueDate || "");
   const [priority, setPriority] = useState<"low" | "medium" | "high">(task.priority || "medium");
+  const [notes, setNotes] = useState(task.notes || "");
   const [listId, setListId] = useState(task.listId || "default");
   const [subtasks, setSubtasks] = useState<SubTaskItem[]>(task.subtasks || []);
   const [newSubtaskText, setNewSubtaskText] = useState("");
@@ -92,6 +93,7 @@ export function TaskDetailModal({
     setTitle(task.title);
     setDueDate(task.dueDate || "");
     setPriority(task.priority || "medium");
+    setNotes(task.notes || "");
     setListId(task.listId || "default");
     setSubtasks(task.subtasks || []);
   }, [task]);
@@ -162,6 +164,7 @@ export function TaskDetailModal({
         title: title.trim(),
         dueDate: dueDate.trim() || null,
         priority,
+        notes: notes.trim() || undefined,
         listId,
         subtasks,
         updatedAt: new Date().toISOString(),
@@ -170,6 +173,24 @@ export function TaskDetailModal({
       onClose();
     } finally {
       setIsSaving(false);
+    }
+  };
+
+  // 変更有無の判定
+  const hasChanges =
+    title !== task.title ||
+    dueDate !== (task.dueDate || "") ||
+    priority !== (task.priority || "medium") ||
+    notes !== (task.notes || "") ||
+    listId !== (task.listId || "default") ||
+    JSON.stringify(subtasks) !== JSON.stringify(task.subtasks || []);
+
+  // ✕ボタンや背景クリック時の安全な終了（変更があれば自動保存）
+  const handleSafeClose = async () => {
+    if (hasChanges && title.trim()) {
+      await handleSave();
+    } else {
+      onClose();
     }
   };
 
@@ -202,7 +223,7 @@ export function TaskDetailModal({
         padding: "1rem",
         animation: "arca-fade-in 0.2s ease",
       }}
-      onClick={onClose}
+      onClick={handleSafeClose}
     >
       <div
         className="arca-card"
@@ -231,7 +252,7 @@ export function TaskDetailModal({
           </span>
           <button
             type="button"
-            onClick={onClose}
+            onClick={handleSafeClose}
             style={{
               background: "transparent",
               border: "none",
@@ -403,6 +424,34 @@ export function TaskDetailModal({
                 );
               })}
             </div>
+          </div>
+
+          {/* 詳細メモ（Google Tasksのnotesと相互同期） */}
+          <div style={{ gridColumn: "1 / -1" }}>
+            <label style={{ display: "block", fontSize: "0.72rem", fontWeight: 650, color: C.charcoalMid, marginBottom: "0.35rem" }}>
+              詳細メモ
+            </label>
+            <textarea
+              value={notes}
+              onChange={(e) => setNotes(e.target.value)}
+              placeholder="メモを追加…（Google Todoのメモと完全同期されます）"
+              rows={3}
+              style={{
+                width: "100%",
+                padding: "0.62rem 0.85rem",
+                borderRadius: "14px",
+                border: "1px solid var(--border-subtle)",
+                background: C.white,
+                fontSize: "0.84rem",
+                color: C.charcoal,
+                outline: "none",
+                fontFamily: "inherit",
+                boxSizing: "border-box",
+                boxShadow: "0 1px 2px rgba(0, 0, 0, 0.03)",
+                resize: "vertical",
+                lineHeight: 1.45,
+              }}
+            />
           </div>
         </div>
 

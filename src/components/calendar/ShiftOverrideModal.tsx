@@ -15,6 +15,7 @@ import type { ShiftInfo, ShiftOverride } from "../../types/shift";
 import type { CalendarEvent, SyncStatus } from "../../types";
 import { WORK_SHIFT_KEYWORDS, resolveShiftInfo } from "../../services/pmCycleService";
 import { C } from "../../lib/designSystem";
+import { MoonIcon } from "./ShiftBadge";
 
 export interface ShiftOverrideModalProps {
   isOpen: boolean;
@@ -208,11 +209,19 @@ export function ShiftOverrideModal({
                     fontSize: "0.86rem",
                     fontWeight: 700,
                     color: autoShift.type === "holiday" ? C.sage : C.goldDark,
+                    display: "inline-flex",
+                    alignItems: "center",
+                    gap: "0.25rem",
                   }}
                 >
-                  {autoShift.type === "holiday"
-                    ? `🌙 休日 ${autoShift.streakNumber}日目`
-                    : `✦ 出勤 ${autoShift.streakNumber}日目${autoShift.shiftName ? ` (${autoShift.shiftName})` : ""}`}
+                  {autoShift.type === "holiday" ? (
+                    <>
+                      <MoonIcon size="0.85rem" />
+                      <span>{`休日 ${autoShift.streakNumber}日目`}</span>
+                    </>
+                  ) : (
+                    `✦ 出勤 ${autoShift.streakNumber}日目${autoShift.shiftName ? ` (${autoShift.shiftName})` : ""}`
+                  )}
                 </span>
                 {currentShift.isOverridden && (
                   <span
@@ -389,7 +398,10 @@ export function ShiftOverrideModal({
             </button>
             <button
               type="button"
-              onClick={() => setType("holiday")}
+              onClick={() => {
+                setType("holiday");
+                setShiftName("");
+              }}
               style={{
                 display: "flex",
                 alignItems: "center",
@@ -407,7 +419,8 @@ export function ShiftOverrideModal({
                 transition: "all 0.15s ease",
               }}
             >
-              🌙 休日（休み）
+              <MoonIcon size="0.85rem" />
+              <span>休日（休み）</span>
             </button>
           </div>
 

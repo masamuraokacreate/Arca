@@ -115,6 +115,9 @@ vi.mock("../hooks/useGoogleAuth", () => ({
     signOut: vi.fn(),
     requestAccessToken: vi.fn().mockResolvedValue("mock-token"),
   })),
+  loadSavedToken: vi.fn(() => null),
+  saveToken: vi.fn(),
+  clearSavedToken: vi.fn(),
 }));
 
 // window.matchMedia モック（jsdom にない）

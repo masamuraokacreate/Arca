@@ -967,7 +967,7 @@ function MonthGrid({
                       width: "4px",
                       height: "4px",
                       borderRadius: "50%",
-                      background: isSelected ? "#FFF" : C.goldDark,
+                      background: isSelected ? "#FFF" : "#4A72B2",
                     }}
                     title="PMタスクあり"
                   />
@@ -1002,7 +1002,7 @@ function MonthGrid({
           <span>タスク</span>
         </div>
         <div style={{ display: "flex", alignItems: "center", gap: "0.35rem" }}>
-          <span style={{ width: "6px", height: "6px", borderRadius: "50%", background: C.goldDark }} />
+          <span style={{ width: "6px", height: "6px", borderRadius: "50%", background: "#4A72B2" }} />
           <span>PM</span>
         </div>
         {shiftMap.size > 0 && (
@@ -1212,12 +1212,25 @@ export default function Calendar() {
   useEffect(() => {
     const q = query(collection(db, "events"), orderBy("createdAt", "asc"));
     return onSnapshot(q, (snap) => {
-      setEvents(
-        snap.docs.map((d) => ({
-          id: d.id,
-          ...(d.data() as Omit<CalendarEvent, "id">),
-        }))
-      );
+      const rawEvents = snap.docs.map((d) => ({
+        id: d.id,
+        ...(d.data() as Omit<CalendarEvent, "id">),
+      }));
+
+      // 重複排除: 同一 googleEventId を持つイベントは最初の1件のみ保持
+      const seenGoogleIds = new Set<string>();
+      const deduplicated: CalendarEvent[] = [];
+      for (const ev of rawEvents) {
+        if (ev.googleEventId) {
+          if (seenGoogleIds.has(ev.googleEventId)) {
+            continue;
+          }
+          seenGoogleIds.add(ev.googleEventId);
+        }
+        deduplicated.push(ev);
+      }
+
+      setEvents(deduplicated);
     });
   }, []);
 
@@ -1268,12 +1281,6 @@ export default function Calendar() {
     }
   }, [isSignedIn, accessToken, events]);
 
-  // 初回マウント時・認証完了時に自動同期
-  useEffect(() => {
-    if (isSignedIn && accessToken) {
-      syncCalendar();
-    }
-  }, [isSignedIn, accessToken]);
 
   // ── Firestore: tasks リアルタイム購読 ──
   useEffect(() => {
@@ -1513,10 +1520,10 @@ export default function Calendar() {
   })();
 
   return (
-    <div className="w-full max-w-5xl mx-auto" style={{ padding: "2.8rem 1.5rem 6rem", boxSizing: "border-box" }}>
+    <div className="w-full max-w-5xl mx-auto" style={{ padding: "2.4rem 1.5rem 6rem", boxSizing: "border-box" }}>
       
       {/* ─── ヘッダー（統一された静かなデザイン） ─── */}
-      <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", marginBottom: "1.75rem", padding: "0 0.25rem" }}>
+      <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", marginBottom: "1.5rem", padding: "0 0.25rem" }}>
         <div>
           <p style={{ fontSize: "0.68rem", fontWeight: 650, color: C.charcoalLight, letterSpacing: "0.1em", textTransform: "uppercase", margin: 0 }}>
             CALENDAR
@@ -1644,7 +1651,7 @@ export default function Calendar() {
             <div className="arca-card" style={{ padding: "1.15rem 1.4rem", borderRadius: "20px" }}>
               <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: "0.75rem" }}>
                 <div style={{ display: "flex", alignItems: "center", gap: "0.45rem" }}>
-                  <span style={{ fontSize: "0.75rem", color: C.gold }}>✦</span>
+                  <span style={{ fontSize: "0.75rem", color: "#4A72B2" }}>✦</span>
                   <p style={{ ...sectionLabelStyle, margin: 0 }}>PM作業</p>
                 </div>
                 <span

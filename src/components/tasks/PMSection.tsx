@@ -7,7 +7,7 @@
  *  - 道具としての静けさと主体性
  *  - 今日のDay番号（例: Day 1 / 6）バッジ
  *  - タスクの完了トグル（CheckCircle）およびスキップ理由記録
- *  - 「⚙ PM計画表」ボタンから PMSettingsModal を開く
+ *  - 「PM計画表」ボタンから PMSettingsModal を開く
  */
 
 import { useState, useEffect, useCallback, useRef } from "react";
@@ -356,7 +356,7 @@ export function PMSection({ date, events }: PMSectionProps) {
             title="PM計画表・周期を設定"
           >
             <SettingsIcon />
-            <span>⚙ PM計画表</span>
+            <span>PM計画表</span>
           </button>
         </div>
 
@@ -448,7 +448,7 @@ export function PMSection({ date, events }: PMSectionProps) {
                 flexDirection: "column",
               }}
             >
-              {todayTemplates.map((item) => {
+              {todayTemplates.map((item, index) => {
                 const status = resolveItemStatus(item, logMap);
                 const log = logMap.get(item.id);
                 const isCompleted = status === "completed";
@@ -462,7 +462,7 @@ export function PMSection({ date, events }: PMSectionProps) {
                       alignItems: "flex-start",
                       gap: "0.85rem",
                       padding: "0.75rem 0",
-                      borderBottom: "1px solid rgba(0, 0, 0, 0.035)",
+                      borderBottom: index === todayTemplates.length - 1 ? "none" : "1px solid rgba(0, 0, 0, 0.035)",
                       opacity: isCompleted || isSkipped ? 0.6 : 1,
                       transition: "opacity 0.2s ease",
                     }}

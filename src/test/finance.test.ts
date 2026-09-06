@@ -31,11 +31,11 @@ describe("financeSummary - 月次支出集計ロジック", () => {
       date: "2026-08-01",
       title: "スーパーA",
       totalAmount: 3000,
-      category: "食費",
+      category: "食料品",
       paymentMethod: "Oliveカード",
       items: [
-        { id: "i1", name: "牛乳", amount: 200, category: "食費" },
-        { id: "i2", name: "肉", amount: 2800, category: "食費" },
+        { id: "i1", name: "牛乳", amount: 200, category: "食料品" },
+        { id: "i2", name: "肉", amount: 2800, category: "食料品" },
       ],
       isReconciled: true,
       createdAt: "2026-08-01T00:00:00Z",
@@ -46,7 +46,7 @@ describe("financeSummary - 月次支出集計ロジック", () => {
       date: "2026-08-05",
       title: "ドラッグストアB",
       totalAmount: 1500,
-      category: "日用品",
+      category: "日用品・消耗品",
       paymentMethod: "dカード",
       items: [],
       isReconciled: false,
@@ -58,7 +58,7 @@ describe("financeSummary - 月次支出集計ロジック", () => {
       date: "2026-08-15",
       title: "レストランC",
       totalAmount: 5500,
-      category: "食費",
+      category: "外食",
       paymentMethod: "Oliveカード",
       items: [],
       isReconciled: false,
@@ -70,7 +70,7 @@ describe("financeSummary - 月次支出集計ロジック", () => {
       date: "2026-08-20",
       title: "削除された支出",
       totalAmount: 10000,
-      category: "娯楽費",
+      category: "ゲーム",
       paymentMethod: "現金",
       items: [],
       isReconciled: false,
@@ -83,7 +83,7 @@ describe("financeSummary - 月次支出集計ロジック", () => {
       date: "2026-07-30",
       title: "7月の支出",
       totalAmount: 4000,
-      category: "交通費",
+      category: "交通・移動",
       paymentMethod: "交通系IC",
       items: [],
       isReconciled: true,
@@ -106,17 +106,21 @@ describe("financeSummary - 月次支出集計ロジック", () => {
   it("カテゴリ別金額および比率（%）が正確に算出される", () => {
     const summary = calculateMonthlySummary(dummyTransactions, "2026-08");
 
-    // 食費: t1 (3000) + t3 (5500) = 8500 (85%)
-    expect(summary.categoryBreakdown["食費"].amount).toBe(8500);
-    expect(summary.categoryBreakdown["食費"].percentage).toBe(85);
+    // 食料品: t1 (3000) = 3000 (30%)
+    expect(summary.categoryBreakdown["食料品"].amount).toBe(3000);
+    expect(summary.categoryBreakdown["食料品"].percentage).toBe(30);
 
-    // 日用品: t2 (1500) = 1500 (15%)
-    expect(summary.categoryBreakdown["日用品"].amount).toBe(1500);
-    expect(summary.categoryBreakdown["日用品"].percentage).toBe(15);
+    // 外食: t3 (5500) = 5500 (55%)
+    expect(summary.categoryBreakdown["外食"].amount).toBe(5500);
+    expect(summary.categoryBreakdown["外食"].percentage).toBe(55);
 
-    // 交通費: 0円 (0%)
-    expect(summary.categoryBreakdown["交通費"].amount).toBe(0);
-    expect(summary.categoryBreakdown["交通費"].percentage).toBe(0);
+    // 日用品・消耗品: t2 (1500) = 1500 (15%)
+    expect(summary.categoryBreakdown["日用品・消耗品"].amount).toBe(1500);
+    expect(summary.categoryBreakdown["日用品・消耗品"].percentage).toBe(15);
+
+    // 交通・移動: 0円 (0%)
+    expect(summary.categoryBreakdown["交通・移動"].amount).toBe(0);
+    expect(summary.categoryBreakdown["交通・移動"].percentage).toBe(0);
   });
 
   it("日別支出マップが正確に構築される", () => {
@@ -138,9 +142,9 @@ describe("financeSummary - 月次支出集計ロジック", () => {
 
 describe("financeStorage - CRUD 永続化操作", () => {
   it("createEmptyExpenseItem で有効な初期品目が生成される", () => {
-    const item = createEmptyExpenseItem("食費");
+    const item = createEmptyExpenseItem("食料品");
     expect(item.id).toBeDefined();
-    expect(item.category).toBe("食費");
+    expect(item.category).toBe("食料品");
     expect(item.amount).toBe(0);
   });
 

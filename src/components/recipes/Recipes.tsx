@@ -249,7 +249,7 @@ export default function Recipes({ onNavigateToLists }: RecipesProps = {}) {
           style={{
             minHeight: "100vh",
             width: "100%",
-            padding: "3.2rem clamp(1.5rem, 5vw, 4rem) 6rem",
+            padding: "2.4rem clamp(1.5rem, 5vw, 4rem) 6rem",
             boxSizing: "border-box",
           }}
         >
@@ -259,7 +259,7 @@ export default function Recipes({ onNavigateToLists }: RecipesProps = {}) {
               display: "flex",
               alignItems: "flex-end",
               justifyContent: "space-between",
-              marginBottom: "1.8rem",
+              marginBottom: "1.5rem",
               maxWidth: "1280px",
               marginInline: "auto",
               flexWrap: "wrap",

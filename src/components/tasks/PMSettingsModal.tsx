@@ -282,7 +282,7 @@ export function PMSettingsModal({
               PREVENTIVE MAINTENANCE
             </span>
             <h2 style={{ margin: "0.15rem 0 0", fontSize: "1.25rem", fontWeight: 750, color: C.charcoal, letterSpacing: "-0.02em" }}>
-              ⚙ PM計画表・タスク管理
+              PM計画表・タスク管理
             </h2>
           </div>
           <button
