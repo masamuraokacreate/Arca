@@ -12,11 +12,12 @@
 ### 🚀 2026-09-13 で達成したこと
 
 #### 1. 📐 Sprint 10.19: Dashboard 3×2 均等グリッドによる垂直・水平ライン完全整列
-- **CSS Grid による厳密な 2行3列（3×2）配置の導入 (`src/components/Dashboard.tsx`)**:
+- **CSS Grid による厳密な 2行3列（3×2）配置 ＆ PC大画面向け垂直ダイナミック拡張 (`src/components/Dashboard.tsx`)**:
   - 従来の「3つの縦カラムコンテナ」では各カラム内のカードの高さが内部コンテンツの行数や空状態によって個別に伸縮し、左右カード間で水平ライン（中間境界やフッター底辺）に段差が生じていた問題を根本解決。
-  - 外枠コンテナを `w-full max-w-[1360px] mx-auto px-4 sm:px-6 lg:px-8 py-6` に最適化。
-  - グリッド構造を `grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 lg:grid-rows-[210px_240px] gap-5 items-stretch flex-1` に刷新。
-  - 6枚のカードを独立コンポーネントとして直接グリッドの子要素に並べることで、デスクトップ表示（lg以上）時に上段（210px固定）と下段（240px固定）の行高さがCSSレベルで厳密に拘束され、上端・中間仕切りライン・フッター底辺がピクセル単位で100%一直線に整列。
+  - 外枠コンテナを `w-full max-w-[1360px] mx-auto px-4 sm:px-6 lg:px-8 py-6 min-h-[calc(100vh-4rem)]` に最適化。
+  - グリッド構造を `grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 lg:grid-rows-[minmax(280px,1fr)_minmax(330px,1.2fr)] gap-5 items-stretch flex-1 pb-4` に刷新。
+  - 画面の縦領域が余りがちだったPC大画面において、上段最低280px〜1fr、下段最低330px〜1.2fr の比率でビューポート下端付近までゆったりと下方向にダイナミック拡張。カード内の表示件数を拡大（予定・タスク・買い物・献立・ノートを最大6〜8件表示）し、クイックメモの textarea も広大な執筆スペースとして利用可能に。
+  - 6枚のカードを独立コンポーネントとして直接グリッドの子要素に並べることで、デスクトップ表示（lg以上）時に上段と下段の行高さがCSSレベルで厳密に拘束され、上端・中間仕切りライン・フッター底辺がピクセル単位で100%一直線に整列。
 - **全6枚カード共通レイアウト規約の適用**:
   - 外枠: `bg-white dark:bg-stone-900 rounded-2xl p-5 shadow-xs flex flex-col h-full overflow-hidden border-none`
   - ヘッダー: `flex items-center justify-between h-7 mb-3.5 pb-2 border-b border-stone-100 dark:border-stone-800 shrink-0`
@@ -24,20 +25,22 @@
   - フッター: `mt-auto pt-2.5 shrink-0`
   - 枠線完全排除、Core/Rules.md 準拠の微細二重シャドウ、Apple HIG スタイルの角丸と余白を徹底。絵文字は一切使用せず Lucide React アイコンのみで構成。
 - **個別カードの独立コンポーネント化 ＆ 後方互換ラッパーの整備**:
-  - **上段左 [210px]**: `CycleEventsCard` (`src/components/dashboard/ActionColumn.tsx`)
-    - 今サイクルの予定（Calendar Widget）、日付と開始時刻（または終日）の整列表示、空状態の前向きフィードバック、最下部「予定を登録」ボタン。
-  - **上段中央 [210px]**: `CycleMenuCard` (`src/components/dashboard/LifeFinanceColumn.tsx`)
-    - 今サイクルの献立（お気に入り優先・直近更新順）、サムネイル・星・材料3点プレビュー、最下部「レシピ一覧を見る」導線。
-  - **上段右 [210px]**: `RecentNotesCard` (`src/components/dashboard/KnowledgeColumn.tsx`)
-    - 直近更新ノート（見出し・本文プレビュー）、最下部「ノート一覧を見る」導線。
-  - **下段左 [240px]**: `UpcomingTasksCard` (`src/components/dashboard/ActionColumn.tsx`)
-    - 期限が近い未完了タスク（期日超過・今サイクル内・直近7日以内）、期限バッジ、タスクグループバッジ、インライン・クイックタスク追加フォーム（Enterで即時登録）。
-  - **下段中央 [240px]**: `ShoppingListCard` (`src/components/dashboard/LifeFinanceColumn.tsx`)
-    - 買い物リストに属する未購入アイテム、チェックボックストグル、インライン・買い物アイテムクイック追加フォーム（Enterで即時登録）。
-  - **下段右 [240px]**: `QuickMemoCard` (`src/components/dashboard/KnowledgeColumn.tsx`)
-    - カード内部のスペース全体に広がる Scratchpad textarea。
+  - **上段左**: `CycleEventsCard` (`src/components/dashboard/ActionColumn.tsx`)
+    - 今サイクルの予定（Calendar Widget）、最大8件の予定プレビュー、日付と開始時刻（または終日）の整列表示、空状態の前向きフィードバック、最下部「予定を登録」ボタン。
+  - **上段中央**: `CycleMenuCard` (`src/components/dashboard/LifeFinanceColumn.tsx`)
+    - 今サイクルの献立（お気に入り優先・直近更新順、最大6件）、サムネイル・星・材料3点プレビュー、最下部「レシピ一覧を見る」導線。
+  - **上段右**: `RecentNotesCard` (`src/components/dashboard/KnowledgeColumn.tsx`)
+    - 直近更新ノート（最大6件、見出し・本文プレビュー）、最下部「ノート一覧を見る」導線。
+  - **下段左**: `UpcomingTasksCard` (`src/components/dashboard/ActionColumn.tsx`)
+    - 期限が近い未完了タスク（期日超過・今サイクル内・直近7日以内、最大8件）、期限バッジ、タスクグループバッジ、インライン・クイックタスク追加フォーム（Enterで即時登録）。
+  - **下段中央**: `ShoppingListCard` (`src/components/dashboard/LifeFinanceColumn.tsx`)
+    - 買い物リストに属する未購入アイテム（最大8件）、チェックボックストグル、インライン・買い物アイテムクイック追加フォーム（Enterで即時登録）。
+  - **下段右**: `QuickMemoCard` (`src/components/dashboard/KnowledgeColumn.tsx`)
+    - カード内部のスペース全体に広がる広大な Scratchpad textarea。
     - 入力内容を `localStorage`（`arca_quick_memo_draft`）に 400ms debounce で自動保存。
     - ヘッダー右端に控えめな「保存済み」/「保存中...」リアルタイムステータス表示。
+    - フッターに文字数に応じたクリア機能。
+  - 従来の `ActionColumn`, `LifeFinanceColumn`, `KnowledgeColumn` も内部でこれらカードを束ねる後方互換ラッパーとして維持。
     - フッターに文字数に応じたクリア機能。
   - 従来の `ActionColumn`, `LifeFinanceColumn`, `KnowledgeColumn` も内部でこれらカードを束ねる後方互換ラッパーとして維持。
 

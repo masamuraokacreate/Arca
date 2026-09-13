@@ -45,7 +45,7 @@ export const CycleMenuCard: React.FC<CycleMenuCardProps> = ({
       if (!a.favorite && b.favorite) return 1;
       return b.updatedAt - a.updatedAt;
     })
-    .slice(0, 3);
+    .slice(0, 6);
 
   return (
     <div
@@ -172,7 +172,7 @@ export const ShoppingListCard: React.FC<ShoppingListCardProps> = ({
   // 買い物リストに属するタスク（未購入優先）
   const shoppingTasks = tasks.filter((t) => t.listId === "shopping");
   const uncompletedItems = shoppingTasks.filter((t) => !t.completed);
-  const displayItems = uncompletedItems.slice(0, 4);
+  const displayItems = uncompletedItems.slice(0, 8);
 
   const handleQuickAddSubmit = async (e: React.FormEvent) => {
     e.preventDefault();

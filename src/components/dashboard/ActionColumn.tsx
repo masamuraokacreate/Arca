@@ -55,7 +55,7 @@ export const CycleEventsCard: React.FC<CycleEventsCardProps> = ({
       return (a.startTime || "").localeCompare(b.startTime || "");
     });
 
-  const displayEvents = cycleEvents.slice(0, 4);
+  const displayEvents = cycleEvents.slice(0, 8);
 
   return (
     <div
@@ -189,7 +189,7 @@ export const UpcomingTasksCard: React.FC<UpcomingTasksCardProps> = ({
       return dateA.localeCompare(dateB);
     });
 
-  const displayTasks = upcomingCycleTasks.slice(0, 4);
+  const displayTasks = upcomingCycleTasks.slice(0, 8);
 
   const getGroupInfo = useCallback(
     (listId?: string) => {

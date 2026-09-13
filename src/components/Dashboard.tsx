@@ -395,7 +395,7 @@ export default function Dashboard({ onNavigate, onSelectNote }: DashboardProps =
   });
 
   return (
-    <div className="w-full max-w-[1360px] mx-auto px-4 sm:px-6 lg:px-8 py-6 min-h-screen box-border flex flex-col">
+    <div className="w-full max-w-[1360px] mx-auto px-4 sm:px-6 lg:px-8 py-6 min-h-[calc(100vh-4rem)] box-border flex flex-col">
       {/* ─── 最上部ヘッダー: 日付 & 出勤ステータスバッジ ─── */}
       <div className="flex items-center justify-between mb-5 px-1 flex-wrap gap-3">
         <div>
@@ -454,9 +454,9 @@ export default function Dashboard({ onNavigate, onSelectNote }: DashboardProps =
         onOpenShiftModal={() => setShowShiftOverrideModal(true)}
       />
 
-      {/* ─── 3×2 均等グリッド構成 (PC: 3列2行 / タブレット: 2列 / モバイル: 1列) ─── */}
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 lg:grid-rows-[210px_240px] gap-5 items-stretch flex-1">
-        {/* 【上段 1: 今サイクルの予定 (210px)】 */}
+      {/* ─── 3×2 均等グリッド構成 (PC: 3列2行 画面下までゆったり広がるレイアウト / タブレット: 2列 / モバイル: 1列) ─── */}
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 lg:grid-rows-[minmax(280px,1fr)_minmax(330px,1.2fr)] gap-5 items-stretch flex-1 pb-4">
+        {/* 【上段 1: 今サイクルの予定】 */}
         <CycleEventsCard
           cycleRange={cycleRange}
           events={events}
@@ -464,20 +464,20 @@ export default function Dashboard({ onNavigate, onSelectNote }: DashboardProps =
           onAddEvent={() => setShowAddEventModal(true)}
         />
 
-        {/* 【上段 2: 今サイクルの献立 (210px)】 */}
+        {/* 【上段 2: 今サイクルの献立】 */}
         <CycleMenuCard
           recipes={recipes}
           onNavigate={onNavigate}
         />
 
-        {/* 【上段 3: 最近のノート (210px)】 */}
+        {/* 【上段 3: 最近のノート】 */}
         <RecentNotesCard
           notes={notes}
           onNavigate={onNavigate}
           onSelectNote={onSelectNote}
         />
 
-        {/* 【下段 1: 期限の近いタスク (240px)】 */}
+        {/* 【下段 1: 期限の近いタスク】 */}
         <UpcomingTasksCard
           cycleRange={cycleRange}
           tasks={tasks}
@@ -488,7 +488,7 @@ export default function Dashboard({ onNavigate, onSelectNote }: DashboardProps =
           onNavigate={onNavigate}
         />
 
-        {/* 【下段 2: 買い物リスト (240px)】 */}
+        {/* 【下段 2: 買い物リスト】 */}
         <ShoppingListCard
           tasks={tasks}
           onToggleTask={toggleTask}
@@ -496,7 +496,7 @@ export default function Dashboard({ onNavigate, onSelectNote }: DashboardProps =
           onNavigate={onNavigate}
         />
 
-        {/* 【下段 3: クイックメモ (240px)】 */}
+        {/* 【下段 3: クイックメモ】 */}
         <QuickMemoCard />
       </div>
     </div>
