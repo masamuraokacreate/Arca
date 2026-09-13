@@ -41,7 +41,7 @@ export const RecentNotesCard: React.FC<RecentNotesCardProps> = ({
   const activeNotes = notes.filter(
     (n) => !n.isDeleted && (n.title.trim() !== "" || n.content.trim() !== "")
   );
-  const recentNotes = activeNotes.slice(0, 6);
+  const recentNotes = activeNotes.slice(0, 4);
 
   return (
     <div
