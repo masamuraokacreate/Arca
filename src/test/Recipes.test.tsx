@@ -155,7 +155,7 @@ describe("RecipeDetail コンポーネント", () => {
     expect(handleBack).toHaveBeenCalledTimes(1);
   });
 
-  it("個別材料の買い物リスト追加ボタンをクリックするとトーストが表示される", async () => {
+  it("材料リストは通常時に個別カートアイコンが表示されず、すっきりと一覧表示される", () => {
     render(
       <RecipeDetail
         recipe={mockRecipe}
@@ -166,15 +166,17 @@ describe("RecipeDetail コンポーネント", () => {
       />
     );
 
-    const addBtn = screen.getByLabelText("豚肩ロース薄切り肉を買い物リストに追加");
-    await userEvent.click(addBtn);
-
+    // 通常時は個別カート追加ボタンが存在しない
     expect(
-      await screen.findByText(/「豚肩ロース薄切り肉 300g」を買い物リストに追加しました/)
+      screen.queryByLabelText("豚肩ロース薄切り肉を買い物リストに追加")
+    ).not.toBeInTheDocument();
+    // 「選択して買い物リストへ」ボタンが存在する
+    expect(
+      screen.getByRole("button", { name: /選択して買い物リストへ/ })
     ).toBeInTheDocument();
   });
 
-  it("「まとめて買い物リストへ」ボタンで一括選択モーダルが開き、選択して送信できる", async () => {
+  it("「選択して買い物リストへ」で選択モードに切り替わり、チェックした材料を一括追加できる", async () => {
     const handleNavLists = vi.fn();
     render(
       <RecipeDetail
@@ -187,28 +189,53 @@ describe("RecipeDetail コンポーネント", () => {
       />
     );
 
-    const batchOpenBtn = screen.getByRole("button", {
-      name: /まとめて買い物リストへ/,
+    // 選択モードに切り替え
+    const selectModeBtn = screen.getByRole("button", {
+      name: /選択して買い物リストへ/,
     });
-    await userEvent.click(batchOpenBtn);
+    await userEvent.click(selectModeBtn);
 
-    expect(
-      screen.getByText("買い物リストへまとめて追加")
-    ).toBeInTheDocument();
-
+    // チェックボックスが出現し、実行ボタンに切り替わる
     const submitBtn = screen.getByRole("button", {
-      name: /件を買い物リストに追加/,
+      name: /この内容を買い物リストへ \(3件\)/,
     });
+    expect(submitBtn).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "キャンセル" })).toBeInTheDocument();
+
+    // 実行
     await userEvent.click(submitBtn);
 
+    // トースト表示
     expect(
-      await screen.findByText(/買い物リストに 3 件追加しました/)
+      await screen.findByText(/3件を買い物リストに追加しました/)
     ).toBeInTheDocument();
 
     // トースト内の「リストを開く」ボタンをクリック
     const openListBtn = screen.getByRole("button", { name: "リストを開く" });
     await userEvent.click(openListBtn);
     expect(handleNavLists).toHaveBeenCalledTimes(1);
+  });
+
+  it("選択モードでキャンセルを押すと通常モードへ復帰する", async () => {
+    render(
+      <RecipeDetail
+        recipe={mockRecipe}
+        onBack={vi.fn()}
+        onEdit={vi.fn()}
+        onDelete={vi.fn()}
+        onToggleFavorite={vi.fn()}
+      />
+    );
+
+    await userEvent.click(
+      screen.getByRole("button", { name: /選択して買い物リストへ/ })
+    );
+    expect(screen.getByRole("button", { name: "キャンセル" })).toBeInTheDocument();
+
+    await userEvent.click(screen.getByRole("button", { name: "キャンセル" }));
+    expect(
+      screen.getByRole("button", { name: /選択して買い物リストへ/ })
+    ).toBeInTheDocument();
   });
 });
 

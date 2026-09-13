@@ -33,7 +33,11 @@ import {
   subscribeMonthlyReconcileStatuses,
   toggleMonthlyCardReconcile,
 } from "../../services/csvReconcileService";
-import { fetchAndProcessCardNoticeEmails } from "../../services/gmailFinanceService";
+import {
+  fetchAndProcessCardNoticeEmails,
+  mergeExpenseTransactions,
+  cleanupDuplicateExpenses,
+} from "../../services/gmailFinanceService";
 import { useGoogleAuth } from "../../hooks/useGoogleAuth";
 import { loadSavedToken } from "../../services/googleAuth";
 import {
@@ -45,6 +49,7 @@ import {
   formatCurrency,
 } from "../../utils/financeSummary";
 import { TransactionList } from "./TransactionList";
+import { TransactionMergeModal } from "./TransactionMergeModal";
 import { TransactionModal } from "./TransactionModal";
 import { FinanceAnalytics } from "./FinanceAnalytics";
 import { ReconcileWorkbench } from "./ReconcileWorkbench";
@@ -53,6 +58,7 @@ import { ConfirmModal } from "../notes/ConfirmModal";
 import { useUndoToast } from "../../hooks/useUndoToast";
 import { UndoToast } from "../common/UndoToast";
 import { C } from "../../lib/designSystem";
+import { Plus, Camera, Mail, SlidersHorizontal, X } from "lucide-react";
 
 export default function Finance() {
   const [transactions, setTransactions] = useState<ExpenseTransaction[]>([]);
@@ -76,6 +82,9 @@ export default function Finance() {
   const [isScannerOpen, setIsScannerOpen] = useState(false);
   const [editingTransaction, setEditingTransaction] = useState<ExpenseTransaction | null>(null);
   const [transactionToDelete, setTransactionToDelete] = useState<ExpenseTransaction | null>(null);
+  const [mergePair, setMergePair] = useState<{ manualOrOcrTx: ExpenseTransaction; emailTx: ExpenseTransaction } | null>(null);
+  const [isFilterModalOpen, setIsFilterModalOpen] = useState(false);
+  const [isFabMenuOpen, setIsFabMenuOpen] = useState(false);
 
   // 共通トースト
   const { toast, showUndoToast, dismissToast, triggerUndo } = useUndoToast<ExpenseTransaction>();
@@ -92,6 +101,23 @@ export default function Finance() {
       unsubTx();
       unsubReconcile();
     };
+  }, []);
+
+  // ── 既存重複レコード（同一 emailMessageId）の自動一括クリーンアップ ──
+  const hasCleanedUpRef = useRef(false);
+  useEffect(() => {
+    if (hasCleanedUpRef.current) return;
+    hasCleanedUpRef.current = true;
+
+    cleanupDuplicateExpenses()
+      .then((res) => {
+        if (res.deletedCount > 0) {
+          setTransactions((prev) => prev.filter((t) => !res.duplicateIds.includes(t.id)));
+        }
+      })
+      .catch((err) => {
+        console.warn("[Finance] Duplicate cleanup skipped or failed:", err);
+      });
   }, []);
 
   // ── 起動時バックグラウンド自動同期 (直近5分以内の多重実行防止 ＆ サイレント処理) ──
@@ -126,7 +152,7 @@ export default function Finance() {
           const parts: string[] = [];
           if (result.createdCount > 0) parts.push(`${result.createdCount}件の速報決済を取り込み`);
           if (result.linkedCount > 0) parts.push(`${result.linkedCount}件を既存レコードに紐付け`);
-          setSyncToastMessage(`✉️ ${parts.join("、")}しました`);
+          setSyncToastMessage(`${parts.join("、")}しました`);
           setTimeout(() => setSyncToastMessage(null), 4500);
         }
       })
@@ -269,15 +295,15 @@ export default function Finance() {
         const parts: string[] = [];
         if (result.createdCount > 0) parts.push(`${result.createdCount}件の新規決済を作成`);
         if (result.linkedCount > 0) parts.push(`${result.linkedCount}件を既存レコードに紐付け`);
-        setSyncToastMessage(`✉️ ${parts.join("、")}しました`);
+        setSyncToastMessage(`${parts.join("、")}しました`);
       } else if (result.totalFound > 0) {
-        setSyncToastMessage("✉️ 利用速報メールはすべて取り込み済みです");
+        setSyncToastMessage("利用速報メールはすべて取り込み済みです");
       } else {
-        setSyncToastMessage("✉️ 直近14日以内の新しい利用速報メールはありませんでした");
+        setSyncToastMessage("直近30日以内の新しい利用速報メールはありませんでした");
       }
     } catch (err: any) {
       console.error("Gmail sync error:", err);
-      setSyncToastMessage(`✉️ 速報メール取得に失敗: ${err?.message || "認証エラー"}`);
+      setSyncToastMessage(`速報メール取得に失敗: ${err?.message || "認証エラー"}`);
     } finally {
       setIsFetchingEmails(false);
       setTimeout(() => setSyncToastMessage(null), 4500);
@@ -400,6 +426,24 @@ export default function Finance() {
     await setTransactionReconciled(tx.id, !tx.isReconciled);
   };
 
+  // ── 手動突合・マージハンドラー ──
+  const handleMergeTransactions = async (targetTx: ExpenseTransaction, sourceTx: ExpenseTransaction) => {
+    try {
+      const merged = await mergeExpenseTransactions(targetTx, sourceTx);
+      showUndoToast({
+        message: `「${merged.title}」(${formatCurrency(merged.totalAmount)}) を1件の確定レコードに統合しました`,
+        item: sourceTx,
+        onUndo: async (restored) => {
+          await restoreExpenseTransaction(restored.id);
+        },
+      });
+    } catch (err: any) {
+      console.error("[Finance] Failed to merge transactions:", err);
+      setSyncToastMessage(`決済の結合に失敗しました: ${err?.message || "エラー"}`);
+      setTimeout(() => setSyncToastMessage(null), 4000);
+    }
+  };
+
   const handleReconcile = async (transactionId: string, csvRowId: string) => {
     await setTransactionReconciled(transactionId, true, csvRowId);
   };
@@ -422,11 +466,10 @@ export default function Finance() {
       />
 
       <div
-        className="arca-view-in"
+        className="arca-view-in p-3.5 pb-28 sm:p-8 sm:pb-24"
         style={{
           minHeight: "100vh",
           width: "100%",
-          padding: "2.4rem clamp(1.5rem, 5vw, 4rem) 6rem",
           boxSizing: "border-box",
         }}
       >
@@ -434,19 +477,19 @@ export default function Finance() {
         <div
           style={{
             display: "flex",
-            alignItems: "flex-end",
+            alignItems: "center",
             justifyContent: "space-between",
-            marginBottom: "1.5rem",
+            marginBottom: "0.85rem",
             maxWidth: "1280px",
             marginInline: "auto",
-            flexWrap: "wrap",
-            gap: "1rem",
+            gap: "0.8rem",
           }}
         >
+          {/* アプリ名・見出し */}
           <div>
             <p
               style={{
-                fontSize: "0.68rem",
+                fontSize: "0.65rem",
                 fontWeight: 650,
                 letterSpacing: "0.1em",
                 textTransform: "uppercase",
@@ -458,30 +501,21 @@ export default function Finance() {
             </p>
             <h1
               style={{
-                fontSize: "1.75rem",
+                fontSize: "1.35rem",
                 fontWeight: 750,
                 color: C.charcoal,
-                margin: "0.15rem 0 0",
-                letterSpacing: "-0.03em",
+                margin: "0.1rem 0 0",
+                letterSpacing: "-0.02em",
                 lineHeight: 1.2,
               }}
+              className="sm:text-2xl"
             >
               家計・支出管理
             </h1>
-            <p style={{ fontSize: "0.78rem", color: C.charcoalLight, margin: "0.3rem 0 0" }}>
-              支出合計: <strong style={{ color: C.charcoal }}>{formatCurrency(monthlySummary.totalExpense)}</strong>
-              <span style={{ margin: "0 0.4rem" }}>•</span>
-              {monthlySummary.transactionCount}件の決済
-              {unreconciledCount > 0 && (
-                <span style={{ marginLeft: "0.4rem", color: C.goldDark, fontWeight: 600 }}>
-                  （未突合 {unreconciledCount}件）
-                </span>
-              )}
-            </p>
           </div>
 
-          {/* 月移動 ＆ 新規作成ボタン */}
-          <div style={{ display: "flex", alignItems: "center", gap: "0.6rem", flexWrap: "wrap" }}>
+          {/* 右側: 月ナビゲーター ＆ デスクトップ用ボタングループ */}
+          <div style={{ display: "flex", alignItems: "center", gap: "0.5rem" }}>
             {/* 月ナビゲーター */}
             <div
               style={{
@@ -491,7 +525,7 @@ export default function Finance() {
                 border: "1px solid var(--border-subtle)",
                 borderRadius: "10px",
                 padding: "2px",
-                boxShadow: "0 1px 4px rgba(0,0,0,0.04)",
+                boxShadow: "0 1px 3px rgba(0,0,0,0.03)",
               }}
             >
               <button
@@ -500,7 +534,7 @@ export default function Finance() {
                 style={{
                   background: "transparent",
                   border: "none",
-                  padding: "0.4rem 0.55rem",
+                  padding: "0.35rem 0.45rem",
                   cursor: "pointer",
                   color: C.charcoalMid,
                   borderRadius: "8px",
@@ -508,20 +542,21 @@ export default function Finance() {
                   alignItems: "center",
                 }}
               >
-                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
+                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
                   <polyline points="15 18 9 12 15 6" />
                 </svg>
               </button>
 
               <span
                 style={{
-                  fontSize: "0.82rem",
+                  fontSize: "0.78rem",
                   fontWeight: 700,
                   color: C.charcoal,
-                  padding: "0.2rem 0.6rem",
+                  padding: "0.15rem 0.45rem",
                   letterSpacing: "0.02em",
-                  minWidth: "78px",
+                  minWidth: "70px",
                   textAlign: "center",
+                  whiteSpace: "nowrap",
                 }}
               >
                 {formatMonthLabel(selectedMonth)}
@@ -533,7 +568,7 @@ export default function Finance() {
                 style={{
                   background: "transparent",
                   border: "none",
-                  padding: "0.4rem 0.55rem",
+                  padding: "0.35rem 0.45rem",
                   cursor: "pointer",
                   color: C.charcoalMid,
                   borderRadius: "8px",
@@ -541,7 +576,7 @@ export default function Finance() {
                   alignItems: "center",
                 }}
               >
-                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
+                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
                   <polyline points="9 18 15 12 9 6" />
                 </svg>
               </button>
@@ -552,310 +587,403 @@ export default function Finance() {
                   background: "var(--bg-nav-track)",
                   border: "none",
                   borderRadius: "6px",
-                  padding: "0.25rem 0.5rem",
-                  fontSize: "0.7rem",
+                  padding: "0.22rem 0.45rem",
+                  fontSize: "0.68rem",
                   fontWeight: 650,
                   color: C.charcoalMid,
                   cursor: "pointer",
                   marginRight: "2px",
+                  whiteSpace: "nowrap",
                 }}
               >
                 今月
               </button>
             </div>
 
-            {/* Gmail速報メール取得ボタン */}
-            <button
-              onClick={handleSyncGmailNotices}
-              disabled={isFetchingEmails}
-              data-testid="gmail-sync-btn"
-              style={{
-                display: "flex",
-                alignItems: "center",
-                gap: "0.45rem",
-                background: "var(--bg-card-solid)",
-                border: "1px solid var(--border-subtle)",
-                borderRadius: "11px",
-                padding: "0.62rem 0.95rem",
-                cursor: isFetchingEmails ? "not-allowed" : "pointer",
-                color: C.charcoal,
-                fontSize: "0.82rem",
-                fontWeight: 650,
-                letterSpacing: "0.02em",
-                boxShadow: "0 1px 4px rgba(0, 0, 0, 0.04)",
-                transition: "background 0.15s, transform 0.15s",
-                opacity: isFetchingEmails ? 0.75 : 1,
-              }}
-              onMouseEnter={(e) => {
-                if (!isFetchingEmails) {
-                  e.currentTarget.style.background = C.goldFaint;
-                  e.currentTarget.style.transform = "translateY(-1px)";
-                }
-              }}
-              onMouseLeave={(e) => {
-                if (!isFetchingEmails) {
-                  e.currentTarget.style.background = "var(--bg-card-solid)";
-                  e.currentTarget.style.transform = "translateY(0)";
-                }
-              }}
-              title="三井住友/Olive・dカード・イオン・ViewカードのGmail利用速報メールから支出下書きを即時生成"
-            >
-              {isFetchingEmails ? (
-                <span
-                  style={{
-                    display: "inline-block",
-                    width: "14px",
-                    height: "14px",
-                    border: "2px solid rgba(0,0,0,0.15)",
-                    borderTopColor: C.goldDark,
-                    borderRadius: "50%",
-                    animation: "spin 0.8s linear infinite",
-                  }}
-                />
-              ) : (
-                <span style={{ fontSize: "0.85rem", color: C.goldDark }}>✉️</span>
-              )}
-              <span>{isFetchingEmails ? "メール取得中..." : "速報メール取得"}</span>
-            </button>
+            {/* デスクトップ表示（hidden sm:flex）のボタン群: PC操作性とテスト互換性を完全維持 */}
+            <div className="hidden sm:flex items-center gap-2">
+              <button
+                onClick={handleSyncGmailNotices}
+                disabled={isFetchingEmails}
+                data-testid="gmail-sync-btn"
+                style={{
+                  display: "flex",
+                  alignItems: "center",
+                  gap: "0.4rem",
+                  background: "var(--bg-card-solid)",
+                  border: "1px solid var(--border-subtle)",
+                  borderRadius: "10px",
+                  padding: "0.5rem 0.85rem",
+                  cursor: isFetchingEmails ? "not-allowed" : "pointer",
+                  color: C.charcoal,
+                  fontSize: "0.8rem",
+                  fontWeight: 650,
+                  boxShadow: "0 1px 3px rgba(0, 0, 0, 0.04)",
+                  transition: "background 0.15s",
+                  opacity: isFetchingEmails ? 0.75 : 1,
+                  whiteSpace: "nowrap",
+                }}
+              >
+                {isFetchingEmails ? (
+                  <span
+                    style={{
+                      display: "inline-block",
+                      width: "14px",
+                      height: "14px",
+                      border: "2px solid rgba(0,0,0,0.15)",
+                      borderTopColor: C.goldDark,
+                      borderRadius: "50%",
+                      animation: "spin 0.8s linear infinite",
+                    }}
+                  />
+                ) : (
+                  <Mail size={14} color={C.goldDark} />
+                )}
+                <span>{isFetchingEmails ? "メール取得中..." : "速報メール取得"}</span>
+              </button>
 
-            {/* レシートカメラ読取ボタン */}
-            <button
-              onClick={() => setIsScannerOpen(true)}
-              style={{
-                display: "flex",
-                alignItems: "center",
-                gap: "0.45rem",
-                background: "var(--bg-card-solid)",
-                border: "1px solid var(--border-subtle)",
-                borderRadius: "11px",
-                padding: "0.62rem 1.05rem",
-                cursor: "pointer",
-                color: C.charcoal,
-                fontSize: "0.82rem",
-                fontWeight: 650,
-                letterSpacing: "0.02em",
-                boxShadow: "0 1px 4px rgba(0, 0, 0, 0.04)",
-                transition: "background 0.15s, transform 0.15s",
-              }}
-              onMouseEnter={(e) => {
-                e.currentTarget.style.background = C.goldFaint;
-                e.currentTarget.style.transform = "translateY(-1px)";
-              }}
-              onMouseLeave={(e) => {
-                e.currentTarget.style.background = "var(--bg-card-solid)";
-                e.currentTarget.style.transform = "translateY(0)";
-              }}
-              title="iPhoneのカメラまたは写真からレシートを自動解析"
-            >
-              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" style={{ color: C.goldDark }}>
-                <path d="M14.5 4h-5L7 7H4a2 2 0 0 0-2 2v9a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2V9a2 2 0 0 0-2-2h-3l-2.5-3z" />
-                <circle cx="12" cy="13" r="3" />
-              </svg>
-              <span>レシート読取</span>
-            </button>
+              <button
+                onClick={() => setIsScannerOpen(true)}
+                style={{
+                  display: "flex",
+                  alignItems: "center",
+                  gap: "0.4rem",
+                  background: "var(--bg-card-solid)",
+                  border: "1px solid var(--border-subtle)",
+                  borderRadius: "10px",
+                  padding: "0.5rem 0.85rem",
+                  cursor: "pointer",
+                  color: C.charcoal,
+                  fontSize: "0.8rem",
+                  fontWeight: 650,
+                  boxShadow: "0 1px 3px rgba(0, 0, 0, 0.04)",
+                  whiteSpace: "nowrap",
+                }}
+              >
+                <Camera size={14} color={C.goldDark} />
+                <span>レシート読取</span>
+              </button>
 
-            {/* 新規支出作成ボタン */}
-            <button
-              onClick={handleOpenNew}
-              style={{
-                display: "flex",
-                alignItems: "center",
-                gap: "0.45rem",
-                background: C.gold,
-                border: "none",
-                borderRadius: "11px",
-                padding: "0.62rem 1.25rem",
-                cursor: "pointer",
-                color: "#FDFCFA",
-                fontSize: "0.82rem",
-                fontWeight: 650,
-                letterSpacing: "0.02em",
-                boxShadow: "0 2px 10px rgba(197, 160, 89, 0.3)",
-                transition: "transform 0.15s ease",
-              }}
-              onMouseEnter={(e) => {
-                e.currentTarget.style.transform = "translateY(-1px)";
-              }}
-              onMouseLeave={(e) => {
-                e.currentTarget.style.transform = "translateY(0)";
-              }}
-            >
-              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
-                <line x1="12" y1="5" x2="12" y2="19" />
-                <line x1="5" y1="12" x2="19" y2="12" />
-              </svg>
-              <span>支出を記録</span>
-            </button>
+              <button
+                onClick={handleOpenNew}
+                style={{
+                  display: "flex",
+                  alignItems: "center",
+                  gap: "0.4rem",
+                  background: C.gold,
+                  border: "none",
+                  borderRadius: "10px",
+                  padding: "0.5rem 1.05rem",
+                  cursor: "pointer",
+                  color: "#FDFCFA",
+                  fontSize: "0.8rem",
+                  fontWeight: 650,
+                  boxShadow: "0 2px 8px rgba(197, 160, 89, 0.3)",
+                  whiteSpace: "nowrap",
+                }}
+              >
+                <Plus size={15} strokeWidth={2.5} />
+                <span>支出を記録</span>
+              </button>
+            </div>
           </div>
         </div>
 
-        {/* ── 月次サマリー上部の安心インジケータバナー ── */}
-        {currentMonthReconciledInfo.isReconciled && (
-          <div
-            style={{
-              maxWidth: "1280px",
-              marginInline: "auto",
-              marginBottom: "1.2rem",
-              background: "rgba(82, 121, 111, 0.10)",
-              border: "1px solid rgba(82, 121, 111, 0.22)",
-              borderRadius: "12px",
-              padding: "0.55rem 1rem",
-              display: "flex",
-              alignItems: "center",
-              justifyContent: "space-between",
-              gap: "0.6rem",
-              animation: "arca-view-in 0.2s ease-out",
-            }}
-          >
-            <div style={{ display: "flex", alignItems: "center", gap: "0.5rem" }}>
+        {/* ── Apple HIG風カード型サマリー ── */}
+        <div
+          style={{
+            maxWidth: "1280px",
+            marginInline: "auto",
+            marginBottom: "0.85rem",
+            background: "var(--bg-card-solid)",
+            borderRadius: "16px",
+            padding: "0.85rem 1.15rem",
+            boxShadow: "0 1px 3px rgba(0,0,0,0.04), 0 4px 12px rgba(0,0,0,0.03)",
+            border: "1px solid var(--border-subtle)",
+            display: "flex",
+            flexDirection: "column",
+            gap: "0.4rem",
+          }}
+        >
+          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: "0.5rem" }}>
+            {/* メイン: 今月の支出合計 */}
+            <div>
+              <span style={{ fontSize: "0.72rem", color: C.charcoalLight, fontWeight: 600 }}>
+                {formatMonthLabel(selectedMonth)}の支出合計
+              </span>
+              <div
+                style={{
+                  fontSize: "1.55rem",
+                  fontWeight: 800,
+                  color: C.charcoal,
+                  letterSpacing: "-0.03em",
+                  lineHeight: 1.15,
+                  marginTop: "0.08rem",
+                }}
+              >
+                {formatCurrency(monthlySummary.totalExpense)}
+              </div>
+            </div>
+
+            {/* サブ: 取引件数 ＆ 未突合バッジ */}
+            <div style={{ display: "flex", alignItems: "center", gap: "0.45rem", flexWrap: "wrap" }}>
+              <span
+                style={{
+                  fontSize: "0.74rem",
+                  fontWeight: 650,
+                  color: C.charcoalMid,
+                  background: "var(--bg-nav-track)",
+                  padding: "0.2rem 0.55rem",
+                  borderRadius: "8px",
+                  whiteSpace: "nowrap",
+                }}
+              >
+                {monthlySummary.transactionCount}件の決済
+              </span>
+
+              {unreconciledCount > 0 && (
+                <span
+                  style={{
+                    fontSize: "0.72rem",
+                    fontWeight: 700,
+                    color: "#B45309",
+                    background: "rgba(245, 158, 11, 0.12)",
+                    border: "1px solid rgba(245, 158, 11, 0.25)",
+                    padding: "0.2rem 0.55rem",
+                    borderRadius: "8px",
+                    whiteSpace: "nowrap",
+                  }}
+                >
+                  未確認 {unreconciledCount}件
+                </span>
+              )}
+            </div>
+          </div>
+
+          {/* 安心インジケータ（照合完了時） */}
+          {currentMonthReconciledInfo.isReconciled && (
+            <div
+              style={{
+                display: "flex",
+                alignItems: "center",
+                gap: "0.4rem",
+                paddingTop: "0.35rem",
+                borderTop: "1px solid rgba(0,0,0,0.04)",
+                fontSize: "0.74rem",
+                color: "#2E7D32",
+                fontWeight: 650,
+              }}
+            >
               <span
                 style={{
                   display: "inline-flex",
                   alignItems: "center",
                   justifyContent: "center",
-                  width: "18px",
-                  height: "18px",
+                  width: "15px",
+                  height: "15px",
                   borderRadius: "50%",
                   background: C.sage,
                   color: "#FFF",
-                  fontSize: "0.68rem",
-                  fontWeight: 700,
+                  fontSize: "0.62rem",
+                  fontWeight: 800,
                   flexShrink: 0,
                 }}
               >
                 ✓
               </span>
-              <span style={{ fontSize: "0.8rem", fontWeight: 650, color: "#3B5E53", letterSpacing: "0.01em" }}>
-                ✦ {currentMonthReconciledInfo.label}
+              <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                {currentMonthReconciledInfo.label}
               </span>
             </div>
-            <span style={{ fontSize: "0.68rem", color: C.charcoalLight }}>
-              {formatMonthLabel(selectedMonth)} 照合完了
-            </span>
-          </div>
-        )}
+          )}
+        </div>
 
-        {/* ── メインタブバー（支出一覧 / 分析・グラフ / クレカ明細突合） ── */}
+        {/* ── メインタブバー（横幅均等セグメントコントロール） ── */}
         <div
           style={{
             maxWidth: "1280px",
             marginInline: "auto",
-            marginBottom: "1.2rem",
+            marginBottom: "0.75rem",
             display: "flex",
-            alignItems: "center",
-            justifyContent: "space-between",
-            flexWrap: "wrap",
-            gap: "1rem",
+            background: "var(--bg-nav-track)",
+            padding: "3px",
+            borderRadius: "12px",
+            gap: "3px",
+            width: "100%",
+            boxSizing: "border-box",
           }}
         >
-          {/* タブ切り替えピル */}
-          <div
+          <button
+            onClick={() => setActiveTab("transactions")}
             style={{
+              flex: 1,
+              background: activeTab === "transactions" ? "var(--bg-nav-pill)" : "transparent",
+              border: "none",
+              borderRadius: "9px",
+              padding: "0.42rem 0.25rem",
+              fontSize: "0.76rem",
+              fontWeight: activeTab === "transactions" ? 700 : 550,
+              color: activeTab === "transactions" ? "var(--text-main)" : "#555",
+              cursor: "pointer",
+              boxShadow: activeTab === "transactions" ? "0 1px 3px rgba(0,0,0,0.06)" : "none",
+              transition: "all 0.15s ease",
+              whiteSpace: "nowrap",
               display: "flex",
-              background: "var(--bg-nav-track)",
-              padding: "3px",
-              borderRadius: "9999px",
-              gap: "2px",
+              alignItems: "center",
+              justifyContent: "center",
+              gap: "0.25rem",
             }}
           >
-            <button
-              onClick={() => setActiveTab("transactions")}
-              style={{
-                background: activeTab === "transactions" ? "var(--bg-nav-pill)" : "transparent",
-                border: "none",
-                borderRadius: "9999px",
-                padding: "0.42rem 1.05rem",
-                fontSize: "0.78rem",
-                fontWeight: activeTab === "transactions" ? 650 : 500,
-                color: activeTab === "transactions" ? "var(--text-main)" : C.charcoalLight,
-                cursor: "pointer",
-                boxShadow: activeTab === "transactions" ? "0 1px 3px rgba(0,0,0,0.06)" : "none",
-                transition: "all 0.15s ease",
-              }}
-            >
-              支出一覧 ({filteredTransactions.length})
-            </button>
+            <span>支出一覧</span>
+            <span style={{ fontSize: "0.68rem", opacity: 0.85 }}>({filteredTransactions.length})</span>
+          </button>
 
-            <button
-              onClick={() => setActiveTab("analytics")}
-              style={{
-                background: activeTab === "analytics" ? "var(--bg-nav-pill)" : "transparent",
-                border: "none",
-                borderRadius: "9999px",
-                padding: "0.42rem 1.05rem",
-                fontSize: "0.78rem",
-                fontWeight: activeTab === "analytics" ? 650 : 500,
-                color: activeTab === "analytics" ? "var(--text-main)" : C.charcoalLight,
-                cursor: "pointer",
-                boxShadow: activeTab === "analytics" ? "0 1px 3px rgba(0,0,0,0.06)" : "none",
-                transition: "all 0.15s ease",
-              }}
-            >
-              分析・グラフ
-            </button>
+          <button
+            onClick={() => setActiveTab("analytics")}
+            style={{
+              flex: 1,
+              background: activeTab === "analytics" ? "var(--bg-nav-pill)" : "transparent",
+              border: "none",
+              borderRadius: "9px",
+              padding: "0.42rem 0.25rem",
+              fontSize: "0.76rem",
+              fontWeight: activeTab === "analytics" ? 700 : 550,
+              color: activeTab === "analytics" ? "var(--text-main)" : "#555",
+              cursor: "pointer",
+              boxShadow: activeTab === "analytics" ? "0 1px 3px rgba(0,0,0,0.06)" : "none",
+              transition: "all 0.15s ease",
+              whiteSpace: "nowrap",
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+            }}
+          >
+            <span>分析・グラフ</span>
+          </button>
 
-            <button
-              onClick={() => setActiveTab("reconcile")}
+          <button
+            onClick={() => setActiveTab("reconcile")}
+            style={{
+              flex: 1,
+              background: activeTab === "reconcile" ? "var(--bg-nav-pill)" : "transparent",
+              border: "none",
+              borderRadius: "9px",
+              padding: "0.42rem 0.25rem",
+              fontSize: "0.76rem",
+              fontWeight: activeTab === "reconcile" ? 700 : 550,
+              color: activeTab === "reconcile" ? "var(--text-main)" : "#555",
+              cursor: "pointer",
+              boxShadow: activeTab === "reconcile" ? "0 1px 3px rgba(0,0,0,0.06)" : "none",
+              transition: "all 0.15s ease",
+              whiteSpace: "nowrap",
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+              gap: "0.3rem",
+            }}
+          >
+            <span>クレカ明細確認</span>
+            {unreconciledCount > 0 && (
+              <span
+                style={{
+                  background: C.gold,
+                  color: "#FFF",
+                  fontSize: "0.6rem",
+                  padding: "0.05rem 0.35rem",
+                  borderRadius: "9999px",
+                  fontWeight: 750,
+                  lineHeight: 1.2,
+                }}
+              >
+                {unreconciledCount}
+              </span>
+            )}
+          </button>
+        </div>
+
+        {/* ── 検索バー ＆ フィルター（1段集約） ── */}
+        {activeTab === "transactions" && (
+          <div
+            style={{
+              maxWidth: "1280px",
+              marginInline: "auto",
+              marginBottom: "0.65rem",
+              display: "flex",
+              alignItems: "center",
+              gap: "0.5rem",
+              width: "100%",
+            }}
+          >
+            {/* 検索入力欄（右端にフィルターボタン） */}
+            <div
               style={{
-                background: activeTab === "reconcile" ? "var(--bg-nav-pill)" : "transparent",
-                border: "none",
-                borderRadius: "9999px",
-                padding: "0.42rem 1.05rem",
-                fontSize: "0.78rem",
-                fontWeight: activeTab === "reconcile" ? 650 : 500,
-                color: activeTab === "reconcile" ? "var(--text-main)" : C.charcoalLight,
-                cursor: "pointer",
-                boxShadow: activeTab === "reconcile" ? "0 1px 3px rgba(0,0,0,0.06)" : "none",
-                transition: "all 0.15s ease",
+                position: "relative",
+                flex: 1,
                 display: "flex",
                 alignItems: "center",
-                gap: "0.35rem",
               }}
             >
-              <span>クレカ明細突合</span>
-              {unreconciledCount > 0 && (
-                <span
+              <input
+                type="text"
+                placeholder="店舗・品名・メモ検索..."
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                style={{
+                  width: "100%",
+                  background: "var(--bg-card-solid)",
+                  border: "1px solid var(--border-subtle)",
+                  borderRadius: "10px",
+                  padding: "0.45rem 2.2rem 0.45rem 0.75rem",
+                  fontSize: "0.8rem",
+                  color: C.charcoal,
+                  boxShadow: "0 1px 3px rgba(0,0,0,0.03)",
+                  outline: "none",
+                  boxSizing: "border-box",
+                }}
+              />
+              {/* 検索クリアボタン */}
+              {searchQuery && (
+                <button
+                  onClick={() => setSearchQuery("")}
                   style={{
-                    background: C.gold,
-                    color: "#FFF",
-                    fontSize: "0.62rem",
-                    padding: "0.05rem 0.35rem",
-                    borderRadius: "9999px",
-                    fontWeight: 700,
+                    position: "absolute",
+                    right: "2.4rem",
+                    background: "transparent",
+                    border: "none",
+                    cursor: "pointer",
+                    color: C.charcoalLight,
+                    padding: "0.2rem",
+                    display: "flex",
+                    alignItems: "center",
                   }}
                 >
-                  {unreconciledCount}
-                </span>
+                  <X size={14} />
+                </button>
               )}
-            </button>
-          </div>
 
-          {/* 支出一覧タブ時のフィルターコントロール群 */}
-          {activeTab === "transactions" && (
-            <div style={{ display: "flex", alignItems: "center", gap: "0.6rem", flexWrap: "wrap" }}>
-              {/* 検索バー */}
-              <div style={{ position: "relative", width: "200px" }}>
-                <input
-                  type="text"
-                  placeholder="店舗・品名・メモ検索..."
-                  value={searchQuery}
-                  onChange={(e) => setSearchQuery(e.target.value)}
-                  style={{
-                    width: "100%",
-                    background: "var(--bg-card-solid)",
-                    border: "1px solid var(--border-subtle)",
-                    borderRadius: "8px",
-                    padding: "0.45rem 0.6rem",
-                    fontSize: "0.78rem",
-                    color: C.charcoal,
-                    boxShadow: "0 1px 3px rgba(0,0,0,0.03)",
-                    outline: "none",
-                    boxSizing: "border-box",
-                  }}
-                />
-              </div>
+              {/* モバイル用 Filter アイコンボタン（押下で詳細絞り込みモーダルを開く） */}
+              <button
+                onClick={() => setIsFilterModalOpen(true)}
+                className="flex sm:hidden items-center justify-center"
+                style={{
+                  position: "absolute",
+                  right: "0.35rem",
+                  background: selectedCategory !== "all" || reconcileFilter !== "all" ? C.goldFaint : "transparent",
+                  border: "none",
+                  borderRadius: "7px",
+                  width: "28px",
+                  height: "28px",
+                  cursor: "pointer",
+                  color: selectedCategory !== "all" || reconcileFilter !== "all" ? C.goldDark : C.charcoalMid,
+                }}
+                title="詳細絞り込み"
+              >
+                <SlidersHorizontal size={15} />
+              </button>
+            </div>
 
-              {/* カテゴリセレクタ */}
+            {/* デスクトップ用インラインセレクタ（hidden sm:flex） */}
+            <div className="hidden sm:flex items-center gap-2">
               <select
                 value={selectedCategory}
                 onChange={(e) => setSelectedCategory(e.target.value)}
@@ -863,7 +991,7 @@ export default function Finance() {
                   background: "var(--bg-card-solid)",
                   border: "1px solid var(--border-subtle)",
                   borderRadius: "8px",
-                  padding: "0.45rem 0.65rem",
+                  padding: "0.42rem 0.65rem",
                   fontSize: "0.76rem",
                   color: C.charcoalMid,
                   cursor: "pointer",
@@ -879,31 +1007,6 @@ export default function Finance() {
                 ))}
               </select>
 
-              {/* 支払方法セレクタ */}
-              <select
-                value={selectedPaymentMethod}
-                onChange={(e) => setSelectedPaymentMethod(e.target.value)}
-                style={{
-                  background: "var(--bg-card-solid)",
-                  border: "1px solid var(--border-subtle)",
-                  borderRadius: "8px",
-                  padding: "0.45rem 0.65rem",
-                  fontSize: "0.76rem",
-                  color: C.charcoalMid,
-                  cursor: "pointer",
-                  boxShadow: "0 1px 3px rgba(0,0,0,0.03)",
-                  outline: "none",
-                }}
-              >
-                <option value="all">全支払方法</option>
-                {PAYMENT_METHODS.map((pm) => (
-                  <option key={pm} value={pm}>
-                    {pm}
-                  </option>
-                ))}
-              </select>
-
-              {/* 突合状態フィルタ */}
               <select
                 value={reconcileFilter}
                 onChange={(e) => setReconcileFilter(e.target.value as any)}
@@ -911,7 +1014,7 @@ export default function Finance() {
                   background: "var(--bg-card-solid)",
                   border: "1px solid var(--border-subtle)",
                   borderRadius: "8px",
-                  padding: "0.45rem 0.65rem",
+                  padding: "0.42rem 0.65rem",
                   fontSize: "0.76rem",
                   color: C.charcoalMid,
                   cursor: "pointer",
@@ -919,26 +1022,26 @@ export default function Finance() {
                   outline: "none",
                 }}
               >
-                <option value="all">突合: すべて</option>
-                <option value="reconciled">突合済のみ</option>
-                <option value="unreconciled">未突合のみ</option>
+                <option value="all">確認: すべて</option>
+                <option value="reconciled">確認済のみ</option>
+                <option value="unreconciled">未確認のみ</option>
               </select>
             </div>
-          )}
-        </div>
+          </div>
+        )}
 
-        {/* ── カード別絞込フィルター（Pill Tabs ＆ 照合バッジ） ── */}
+        {/* ── カード別絞込フィルター（横スクロールチップス ＆ 照合バッジ） ── */}
         {activeTab === "transactions" && (
           <div
             style={{
               maxWidth: "1280px",
               marginInline: "auto",
-              marginBottom: "1rem",
+              marginBottom: "0.85rem",
               display: "flex",
               alignItems: "center",
-              gap: "0.45rem",
+              gap: "0.4rem",
               overflowX: "auto",
-              paddingBottom: "4px",
+              paddingBottom: "3px",
               scrollbarWidth: "none",
             }}
             className="no-scrollbar"
@@ -949,13 +1052,13 @@ export default function Finance() {
                 display: "inline-flex",
                 alignItems: "center",
                 gap: "0.35rem",
-                padding: "0.36rem 0.85rem",
+                padding: "0.35rem 0.8rem",
                 borderRadius: "9999px",
                 border: "none",
-                fontSize: "0.76rem",
+                fontSize: "0.75rem",
                 fontWeight: selectedPaymentMethod === "all" ? 650 : 500,
                 background: selectedPaymentMethod === "all" ? "var(--bg-nav-pill)" : "var(--bg-nav-track)",
-                color: selectedPaymentMethod === "all" ? "var(--text-main)" : C.charcoalLight,
+                color: selectedPaymentMethod === "all" ? "var(--text-main)" : "#555",
                 boxShadow: selectedPaymentMethod === "all" ? "0 1px 4px rgba(0,0,0,0.08)" : "none",
                 cursor: "pointer",
                 whiteSpace: "nowrap",
@@ -980,14 +1083,14 @@ export default function Finance() {
                   style={{
                     display: "inline-flex",
                     alignItems: "center",
-                    gap: "0.45rem",
-                    padding: "0.36rem 0.85rem",
+                    gap: "0.4rem",
+                    padding: "0.35rem 0.8rem",
                     borderRadius: "9999px",
                     border: "none",
-                    fontSize: "0.76rem",
+                    fontSize: "0.75rem",
                     fontWeight: isSelected ? 650 : 500,
                     background: isSelected ? "var(--bg-nav-pill)" : "var(--bg-nav-track)",
-                    color: isSelected ? "var(--text-main)" : C.charcoalLight,
+                    color: isSelected ? "var(--text-main)" : "#4A4A4A",
                     boxShadow: isSelected ? "0 1px 4px rgba(0,0,0,0.08)" : "none",
                     cursor: "pointer",
                     whiteSpace: "nowrap",
@@ -1016,7 +1119,7 @@ export default function Finance() {
                       fontSize: "0.65rem",
                       fontWeight: 750,
                       background: isReconciled ? C.sage : "rgba(128, 128, 128, 0.18)",
-                      color: isReconciled ? "#FFFFFF" : C.charcoalLight,
+                      color: isReconciled ? "#FFFFFF" : "#555",
                       transition: "all 0.15s ease",
                       cursor: "pointer",
                       lineHeight: 1,
@@ -1039,6 +1142,8 @@ export default function Finance() {
               onDuplicate={handleDuplicate}
               onDelete={(tx) => setTransactionToDelete(tx)}
               onToggleReconciled={handleToggleReconciled}
+              onMerge={handleMergeTransactions}
+              onOpenMergeModal={(manualTx, emailTx) => setMergePair({ manualOrOcrTx: manualTx, emailTx })}
             />
           )}
 
@@ -1094,6 +1199,343 @@ export default function Finance() {
         }}
         onCancel={() => setTransactionToDelete(null)}
       />
+
+      {/* ── 結合・確定確認モーダル ── */}
+      <TransactionMergeModal
+        isOpen={Boolean(mergePair)}
+        manualOrOcrTx={mergePair?.manualOrOcrTx || null}
+        emailTx={mergePair?.emailTx || null}
+        onClose={() => setMergePair(null)}
+        onConfirmMerge={handleMergeTransactions}
+      />
+
+      {/* ── 親指操作FAB (Floating Action Button) ── */}
+      <div
+        className="fixed sm:hidden"
+        style={{
+          bottom: "calc(1.5rem + env(safe-area-inset-bottom, 0px))",
+          right: "1.25rem",
+          zIndex: 100,
+        }}
+      >
+        <button
+          onClick={() => setIsFabMenuOpen((prev) => !prev)}
+          data-testid="fab-main-button"
+          aria-label={isFabMenuOpen ? "メニューを閉じる" : "アクションメニューを開く"}
+          style={{
+            width: "56px",
+            height: "56px",
+            borderRadius: "50%",
+            background: C.gold,
+            color: "#FFF",
+            border: "none",
+            boxShadow: "0 4px 16px rgba(197, 160, 89, 0.42)",
+            cursor: "pointer",
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            transition: "transform 0.2s cubic-bezier(0.16, 1, 0.3, 1)",
+            transform: isFabMenuOpen ? "rotate(45deg)" : "rotate(0deg)",
+          }}
+        >
+          <Plus size={26} strokeWidth={2.6} />
+        </button>
+      </div>
+
+      {/* ── FAB展開アクションシート（半透明オーバーレイ付き） ── */}
+      {isFabMenuOpen && (
+        <div
+          style={{
+            position: "fixed",
+            inset: 0,
+            zIndex: 99,
+            backgroundColor: "rgba(0, 0, 0, 0.38)",
+            backdropFilter: "blur(4px)",
+            WebkitBackdropFilter: "blur(4px)",
+            display: "flex",
+            flexDirection: "column",
+            justifyContent: "flex-end",
+            padding: "1rem 1.25rem calc(5.5rem + env(safe-area-inset-bottom, 0px))",
+            animation: "arca-fade-in 0.15s ease-out",
+          }}
+          onClick={() => setIsFabMenuOpen(false)}
+        >
+          <div
+            style={{
+              display: "flex",
+              flexDirection: "column",
+              gap: "0.6rem",
+              alignItems: "flex-end",
+              animation: "arca-modal-pop 0.2s cubic-bezier(0.16, 1, 0.3, 1)",
+            }}
+            onClick={(e) => e.stopPropagation()}
+          >
+            {/* 1. 手動で支出を記録 */}
+            <button
+              onClick={() => {
+                setIsFabMenuOpen(false);
+                handleOpenNew();
+              }}
+              style={{
+                display: "flex",
+                alignItems: "center",
+                gap: "0.6rem",
+                background: "var(--bg-card-solid)",
+                border: "1px solid var(--border-subtle)",
+                borderRadius: "9999px",
+                padding: "0.65rem 1.15rem",
+                fontSize: "0.85rem",
+                fontWeight: 650,
+                color: C.charcoal,
+                boxShadow: "0 4px 14px rgba(0, 0, 0, 0.12)",
+                cursor: "pointer",
+              }}
+            >
+              <div
+                style={{
+                  width: "28px",
+                  height: "28px",
+                  borderRadius: "50%",
+                  background: C.gold,
+                  color: "#FFF",
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "center",
+                }}
+              >
+                <Plus size={16} strokeWidth={2.6} />
+              </div>
+              <span>手動で支出を記録</span>
+            </button>
+
+            {/* 2. レシートを読み取る (OCR) */}
+            <button
+              onClick={() => {
+                setIsFabMenuOpen(false);
+                setIsScannerOpen(true);
+              }}
+              style={{
+                display: "flex",
+                alignItems: "center",
+                gap: "0.6rem",
+                background: "var(--bg-card-solid)",
+                border: "1px solid var(--border-subtle)",
+                borderRadius: "9999px",
+                padding: "0.65rem 1.15rem",
+                fontSize: "0.85rem",
+                fontWeight: 650,
+                color: C.charcoal,
+                boxShadow: "0 4px 14px rgba(0, 0, 0, 0.12)",
+                cursor: "pointer",
+              }}
+            >
+              <div
+                style={{
+                  width: "28px",
+                  height: "28px",
+                  borderRadius: "50%",
+                  background: C.goldFaint,
+                  color: C.goldDark,
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "center",
+                }}
+              >
+                <Camera size={15} strokeWidth={2.2} />
+              </div>
+              <span>レシートを読み取る (OCR)</span>
+            </button>
+
+            {/* 3. カード速報メールを取得 */}
+            <button
+              onClick={() => {
+                setIsFabMenuOpen(false);
+                handleSyncGmailNotices();
+              }}
+              disabled={isFetchingEmails}
+              style={{
+                display: "flex",
+                alignItems: "center",
+                gap: "0.6rem",
+                background: "var(--bg-card-solid)",
+                border: "1px solid var(--border-subtle)",
+                borderRadius: "9999px",
+                padding: "0.65rem 1.15rem",
+                fontSize: "0.85rem",
+                fontWeight: 650,
+                color: C.charcoal,
+                boxShadow: "0 4px 14px rgba(0, 0, 0, 0.12)",
+                cursor: isFetchingEmails ? "not-allowed" : "pointer",
+                opacity: isFetchingEmails ? 0.75 : 1,
+              }}
+            >
+              <div
+                style={{
+                  width: "28px",
+                  height: "28px",
+                  borderRadius: "50%",
+                  background: C.goldFaint,
+                  color: C.goldDark,
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "center",
+                }}
+              >
+                <Mail size={15} strokeWidth={2.2} />
+              </div>
+              <span>{isFetchingEmails ? "メール取得中..." : "カード速報メールを取得"}</span>
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* ── モバイル詳細絞り込みモーダル ── */}
+      {isFilterModalOpen && (
+        <div
+          style={{
+            position: "fixed",
+            inset: 0,
+            zIndex: 150,
+            backgroundColor: "rgba(0, 0, 0, 0.4)",
+            backdropFilter: "blur(4px)",
+            WebkitBackdropFilter: "blur(4px)",
+            display: "flex",
+            alignItems: "flex-end",
+            animation: "arca-fade-in 0.15s ease-out",
+          }}
+          onClick={() => setIsFilterModalOpen(false)}
+        >
+          <div
+            className="arca-card w-full"
+            style={{
+              background: "var(--bg-card-solid)",
+              borderTopLeftRadius: "20px",
+              borderTopRightRadius: "20px",
+              padding: "1.2rem 1.4rem calc(1.5rem + env(safe-area-inset-bottom, 0px))",
+              boxShadow: "var(--shadow-modal)",
+              maxHeight: "80vh",
+              overflowY: "auto",
+              animation: "arca-modal-pop 0.2s cubic-bezier(0.16, 1, 0.3, 1)",
+            }}
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: "1rem" }}>
+              <div style={{ display: "flex", alignItems: "center", gap: "0.4rem" }}>
+                <SlidersHorizontal size={16} color={C.goldDark} />
+                <h3 style={{ fontSize: "0.95rem", fontWeight: 700, color: C.charcoal, margin: 0 }}>
+                  詳細絞り込み
+                </h3>
+              </div>
+              <button
+                onClick={() => setIsFilterModalOpen(false)}
+                style={{
+                  background: "transparent",
+                  border: "none",
+                  cursor: "pointer",
+                  color: C.charcoalLight,
+                  padding: "0.2rem",
+                }}
+              >
+                <X size={18} />
+              </button>
+            </div>
+
+            <div style={{ display: "flex", flexDirection: "column", gap: "1rem" }}>
+              {/* カテゴリ */}
+              <div>
+                <label style={{ fontSize: "0.75rem", fontWeight: 700, color: C.charcoalMid, display: "block", marginBottom: "0.4rem" }}>
+                  カテゴリ
+                </label>
+                <select
+                  value={selectedCategory}
+                  onChange={(e) => setSelectedCategory(e.target.value)}
+                  style={{
+                    width: "100%",
+                    background: "var(--bg-nav-track)",
+                    border: "1px solid var(--border-subtle)",
+                    borderRadius: "10px",
+                    padding: "0.55rem 0.75rem",
+                    fontSize: "0.82rem",
+                    color: C.charcoal,
+                    outline: "none",
+                  }}
+                >
+                  <option value="all">すべてのカテゴリ</option>
+                  {EXPENSE_CATEGORIES.map((cat) => (
+                    <option key={cat} value={cat}>
+                      {cat}
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              {/* 確認状態 */}
+              <div>
+                <label style={{ fontSize: "0.75rem", fontWeight: 700, color: C.charcoalMid, display: "block", marginBottom: "0.4rem" }}>
+                  確認状態
+                </label>
+                <select
+                  value={reconcileFilter}
+                  onChange={(e) => setReconcileFilter(e.target.value as any)}
+                  style={{
+                    width: "100%",
+                    background: "var(--bg-nav-track)",
+                    border: "1px solid var(--border-subtle)",
+                    borderRadius: "10px",
+                    padding: "0.55rem 0.75rem",
+                    fontSize: "0.82rem",
+                    color: C.charcoal,
+                    outline: "none",
+                  }}
+                >
+                  <option value="all">すべて表示</option>
+                  <option value="reconciled">確認済みのみ</option>
+                  <option value="unreconciled">未確認のみ</option>
+                </select>
+              </div>
+
+              {/* リセット & 適用ボタン */}
+              <div style={{ display: "flex", gap: "0.6rem", marginTop: "0.5rem" }}>
+                <button
+                  onClick={() => {
+                    setSelectedCategory("all");
+                    setReconcileFilter("all");
+                  }}
+                  style={{
+                    flex: 1,
+                    background: "transparent",
+                    border: "1px solid var(--border-subtle)",
+                    borderRadius: "10px",
+                    padding: "0.6rem",
+                    fontSize: "0.82rem",
+                    fontWeight: 650,
+                    color: C.charcoalMid,
+                    cursor: "pointer",
+                  }}
+                >
+                  リセット
+                </button>
+                <button
+                  onClick={() => setIsFilterModalOpen(false)}
+                  style={{
+                    flex: 1,
+                    background: C.gold,
+                    border: "none",
+                    borderRadius: "10px",
+                    padding: "0.6rem",
+                    fontSize: "0.82rem",
+                    fontWeight: 700,
+                    color: "#FFF",
+                    cursor: "pointer",
+                  }}
+                >
+                  閉じる
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* ── 共通 Undo トースト ── */}
       <UndoToast toast={toast} onUndo={triggerUndo} onDismiss={dismissToast} />

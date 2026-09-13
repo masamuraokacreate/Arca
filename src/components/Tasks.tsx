@@ -55,6 +55,7 @@ import { PMSection } from "./tasks/PMSection";
 import { TaskDetailModal } from "./tasks/TaskDetailModal";
 import { ConfirmModal } from "./notes/ConfirmModal";
 import { ListIcon, ListIconPicker, type ListIconId } from "./common/ListIcon";
+import { ChevronDown, ChevronRight, Plus, X } from "lucide-react";
 
 export interface TasksProps {
   initialTab?: string;
@@ -120,14 +121,6 @@ function CheckCircle({ completed, size = "1.3rem" }: { completed: boolean; size?
   );
 }
 
-function CalendarIcon() {
-  return (
-    <svg viewBox="0 0 24 24" fill="none" strokeWidth={1.8} stroke="currentColor" style={{ width: "0.75rem", height: "0.75rem", flexShrink: 0 }}>
-      <path strokeLinecap="round" strokeLinejoin="round" d="M6.75 3v2.25M17.25 3v2.253 18.75h18a2.25 2.25 0 0 0 2.25-2.25V7.5a2.25 2.25 0 0 0-2.25-2.25H3.75A2.25 2.25 0 0 0 1.5 7.5v11.25c0 1.243 1.007 2.25 2.25 2.25Z" />
-      <path strokeLinecap="round" strokeLinejoin="round" d="M1.5 10.5h21" />
-    </svg>
-  );
-}
 
 function ZapIcon() {
   return (
@@ -149,27 +142,6 @@ function TrashIcon() {
   return (
     <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0 }}>
       <path d="M3 6h18m-2 0v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6m3 0V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2" />
-    </svg>
-  );
-}
-
-function ChevronRight({ isRotated = false }: { isRotated?: boolean }) {
-  return (
-    <svg
-      viewBox="0 0 24 24"
-      fill="none"
-      strokeWidth={2.4}
-      stroke="currentColor"
-      style={{
-        width: "0.68rem",
-        height: "0.68rem",
-        flexShrink: 0,
-        transform: isRotated ? "rotate(90deg)" : "rotate(0deg)",
-        transformOrigin: "center",
-        transition: "transform 0.18s cubic-bezier(0.16, 1, 0.3, 1)",
-      }}
-    >
-      <path strokeLinecap="round" strokeLinejoin="round" d="m8.25 4.5 7.5 7.5-7.5 7.5" />
     </svg>
   );
 }
@@ -279,7 +251,7 @@ function SyncBadge({
   );
 }
 
-// ---------- タスク行（クリック領域完全分離・直接削除ボタン・サブタスク開閉付き） ----------
+// ---------- タスク行（クリック領域完全分離・直接削除ボタン・サブタスクインセットコンテナ付き） ----------
 function TaskRow({
   task,
   isLast = false,
@@ -287,6 +259,7 @@ function TaskRow({
   onClickRow,
   onDelete,
   onToggleSubTask,
+  onAddSubTask,
 }: {
   task: Task;
   isLast?: boolean;
@@ -294,12 +267,40 @@ function TaskRow({
   onClickRow: (task: Task) => void;
   onDelete: (task: Task) => void;
   onToggleSubTask?: (task: Task, subTaskId: string) => void;
+  onAddSubTask?: (task: Task, title: string) => void;
 }) {
   const [isCollapsed, setIsCollapsed] = useState(false);
+  const [isAddingSubtask, setIsAddingSubtask] = useState(false);
+  const [newSubtaskTitle, setNewSubtaskTitle] = useState("");
+  const inputRef = useRef<HTMLInputElement>(null);
+
   const subtasks = task.subtasks || [];
   const totalSubtasks = subtasks.length;
   const completedSubtasks = subtasks.filter((s) => s.completed).length;
   const hasSubtasks = totalSubtasks > 0;
+
+  const handleStartAdd = (e: React.MouseEvent) => {
+    e.stopPropagation();
+    setIsAddingSubtask(true);
+    setTimeout(() => inputRef.current?.focus(), 50);
+  };
+
+  const handleCancelAdd = (e?: React.MouseEvent) => {
+    e?.stopPropagation();
+    setIsAddingSubtask(false);
+    setNewSubtaskTitle("");
+  };
+
+  const handleSubmitSubtask = (e?: React.FormEvent) => {
+    e?.preventDefault();
+    e?.stopPropagation();
+    const trimmed = newSubtaskTitle.trim();
+    if (trimmed && onAddSubTask) {
+      onAddSubTask(task, trimmed);
+    }
+    setNewSubtaskTitle("");
+    setIsAddingSubtask(false);
+  };
 
   return (
     <li
@@ -343,14 +344,15 @@ function TaskRow({
               margin: "-0.2rem",
               cursor: "pointer",
               lineHeight: 0,
-              width: "22px",
-              height: "22px",
+              width: "32px",
+              height: "32px",
               display: "flex",
               alignItems: "center",
               justifyContent: "center",
               flexShrink: 0,
               color: C.charcoalLight,
-              borderRadius: "5px",
+              borderRadius: "6px",
+              appearance: "none",
               transition: "color 0.15s ease, background 0.15s ease",
             }}
             onMouseEnter={(e) => {
@@ -363,10 +365,10 @@ function TaskRow({
             }}
             title={isCollapsed ? "サブタスクを展開" : "サブタスクを折りたたむ"}
           >
-            <ChevronRight isRotated={!isCollapsed} />
+            {isCollapsed ? <ChevronRight size={15} /> : <ChevronDown size={15} />}
           </button>
         ) : (
-          <div style={{ width: "22px", height: "22px", flexShrink: 0 }} />
+          <div style={{ width: "32px", height: "32px", flexShrink: 0 }} />
         )}
 
         {/* ─── 左端: 丸いチェックボタン（e.stopPropagation で完了トグルのみ） ─── */}
@@ -384,12 +386,13 @@ function TaskRow({
             margin: "-0.25rem",
             cursor: "pointer",
             lineHeight: 0,
-            minWidth: "32px",
-            minHeight: "32px",
+            minWidth: "36px",
+            minHeight: "36px",
             display: "flex",
             alignItems: "center",
             justifyContent: "center",
             flexShrink: 0,
+            appearance: "none",
           }}
           title={task.completed ? "未完了に戻す" : "完了にする"}
         >
@@ -400,6 +403,7 @@ function TaskRow({
         <span
           style={{
             flex: 1,
+            minWidth: 0,
             fontSize: "0.9rem",
             fontWeight: 450,
             color: task.completed ? C.charcoalLight : C.charcoal,
@@ -418,18 +422,20 @@ function TaskRow({
           {/* サブタスク進捗ピルバッジ */}
           {totalSubtasks > 0 && !task.completed && (
             <span
+              data-testid="subtask-progress-badge"
               style={{
-                fontSize: "0.68rem",
+                fontSize: "0.7rem",
                 fontWeight: 600,
-                color: completedSubtasks === totalSubtasks ? C.sage : C.charcoalLight,
+                color: completedSubtasks === totalSubtasks ? C.sage : C.charcoalMid,
                 background: completedSubtasks === totalSubtasks ? "rgba(107, 142, 111, 0.12)" : "rgba(0, 0, 0, 0.04)",
-                padding: "0.15rem 0.45rem",
+                padding: "0.15rem 0.5rem",
                 borderRadius: "6px",
                 whiteSpace: "nowrap",
+                letterSpacing: "0.02em",
               }}
               title={`${totalSubtasks}件中${completedSubtasks}件完了`}
             >
-              {completedSubtasks}/{totalSubtasks}
+              {completedSubtasks}/{totalSubtasks} 完了
             </span>
           )}
 
@@ -470,7 +476,11 @@ function TaskRow({
           {/* 期限バッジ */}
           {task.dueDate && !task.completed && (
             <span
+              data-testid="due-date-badge"
               style={{
+                display: "inline-flex",
+                alignItems: "center",
+                gap: "0.2rem",
                 fontSize: "0.72rem",
                 letterSpacing: "0.02em",
                 fontWeight: 500,
@@ -485,7 +495,7 @@ function TaskRow({
             </span>
           )}
 
-          {/* 一覧からの直接削除ボタン */}
+          {/* 行内ゴミ箱ボタン（クリック領域完全分離・即時削除） */}
           <button
             type="button"
             data-testid="task-delete-btn"
@@ -499,21 +509,21 @@ function TaskRow({
               padding: "0.3rem",
               margin: "-0.2rem",
               cursor: "pointer",
-              color: C.charcoalLight,
-              opacity: 0.6,
               lineHeight: 0,
+              color: C.charcoalXLight,
+              borderRadius: "5px",
               display: "flex",
               alignItems: "center",
               justifyContent: "center",
-              transition: "opacity 0.15s ease, color 0.15s ease",
+              transition: "color 0.15s ease, background 0.15s ease",
             }}
             onMouseEnter={(e) => {
-              (e.currentTarget as HTMLElement).style.opacity = "1";
               (e.currentTarget as HTMLElement).style.color = C.danger;
+              (e.currentTarget as HTMLElement).style.background = "rgba(224, 86, 74, 0.08)";
             }}
             onMouseLeave={(e) => {
-              (e.currentTarget as HTMLElement).style.opacity = "0.6";
-              (e.currentTarget as HTMLElement).style.color = C.charcoalLight;
+              (e.currentTarget as HTMLElement).style.color = C.charcoalXLight;
+              (e.currentTarget as HTMLElement).style.background = "none";
             }}
             title="タスクを削除"
           >
@@ -522,17 +532,20 @@ function TaskRow({
         </div>
       </div>
 
-      {/* ─── インデントされたサブタスク一覧（デフォルト展開・トグル開閉） ─── */}
+      {/* ─── インセット・コンテナ方式のサブタスク領域（デフォルト展開・トグル開閉） ─── */}
       {hasSubtasks && !isCollapsed && (
         <ul
           data-testid="subtask-list"
           style={{
             listStyle: "none",
-            margin: 0,
-            padding: "0 0.6rem 0.55rem 2.85rem",
+            margin: "0.35rem 0.5rem 0.6rem 2.2rem",
+            padding: "0.5rem 0.65rem",
             display: "flex",
             flexDirection: "column",
-            gap: "0.2rem",
+            gap: "0.25rem",
+            backgroundColor: "var(--bg-nav-track, rgba(0, 0, 0, 0.03))",
+            borderRadius: "12px",
+            border: "none",
           }}
         >
           {subtasks.map((st) => (
@@ -544,14 +557,15 @@ function TaskRow({
                 display: "flex",
                 alignItems: "center",
                 gap: "0.55rem",
-                padding: "0.32rem 0.45rem",
-                borderRadius: "6px",
+                minHeight: "40px",
+                padding: "0.35rem 0.45rem",
+                borderRadius: "8px",
                 cursor: "pointer",
                 opacity: st.completed || task.completed ? 0.55 : 1,
                 transition: "opacity 0.15s ease, background 0.15s ease",
               }}
               onMouseEnter={(e) => {
-                (e.currentTarget as HTMLElement).style.background = "rgba(0, 0, 0, 0.025)";
+                (e.currentTarget as HTMLElement).style.background = "rgba(0, 0, 0, 0.035)";
               }}
               onMouseLeave={(e) => {
                 (e.currentTarget as HTMLElement).style.background = "transparent";
@@ -568,14 +582,17 @@ function TaskRow({
                 style={{
                   background: "none",
                   border: "none",
-                  padding: "0.15rem",
-                  margin: "-0.15rem",
+                  padding: "0.2rem",
+                  margin: "-0.2rem",
                   cursor: "pointer",
                   lineHeight: 0,
+                  minWidth: "32px",
+                  minHeight: "32px",
                   display: "flex",
                   alignItems: "center",
                   justifyContent: "center",
                   flexShrink: 0,
+                  appearance: "none",
                 }}
                 title={st.completed ? "未完了に戻す" : "完了にする"}
               >
@@ -586,9 +603,10 @@ function TaskRow({
               <span
                 style={{
                   flex: 1,
-                  fontSize: "0.82rem",
+                  minWidth: 0,
+                  fontSize: "0.85rem",
                   fontWeight: 400,
-                  color: st.completed ? C.charcoalLight : C.charcoal,
+                  color: st.completed ? C.charcoalLight : C.charcoalMid,
                   textDecoration: st.completed ? "line-through" : "none",
                   letterSpacing: "0.01em",
                   lineHeight: 1.35,
@@ -599,6 +617,122 @@ function TaskRow({
               </span>
             </li>
           ))}
+
+          {/* ─── インラインサブタスク追加導線 ─── */}
+          <li
+            style={{
+              marginTop: "0.15rem",
+              padding: "0.1rem 0.2rem",
+            }}
+          >
+            {isAddingSubtask ? (
+              <form
+                onSubmit={handleSubmitSubtask}
+                onClick={(e) => e.stopPropagation()}
+                style={{
+                  display: "flex",
+                  alignItems: "center",
+                  gap: "0.4rem",
+                  background: "var(--bg-card-solid, #ffffff)",
+                  padding: "0.3rem 0.5rem",
+                  borderRadius: "8px",
+                  boxShadow: "0 1px 3px rgba(0, 0, 0, 0.06)",
+                }}
+              >
+                <input
+                  ref={inputRef}
+                  type="text"
+                  value={newSubtaskTitle}
+                  onChange={(e) => setNewSubtaskTitle(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === "Escape") {
+                      handleCancelAdd();
+                    }
+                  }}
+                  placeholder="サブタスクを入力..."
+                  style={{
+                    flex: 1,
+                    minWidth: 0,
+                    border: "none",
+                    outline: "none",
+                    fontSize: "0.85rem",
+                    color: C.charcoal,
+                    background: "transparent",
+                    padding: "0.2rem 0.3rem",
+                  }}
+                />
+                <button
+                  type="submit"
+                  disabled={!newSubtaskTitle.trim()}
+                  style={{
+                    border: "none",
+                    background: newSubtaskTitle.trim() ? C.gold : "rgba(0, 0, 0, 0.08)",
+                    color: newSubtaskTitle.trim() ? "#ffffff" : C.charcoalLight,
+                    borderRadius: "6px",
+                    padding: "0.25rem 0.6rem",
+                    fontSize: "0.75rem",
+                    fontWeight: 600,
+                    cursor: newSubtaskTitle.trim() ? "pointer" : "default",
+                    transition: "all 0.15s ease",
+                    display: "inline-flex",
+                    alignItems: "center",
+                    gap: "0.2rem",
+                  }}
+                >
+                  追加
+                </button>
+                <button
+                  type="button"
+                  onClick={handleCancelAdd}
+                  style={{
+                    border: "none",
+                    background: "transparent",
+                    color: C.charcoalLight,
+                    padding: "0.25rem",
+                    cursor: "pointer",
+                    lineHeight: 0,
+                    borderRadius: "4px",
+                  }}
+                  title="キャンセル"
+                >
+                  <X size={14} />
+                </button>
+              </form>
+            ) : (
+              <button
+                type="button"
+                data-testid="add-subtask-inline-btn"
+                onClick={handleStartAdd}
+                style={{
+                  display: "flex",
+                  alignItems: "center",
+                  gap: "0.35rem",
+                  background: "transparent",
+                  border: "none",
+                  padding: "0.35rem 0.5rem",
+                  fontSize: "0.8rem",
+                  fontWeight: 500,
+                  color: C.charcoalMid,
+                  cursor: "pointer",
+                  borderRadius: "6px",
+                  minHeight: "36px",
+                  transition: "color 0.15s ease, background 0.15s ease",
+                  appearance: "none",
+                }}
+                onMouseEnter={(e) => {
+                  (e.currentTarget as HTMLElement).style.color = C.goldDark;
+                  (e.currentTarget as HTMLElement).style.background = "rgba(0, 0, 0, 0.03)";
+                }}
+                onMouseLeave={(e) => {
+                  (e.currentTarget as HTMLElement).style.color = C.charcoalMid;
+                  (e.currentTarget as HTMLElement).style.background = "transparent";
+                }}
+              >
+                <Plus size={14} />
+                <span>サブタスクを追加</span>
+              </button>
+            )}
+          </li>
         </ul>
       )}
     </li>
@@ -1021,9 +1155,31 @@ export default function Tasks({ initialTab = "default" }: TasksProps = {}) {
   const handleToggle = useCallback(
     async (task: Task) => {
       const next = !task.completed;
-      await updateDoc(doc(db, "tasks", task.id), {
-        completed: next,
-      });
+      let updatedSubtasks = task.subtasks;
+
+      // 親タスクを完了にした場合、配下の未完了サブタスクも連動して一括完了にする
+      if (next && task.subtasks && task.subtasks.length > 0) {
+        const hasUncompleted = task.subtasks.some((st) => !st.completed);
+        if (hasUncompleted) {
+          updatedSubtasks = task.subtasks.map((st) => ({ ...st, completed: true }));
+        }
+      }
+
+      // 楽観的ローカル更新
+      setTasks((prev) =>
+        prev.map((t) =>
+          t.id === task.id
+            ? { ...t, completed: next, subtasks: updatedSubtasks }
+            : t
+        )
+      );
+
+      const updateData: Partial<TaskItem> = { completed: next };
+      if (updatedSubtasks !== task.subtasks) {
+        updateData.subtasks = updatedSubtasks;
+      }
+
+      await updateDoc(doc(db, "tasks", task.id), updateData);
 
       if (isSignedIn && accessToken && task.googleTaskId) {
         const cat = categories.find((c) => c.id === (task.listId || "default"));
@@ -1038,6 +1194,24 @@ export default function Tasks({ initialTab = "default" }: TasksProps = {}) {
             );
           } catch (gErr) {
             console.error("Failed to update Google Task status:", gErr);
+          }
+
+          // 連動完了したサブタスクのGoogle Tasks同期
+          if (next && updatedSubtasks && updatedSubtasks !== task.subtasks) {
+            for (const st of updatedSubtasks) {
+              if (st.googleTaskId) {
+                try {
+                  await pushSubTaskStatusToGoogleTasks(
+                    accessToken,
+                    targetGoogleListId,
+                    st.googleTaskId,
+                    true
+                  );
+                } catch (subErr) {
+                  console.warn("Failed to update Google SubTask status:", subErr);
+                }
+              }
+            }
           }
         }
       }
@@ -1087,6 +1261,58 @@ export default function Tasks({ initialTab = "default" }: TasksProps = {}) {
             console.warn("Failed to update Google SubTask status:", gErr);
           }
         }
+      }
+    },
+    [isSignedIn, accessToken, categories]
+  );
+
+  // ---------- サブタスク追加 (インライン) ----------
+  const handleAddSubTask = useCallback(
+    async (task: Task, title: string) => {
+      const trimmed = title.trim();
+      if (!trimmed) return;
+
+      const newSubtask: NonNullable<Task["subtasks"]>[number] = {
+        id: typeof crypto !== "undefined" && crypto.randomUUID
+          ? crypto.randomUUID()
+          : `${Date.now()}_${Math.random().toString(36).slice(2, 7)}`,
+        title: trimmed,
+        completed: false,
+      };
+
+      const updatedSubtasks = [...(task.subtasks || []), newSubtask];
+
+      // 楽観的ローカル更新
+      setTasks((prev) =>
+        prev.map((t) => (t.id === task.id ? { ...t, subtasks: updatedSubtasks } : t))
+      );
+
+      // Google Tasks への新規サブタスク同期
+      if (isSignedIn && accessToken && task.googleTaskId) {
+        const cat = categories.find((c) => c.id === (task.listId || "default"));
+        const targetGoogleListId = task.googleListId || cat?.googleListId;
+        if (targetGoogleListId) {
+          try {
+            const gSubId = await pushSubTaskToGoogleTasks(
+              accessToken,
+              targetGoogleListId,
+              task.googleTaskId,
+              trimmed
+            );
+            newSubtask.googleTaskId = gSubId;
+          } catch (gErr) {
+            console.warn("Failed to push subtask to Google Tasks:", gErr);
+          }
+        }
+      }
+
+      // Firestore 更新
+      try {
+        await updateDoc(doc(db, "tasks", task.id), {
+          subtasks: updatedSubtasks,
+        });
+      } catch (err) {
+        console.error("Failed to add subtask in Firestore:", err);
       }
     },
     [isSignedIn, accessToken, categories]
@@ -1694,7 +1920,6 @@ export default function Tasks({ initialTab = "default" }: TasksProps = {}) {
                   }}
                   title={`推論された期日: ${parsedInfo.dueDate}`}
                 >
-                  <CalendarIcon />
                   <span>{formatDue(parsedInfo.dueDate)}</span>
                 </span>
               )}
@@ -1793,6 +2018,7 @@ export default function Tasks({ initialTab = "default" }: TasksProps = {}) {
                   onClickRow={(t) => setDetailTask(t)}
                   onDelete={handleDeleteTask}
                   onToggleSubTask={handleToggleSubTask}
+                  onAddSubTask={handleAddSubTask}
                 />
               ))}
             </ul>
@@ -1852,6 +2078,7 @@ export default function Tasks({ initialTab = "default" }: TasksProps = {}) {
                     onClickRow={(t) => setDetailTask(t)}
                     onDelete={handleDeleteTask}
                     onToggleSubTask={handleToggleSubTask}
+                    onAddSubTask={handleAddSubTask}
                   />
                 ))}
               </ul>

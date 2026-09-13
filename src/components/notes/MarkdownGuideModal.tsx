@@ -27,6 +27,20 @@ interface GuideCategory {
 
 const GUIDE_CATEGORIES: GuideCategory[] = [
   {
+    title: "スラッシュコマンド ( / )",
+    items: [
+      { id: "slash-page", name: "/page", syntax: "/page", example: "/page [Enter]", description: "子ページを作成しNotion風インラインリンクを挿入" },
+      { id: "slash-todo", name: "/todo", syntax: "- [ ] ", example: "/todo [Enter]", description: "チェックボックス付きタスクリストを作成" },
+      { id: "slash-image", name: "/image", syntax: "", example: "/image [Enter]", description: "画像ファイル選択ダイアログを開いてアップロード" },
+      { id: "slash-h1", name: "/h1", syntax: "# ", example: "/h1 [Enter]", description: "行を大見出し（H1）へ瞬時にフォーマット" },
+      { id: "slash-h2", name: "/h2", syntax: "## ", example: "/h2 [Enter]", description: "行を中見出し（H2）へ瞬時にフォーマット" },
+      { id: "slash-h3", name: "/h3", syntax: "### ", example: "/h3 [Enter]", description: "行を小見出し（H3）へ瞬時にフォーマット" },
+      { id: "slash-quote", name: "/quote", syntax: "> ", example: "/quote [Enter]", description: "左ボーダー付きの引用ブロックを作成" },
+      { id: "slash-code", name: "/code", syntax: "```\n\n```", example: "/code [Enter]", description: "複数行の等幅プログラムコードブロックを作成" },
+      { id: "slash-divider", name: "/divider", syntax: "\n---\n", example: "/divider [Enter]", description: "水平区切り線を挿入" },
+    ],
+  },
+  {
     title: "基本の装飾",
     items: [
       { id: "bold", name: "太字", syntax: "**テキスト**", example: "**重要事項**", description: "重要な語句を強調" },
@@ -175,28 +189,12 @@ export function MarkdownGuideModal({
           }}
         >
           <div style={{ display: "flex", alignItems: "center", gap: "0.6rem" }}>
-            <div
-              style={{
-                width: "28px",
-                height: "28px",
-                borderRadius: "8px",
-                background: C.goldFaint,
-                display: "flex",
-                alignItems: "center",
-                justifyContent: "center",
-                color: C.goldDark,
-                fontWeight: 700,
-                fontSize: "0.85rem",
-              }}
-            >
-              M↓
-            </div>
             <div>
               <h2 style={{ fontSize: "1.05rem", fontWeight: 700, margin: 0, color: C.charcoal }}>
-                Markdown 構文ガイド
+                構文ガイド
               </h2>
               <p style={{ fontSize: "0.72rem", color: C.charcoalLight, margin: 0 }}>
-                クリックでエディタに構文を直接挿入できます
+                クリックで構文を挿入、またはエディタ内で /（スラッシュ）を入力して直接呼び出せます
               </p>
             </div>
           </div>

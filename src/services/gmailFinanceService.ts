@@ -17,19 +17,36 @@ import type {
 import {
   createExpenseTransaction,
   updateExpenseTransaction,
+  deleteExpenseTransaction,
 } from "../lib/financeStorage";
+import {
+  collection,
+  getDocs,
+  writeBatch,
+  doc,
+} from "firebase/firestore";
+import { db } from "../lib/firebase";
 import {
   normalizeAmountNumber,
   normalizeDateString,
-  getDaysDifference,
 } from "../utils/csvReconcile";
 
-/** 検索対象クエリ (直近14日以内) */
-export const GMAIL_CARD_NOTICE_QUERY =
-  '((from:(vpass.ne.jp OR smbc-card.com) "カードご利用のお知らせ") OR ' +
-  '(from:(dcard.docomo.ne.jp OR docomo.ne.jp) "ご利用速報") OR ' +
-  '(from:(aeon.co.jp) "カードご利用確認") OR ' +
-  '(from:(viewsnet.jp) "ご利用のお知らせ")) newer_than:14d';
+/**
+ * Gmail カード利用速報検索クエリ生成ヘルパー
+ * @param days 検索対象日数（デフォルト: 30日）
+ */
+export function buildGmailCardNoticeQuery(days: number = 30): string {
+  return (
+    '((from:(vpass.ne.jp OR smbc-card.com) ("カードご利用のお知らせ" OR "ご利用のお知らせ")) OR ' +
+    '(from:(dcard.docomo.ne.jp OR docomo.ne.jp) "ご利用速報") OR ' +
+    '(from:(aeon.co.jp) "カードご利用確認") OR ' +
+    '(from:(viewsnet.jp) "ご利用のお知らせ")) ' +
+    `newer_than:${days}d`
+  );
+}
+
+/** 検索対象クエリ (デフォルト: 直近30日以内) */
+export const GMAIL_CARD_NOTICE_QUERY = buildGmailCardNoticeQuery(30);
 
 /**
  * Base64URL デコード関数 (UTF-8 対応)
@@ -366,6 +383,11 @@ export function parseCardNoticeEmail(
     return null;
   }
 
+  // 3. 金額および店舗名のブロック形式探索 (三井住友/Olive新形式: 利用日時の直後に店舗名、その直後に金額)
+  const blockMatch = text.match(
+    /(?:利用日時|ご利用日時)[：:\s]+[^\r\n]+(?:\r?\n\s*)+([^\r\n]+?)(?:\r?\n\s*)+([0-9,]+)\s*円/
+  );
+
   // 3. 金額の抽出
   let rawAmount = 0;
   // パターン: 利用金額：5,400円 または ￥5,400 または 金額: 5400
@@ -375,6 +397,14 @@ export function parseCardNoticeEmail(
 
   if (amountMatch && amountMatch[1]) {
     rawAmount = normalizeAmountNumber(amountMatch[1]);
+  } else if (blockMatch && blockMatch[2]) {
+    rawAmount = normalizeAmountNumber(blockMatch[2]);
+  } else {
+    // 単独行の金額 (例: 397円)
+    const singleAmountMatch = text.match(/(?:^|\r?\n)\s*([0-9,]+)\s*円\s*(?:\r?\n|$)/);
+    if (singleAmountMatch && singleAmountMatch[1]) {
+      rawAmount = normalizeAmountNumber(singleAmountMatch[1]);
+    }
   }
 
   if (rawAmount <= 0) {
@@ -394,6 +424,13 @@ export function parseCardNoticeEmail(
     // 括弧注記等の除去
     t = t.replace(/（[^）]+）|\([^)]+\)/g, "").trim();
     rawTitle = t;
+  } else if (blockMatch && blockMatch[1]) {
+    let t = blockMatch[1].trim();
+    t = t.replace(/^[\s◇◆・■□:：]+/, "").replace(/[\s◇◆・■□]+$/, "").trim();
+    t = t.replace(/（[^）]+）|\([^)]+\)/g, "").trim();
+    if (t && !t.includes("本メールは") && !t.includes("ご利用内容") && !t.includes("注意事項")) {
+      rawTitle = t;
+    }
   }
 
   if (!rawTitle) {
@@ -415,10 +452,19 @@ export function parseCardNoticeEmail(
 
 /**
  * Gmail から利用速報メールを取得・解析し、Finance取引に反映する
+ *
+ * 重複判定（冪等性）の唯一の基準: emailMessageId の完全一致
+ * - 同日・同額スキップ等の過剰判定は完全に撤廃し、異なるメールであれば正当な別決済として正常に取り込む
+ * - Firestore に存在するレコード（isDeleted: true 含む）と照合し、同一 emailMessageId の二重インポートを防止
+ *
+ * @param token 有効な Google アクセストークン
+ * @param existingTransactions ローカルの既存取引一覧
+ * @param days 検索対象日数（デフォルト: 30日）
  */
 export async function fetchAndProcessCardNoticeEmails(
   token: string,
-  existingTransactions: ExpenseTransaction[]
+  existingTransactions: ExpenseTransaction[],
+  days: number = 30
 ): Promise<{
   createdCount: number;
   linkedCount: number;
@@ -429,9 +475,10 @@ export async function fetchAndProcessCardNoticeEmails(
     throw new Error("有効なGoogleアクセストークンがありません。");
   }
 
-  // 1. メッセージID一覧を検索
+  // 1. メッセージID一覧を検索 (指定日数、デフォルト30日)
+  const query = buildGmailCardNoticeQuery(days);
   const listUrl = `https://gmail.googleapis.com/gmail/v1/users/me/messages?q=${encodeURIComponent(
-    GMAIL_CARD_NOTICE_QUERY
+    query
   )}&maxResults=50`;
 
   const listRes = await fetch(listUrl, {
@@ -456,19 +503,33 @@ export async function fetchAndProcessCardNoticeEmails(
   let linkedCount = 0;
   let skippedCount = 0;
 
-  // 既存取引の messageId セット & 未突合リスト
+  // 既存取引（削除済みも含む）の emailMessageId セット
   const existingMessageIds = new Set<string>();
-  const activeTransactions = existingTransactions.filter((t) => !t.isDeleted);
-
-  for (const t of activeTransactions) {
-    if (t.emailMessageId) {
-      existingMessageIds.add(t.emailMessageId);
+  for (const t of existingTransactions) {
+    if (t.emailMessageId && typeof t.emailMessageId === "string" && t.emailMessageId.trim() !== "") {
+      existingMessageIds.add(t.emailMessageId.trim());
     }
+  }
+
+  // Firestore の実データからも最新の全件（isDeleted: true 含む）を照合してマージ
+  try {
+    const snap = await getDocs(collection(db, "finance_transactions"));
+    if (!snap.empty) {
+      snap.docs.forEach((d) => {
+        const data = d.data() as any;
+        const emailMsgId = data?.emailMessageId;
+        if (typeof emailMsgId === "string" && emailMsgId.trim() !== "") {
+          existingMessageIds.add(emailMsgId.trim());
+        }
+      });
+    }
+  } catch {
+    // オフラインまたはテスト環境でのフォールバック（引数をそのまま使用）
   }
 
   // 2. 各メッセージの詳細を取得・パース
   for (const msg of messages) {
-    // 既に取得済みの messageId はスキップ
+    // 既に取得済みの messageId はスキップ (第1防衛線)
     if (existingMessageIds.has(msg.id)) {
       skippedCount++;
       continue;
@@ -495,48 +556,35 @@ export async function fetchAndProcessCardNoticeEmails(
         continue;
       }
 
-      // 3. 重複排除・バインド判定
-      // 同日 (±1日)・同額・同一支払方法の未突合レコードが存在するか確認
-      const matchingExistingTx = activeTransactions.find(
-        (t) =>
-          !t.isReconciled &&
-          !t.emailMessageId &&
-          t.paymentMethod === parsed.paymentMethod &&
-          t.totalAmount === parsed.totalAmount &&
-          getDaysDifference(t.date, parsed.date) <= 1
-      );
-
-      if (matchingExistingTx) {
-        // 新規作成せず既存レコードに emailMessageId をバインド
-        await updateExpenseTransaction(matchingExistingTx.id, {
-          emailMessageId: parsed.messageId,
-          updatedAt: new Date().toISOString(),
-        });
-        existingMessageIds.add(parsed.messageId);
-        matchingExistingTx.emailMessageId = parsed.messageId;
-        linkedCount++;
-      } else {
-        // 新規下書きレコードを作成
-        const now = new Date().toISOString();
-        await createExpenseTransaction({
-          date: parsed.date,
-          title: parsed.title,
-          totalAmount: parsed.totalAmount,
-          category: parsed.category,
-          paymentMethod: parsed.paymentMethod,
-          items: [],
-          isReconciled: false,
-          matchedCsvRowId: "",
-          emailMessageId: parsed.messageId,
-          source: "email_notice",
-          memo: "Gmail利用速報より自動登録",
-          createdAt: now,
-          updatedAt: now,
-          isDeleted: false,
-        });
-        existingMessageIds.add(parsed.messageId);
-        createdCount++;
+      // パースされた messageId が既に存在する場合も確実にスキップ (第2防衛線)
+      if (existingMessageIds.has(parsed.messageId)) {
+        skippedCount++;
+        continue;
       }
+
+      // 【要件 A】重複判定の唯一の基準: emailMessageId の完全一致のみ
+      // 同日・同額によるスキップ判定は完全に撤廃し、正当な決済として正常に取り込む
+      const now = new Date().toISOString();
+      const newTxData: Omit<ExpenseTransaction, "id"> = {
+        date: parsed.date,
+        title: parsed.title,
+        totalAmount: parsed.totalAmount,
+        category: parsed.category,
+        paymentMethod: parsed.paymentMethod,
+        items: [],
+        isReconciled: false,
+        matchedCsvRowId: "",
+        emailMessageId: parsed.messageId,
+        source: "email_notice",
+        memo: "Gmail利用速報より自動登録",
+        createdAt: now,
+        updatedAt: now,
+        isDeleted: false,
+      };
+
+      await createExpenseTransaction(newTxData);
+      existingMessageIds.add(parsed.messageId);
+      createdCount++;
     } catch (e) {
       console.warn(`[gmailFinanceService] Failed to process message ${msg.id}:`, e);
     }
@@ -549,3 +597,199 @@ export async function fetchAndProcessCardNoticeEmails(
     totalFound: messages.length,
   };
 }
+
+/**
+ * 2つの重複・突合候補レコードを品目内訳を保持して1つの確定済みレコードに統合する
+ * @param targetTx 統合先（基本的には呼び出し元カード、または内訳保持側）
+ * @param sourceTx 統合元（統合後に論理削除される側）
+ */
+export async function mergeExpenseTransactions(
+  targetTx: ExpenseTransaction,
+  sourceTx: ExpenseTransaction
+): Promise<ExpenseTransaction> {
+  const hasTargetItems = Array.isArray(targetTx.items) && targetTx.items.length > 0;
+  const hasSourceItems = Array.isArray(sourceTx.items) && sourceTx.items.length > 0;
+
+  // 内訳（items）を保持する側を決定（片方に内訳があればそれを引き継ぐ）
+  const primaryItems = hasTargetItems
+    ? targetTx.items
+    : hasSourceItems
+    ? sourceTx.items
+    : [];
+
+  // 店舗名: プレースホルダーでなく、より具体的な方を採用
+  let primaryTitle = targetTx.title;
+  if (
+    (primaryTitle === "レシート支出" || primaryTitle === "支出") &&
+    sourceTx.title &&
+    sourceTx.title !== "レシート支出" &&
+    sourceTx.title !== "支出"
+  ) {
+    primaryTitle = sourceTx.title;
+  }
+
+  // 支払方法: メール速報（Oliveカード等）などのカード種別を優先、なければ targetTx
+  let primaryPaymentMethod = targetTx.paymentMethod;
+  if (
+    (primaryPaymentMethod === "現金" || primaryPaymentMethod === "その他") &&
+    sourceTx.paymentMethod &&
+    sourceTx.paymentMethod !== "現金" &&
+    sourceTx.paymentMethod !== "その他"
+  ) {
+    primaryPaymentMethod = sourceTx.paymentMethod;
+  }
+
+  // 各種メタデータの引き継ぎ
+  const emailMessageId = targetTx.emailMessageId || sourceTx.emailMessageId;
+  const receiptImageUrl = targetTx.receiptImageUrl || sourceTx.receiptImageUrl;
+  const matchedCsvRowId = targetTx.matchedCsvRowId || sourceTx.matchedCsvRowId;
+  const csvRowFingerprint = targetTx.csvRowFingerprint || sourceTx.csvRowFingerprint;
+
+  // メモの引き継ぎ
+  const memos = [targetTx.memo, sourceTx.memo].filter(Boolean);
+  const memo = memos.length > 0 ? memos.join(" / ") : undefined;
+
+  // 更新パッチ
+  const patch: Partial<ExpenseTransaction> = {
+    title: primaryTitle,
+    items: primaryItems,
+    paymentMethod: primaryPaymentMethod,
+    isReconciled: true, // 統合により確定ステータスへ
+    emailMessageId,
+    receiptImageUrl,
+    matchedCsvRowId,
+    csvRowFingerprint,
+    memo,
+    updatedAt: new Date().toISOString(),
+  };
+
+  // 1. targetTx を確定レコードに更新
+  await updateExpenseTransaction(targetTx.id, patch);
+
+  // 2. sourceTx を論理削除
+  await deleteExpenseTransaction(sourceTx.id);
+
+  return {
+    ...targetTx,
+    ...patch,
+  };
+}
+
+// ═══════════════════════════════════════════════════════════
+// 既存重複レコードの一括クリーンアップ (同一 emailMessageId の多重登録排除)
+// ═══════════════════════════════════════════════════════════
+
+export interface CleanupDuplicateResult {
+  deletedCount: number;
+  duplicateIds: string[];
+}
+
+/**
+ * 既存の重複支出レコード（同一 emailMessageId を持つ2件目以降）を一括クリーンアップする
+ * 作成日時（createdAt）が最も古い1件を正規データとして残し、2件目以降を Firestore から削除する
+ *
+ * @param fallbackTransactions オプション: テストやローカル参照用トランザクション一覧
+ */
+export async function cleanupDuplicateExpenses(
+  fallbackTransactions?: ExpenseTransaction[]
+): Promise<CleanupDuplicateResult> {
+  try {
+    let allDocs: Array<{ id: string; emailMessageId?: string; createdAt?: string }> = [];
+
+    try {
+      const snap = await getDocs(collection(db, "finance_transactions"));
+      if (!snap.empty) {
+        snap.docs.forEach((d) => {
+          const data = d.data() as any;
+          let cAt = "";
+          if (typeof data.createdAt === "string") {
+            cAt = data.createdAt;
+          } else if (data.createdAt?.toDate) {
+            cAt = data.createdAt.toDate().toISOString();
+          }
+          allDocs.push({
+            id: d.id,
+            emailMessageId: data.emailMessageId,
+            createdAt: cAt,
+          });
+        });
+      }
+    } catch (e) {
+      console.warn("[cleanupDuplicateExpenses] Failed to read from Firestore directly, using fallback:", e);
+    }
+
+    // fallbackTransactions が渡されており、allDocs が空の場合はフォールバックを使用
+    if (allDocs.length === 0 && fallbackTransactions && fallbackTransactions.length > 0) {
+      allDocs = fallbackTransactions.map((t) => ({
+        id: t.id,
+        emailMessageId: t.emailMessageId,
+        createdAt: typeof t.createdAt === "string" ? t.createdAt : "",
+      }));
+    }
+
+    if (allDocs.length === 0) {
+      return { deletedCount: 0, duplicateIds: [] };
+    }
+
+    // emailMessageId ごとにグルーピング
+    const groupedByEmail = new Map<string, Array<{ id: string; createdAt: string }>>();
+
+    for (const docItem of allDocs) {
+      const emailId = docItem.emailMessageId;
+      if (typeof emailId === "string" && emailId.trim() !== "") {
+        const key = emailId.trim();
+        const list = groupedByEmail.get(key) || [];
+        list.push({ id: docItem.id, createdAt: docItem.createdAt || "" });
+        groupedByEmail.set(key, list);
+      }
+    }
+
+    const duplicateIds: string[] = [];
+
+    for (const [_emailId, items] of groupedByEmail.entries()) {
+      if (items.length <= 1) continue;
+
+      // createdAt 昇順ソート（最古が index 0）
+      items.sort((a, b) => {
+        if (!a.createdAt && !b.createdAt) return a.id.localeCompare(b.id);
+        if (!a.createdAt) return 1;
+        if (!b.createdAt) return -1;
+        const cmp = a.createdAt.localeCompare(b.createdAt);
+        if (cmp !== 0) return cmp;
+        return a.id.localeCompare(b.id);
+      });
+
+      // index 1 以降を重複削除対象に
+      for (let i = 1; i < items.length; i++) {
+        duplicateIds.push(items[i].id);
+      }
+    }
+
+    if (duplicateIds.length === 0) {
+      return { deletedCount: 0, duplicateIds: [] };
+    }
+
+    // writeBatch で一括物理削除 (450件区切り)
+    const BATCH_SIZE = 450;
+    for (let i = 0; i < duplicateIds.length; i += BATCH_SIZE) {
+      const batch = writeBatch(db);
+      const chunk = duplicateIds.slice(i, i + BATCH_SIZE);
+      chunk.forEach((id) => {
+        batch.delete(doc(db, "finance_transactions", id));
+      });
+      await batch.commit();
+    }
+
+    return {
+      deletedCount: duplicateIds.length,
+      duplicateIds,
+    };
+  } catch (err) {
+    console.error("[cleanupDuplicateExpenses] Error occurred:", err);
+    return { deletedCount: 0, duplicateIds: [] };
+  }
+}
+
+/** エイリアス */
+export const cleanupDuplicateTransactions = cleanupDuplicateExpenses;
+

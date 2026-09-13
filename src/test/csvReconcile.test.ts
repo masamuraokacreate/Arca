@@ -13,6 +13,8 @@ import {
   parseCreditCardCsv,
   evaluateMatchCandidate,
   runAutoReconcile,
+  extractCoreStoreName,
+  isStoreNameSimilar,
 } from "../utils/csvReconcile";
 import type { CreditCardCsvRow, ExpenseTransaction } from "../types/finance";
 
@@ -23,8 +25,23 @@ describe("csvReconcile - テキスト・日付・金額の正規化", () => {
     expect(normalizeJapaneseText("ｶﾌﾞｼｷｶﾞｲｼｬ ＡＭＡＺＯＮ")).toBe("amazon");
   });
 
+  it("extractCoreStoreName が一般的な店舗サフィックスや付加語句を除去する", () => {
+    expect(extractCoreStoreName("ヤオコー MARKETPLACE")).toBe("ヤオコー");
+    expect(extractCoreStoreName("ヤオコー マーケットプレイス")).toBe("ヤオコー");
+    expect(extractCoreStoreName("セブン-イレブン 渋谷店")).toBe("セブン-イレブン");
+    expect(extractCoreStoreName("イオンモール 幕張新都心店")).toBe("イオン");
+  });
+
+  it("isStoreNameSimilar が表記揺れ（ヤオコー MARKETPLACE と ヤオコー）を正しく判定する", () => {
+    expect(isStoreNameSimilar("ヤオコー MARKETPLACE", "ヤオコー")).toBe(true);
+    expect(isStoreNameSimilar("ヤオコー", "ヤオコー MARKETPLACE")).toBe(true);
+    expect(isStoreNameSimilar("セブン-イレブン", "セブンイレブン")).toBe(true);
+    expect(isStoreNameSimilar("ヤオコー", "ファミリーマート")).toBe(false);
+  });
+
   it("文字列類似度を適切に算出する", () => {
     expect(calculateTitleSimilarity("イオン〇〇店", "イオン〇〇店")).toBe(1);
+    expect(calculateTitleSimilarity("ヤオコー MARKETPLACE", "ヤオコー")).toBeGreaterThanOrEqual(0.85);
     expect(calculateTitleSimilarity("イオン〇〇店", "イオン")).toBeGreaterThanOrEqual(0.8);
     expect(calculateTitleSimilarity("セブンイレブン", "ファミリーマート")).toBeLessThan(0.3);
   });

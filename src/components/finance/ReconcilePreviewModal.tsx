@@ -157,7 +157,7 @@ export function ReconcilePreviewModal({
                 borderRadius: "9999px",
               }}
             >
-              ✓ 突合: {previewResult.matchedCount}件
+              ✓ 確認: {previewResult.matchedCount}件
             </span>
             <span
               style={{
@@ -192,7 +192,7 @@ export function ReconcilePreviewModal({
             {(
               [
                 { id: "all", label: "すべて" },
-                { id: "match", label: "突合" },
+                { id: "match", label: "確認" },
                 { id: "create", label: "新規" },
                 { id: "skip", label: "スキップ" },
               ] as const
@@ -342,7 +342,7 @@ function PreviewRowItem({ item }: { item: ReconcilePreviewItem }) {
               whiteSpace: "nowrap",
             }}
           >
-            突合
+            確認
           </span>
         );
       case "create":

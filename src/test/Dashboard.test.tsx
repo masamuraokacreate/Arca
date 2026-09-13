@@ -3,7 +3,7 @@
  * Dashboard コンポーネントのタブ遷移・ナビゲーション連携 & 文言統一テスト
  */
 import { describe, it, expect, vi, beforeEach, type Mock } from "vitest";
-import { render, screen } from "@testing-library/react";
+import { render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { onSnapshot } from "firebase/firestore";
 import Dashboard from "../components/Dashboard";
@@ -17,6 +17,13 @@ describe("Dashboard コンポーネント", () => {
     });
   });
 
+  it("ヘッダーに COCKPIT が表示され、日付と出勤ステータスバッジが存在すること", () => {
+    render(<Dashboard />);
+    expect(screen.getByText("COCKPIT")).toBeInTheDocument();
+    expect(screen.getByText("ダッシュボード")).toBeInTheDocument();
+    expect(screen.getByTestId("dashboard-shift-badge")).toBeInTheDocument();
+  });
+
   it("各タイルのヘッダーボタン文言が正しく、「を開く」が含まれていないこと", () => {
     render(<Dashboard />);
 
@@ -27,10 +34,10 @@ describe("Dashboard コンポーネント", () => {
     expect(screen.queryByText("タスク一覧")).not.toBeInTheDocument();
 
     // 各ボタンが存在すること
-    expect(screen.getByRole("button", { name: "カレンダー" })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "タスク" })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "レシピ" })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "ノート" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Calendar" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Tasks" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Recipes" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Notes" })).toBeInTheDocument();
   });
 
   it("各タイルのヘッダーボタンクリック時に onNavigate が正しく呼び出されること", async () => {
@@ -40,20 +47,35 @@ describe("Dashboard コンポーネント", () => {
     render(<Dashboard onNavigate={handleNavigate} />);
 
     // カレンダーボタン
-    await user.click(screen.getByRole("button", { name: "カレンダー" }));
+    await user.click(screen.getByRole("button", { name: "Calendar" }));
     expect(handleNavigate).toHaveBeenCalledWith("calendar");
 
     // タスクボタン
-    await user.click(screen.getByRole("button", { name: "タスク" }));
+    await user.click(screen.getByRole("button", { name: "Tasks" }));
     expect(handleNavigate).toHaveBeenCalledWith("tasks");
 
     // レシピボタン
-    await user.click(screen.getByRole("button", { name: "レシピ" }));
+    await user.click(screen.getByRole("button", { name: "Recipes" }));
     expect(handleNavigate).toHaveBeenCalledWith("recipes");
 
     // ノートボタン
-    await user.click(screen.getByRole("button", { name: "ノート" }));
+    await user.click(screen.getByRole("button", { name: "Notes" }));
     expect(handleNavigate).toHaveBeenCalledWith("notes");
+  });
+
+  it("「予定を追加」ボタンをクリックしたときに予定追加ポップアップモーダルが開くこと", async () => {
+    const user = userEvent.setup();
+    render(<Dashboard />);
+
+    const addEventButtons = screen.getAllByRole("button", { name: /予定/ });
+    expect(addEventButtons.length).toBeGreaterThan(0);
+
+    await user.click(addEventButtons[0]);
+
+    // モーダルが表示されること
+    expect(screen.getByRole("dialog")).toBeInTheDocument();
+    expect(screen.getByLabelText(/タイトル/)).toBeInTheDocument();
+    expect(screen.getByPlaceholderText("例: ミーティング、買い物、通院")).toBeInTheDocument();
   });
 
   it("期限が1週間より手前（期限切れ含む）のタスクが一元表示され、右側にタスクグループ名が表示されること", async () => {
@@ -142,9 +164,9 @@ describe("Dashboard コンポーネント", () => {
     expect(screen.getByText("期限の近いタスク")).toBeInTheDocument();
 
     // 期限切れ・今日・1週間以内のタスクが表示されていること
-    expect(screen.getByText("期限切れの牛乳購入")).toBeInTheDocument();
+    expect(screen.getAllByText("期限切れの牛乳購入").length).toBeGreaterThanOrEqual(1);
     expect(screen.getByText("今日のレポート提出")).toBeInTheDocument();
-    expect(screen.getByText("週末の食材買い出し")).toBeInTheDocument();
+    expect(screen.getAllByText("週末の食材買い出し").length).toBeGreaterThanOrEqual(1);
 
     // 1週間より先のタスクや期限なしタスクは表示されないこと
     expect(screen.queryByText("2週間後の旅行計画")).not.toBeInTheDocument();
@@ -273,7 +295,7 @@ describe("Dashboard コンポーネント", () => {
 
     render(<Dashboard />);
     expect(screen.getByText("濃厚カルボナーラ")).toBeInTheDocument();
-    expect(screen.getByText("料理レシピ")).toBeInTheDocument();
+    expect(screen.getByText("今サイクルの献立")).toBeInTheDocument();
     expect(screen.queryByText("2人前")).not.toBeInTheDocument();
   });
 
@@ -315,7 +337,8 @@ describe("Dashboard コンポーネント", () => {
 
     render(<Dashboard />);
     expect(screen.getByText("ミーティング")).toBeInTheDocument();
-    expect(screen.queryByText("遅番(15時)")).not.toBeInTheDocument();
+    const eventsCard = screen.getByTestId("cycle-events-card");
+    expect(within(eventsCard).queryByText("遅番(15時)")).not.toBeInTheDocument();
   });
 
   it("ダッシュボードのタスクタイルに通常タスクのみが表示され、PMタスク項目が混在しないこと", () => {
@@ -360,5 +383,59 @@ describe("Dashboard コンポーネント", () => {
     // PM項目が混在しないこと
     expect(screen.queryByText("PM 休日")).not.toBeInTheDocument();
     expect(screen.queryByText("PM 出勤")).not.toBeInTheDocument();
+  });
+
+  it("4勤2休サイクルリボンが表示され、司令塔ヘッダーと各日のセルが存在し、天気アイコンや気温が表示されないこと", () => {
+    render(<Dashboard />);
+
+    expect(screen.getByText("4勤2休 サイクル司令塔")).toBeInTheDocument();
+    expect(screen.getAllByText(/日目/).length).toBeGreaterThanOrEqual(6);
+    // 天気の "--° / --°" や "°" が表示されないこと
+    expect(screen.queryByText(/--°/)).not.toBeInTheDocument();
+  });
+
+  it("ダッシュボード上から家計・支出カードが削除されていること", () => {
+    render(<Dashboard />);
+    expect(screen.queryByText("家計・支出")).not.toBeInTheDocument();
+    expect(screen.queryByText("今サイクル支出 (6日間)")).not.toBeInTheDocument();
+  });
+
+  it("タスクが0件のときに前向きな達成メッセージが表示されること", () => {
+    (onSnapshot as Mock).mockImplementation((_q: any, callback: (snap: unknown) => void) => {
+      callback({ docs: [] });
+      return vi.fn();
+    });
+
+    render(<Dashboard />);
+    expect(screen.getByText("今サイクルのタスクはすべて完了しています")).toBeInTheDocument();
+  });
+
+  it("クイックメモ（Scratchpad）カードが存在し、入力内容がローカルストレージに自動保存されること", async () => {
+    const user = userEvent.setup();
+    render(<Dashboard />);
+
+    expect(screen.getByText("クイックメモ")).toBeInTheDocument();
+    expect(screen.getByText("保存済み")).toBeInTheDocument();
+
+    const memoTextarea = screen.getByPlaceholderText(
+      "思いついたことや一時メモを記録（ローカルに自動保存されます）..."
+    );
+    expect(memoTextarea).toBeInTheDocument();
+
+    await user.type(memoTextarea, "買いたいものメモ");
+    expect(memoTextarea).toHaveValue("買いたいものメモ");
+  });
+
+  it("買い物リストカードの Lists ボタンクリック時に onNavigate('lists') が呼び出されること", async () => {
+    const user = userEvent.setup();
+    const handleNavigate = vi.fn();
+
+    render(<Dashboard onNavigate={handleNavigate} />);
+
+    const listsBtn = screen.getByRole("button", { name: "Lists" });
+    expect(listsBtn).toBeInTheDocument();
+
+    await user.click(listsBtn);
+    expect(handleNavigate).toHaveBeenCalledWith("lists");
   });
 });

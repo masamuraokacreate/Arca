@@ -32,6 +32,19 @@ if (typeof Element !== "undefined") {
 if (typeof window !== "undefined") {
   window.scrollTo = vi.fn();
 }
+if (typeof globalThis !== "undefined") {
+  globalThis.fetch = vi.fn().mockResolvedValue({
+    ok: true,
+    json: async () => ({
+      daily: {
+        time: [],
+        weathercode: [],
+        temperature_2m_max: [],
+        temperature_2m_min: [],
+      },
+    }),
+  } as any);
+}
 
 vi.mock("firebase/auth", () => {
   return {

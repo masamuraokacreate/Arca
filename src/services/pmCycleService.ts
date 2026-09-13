@@ -154,13 +154,14 @@ export interface CalculatedDayInfo {
  */
 export function calculateDayIndex(
   targetDate: string,
-  settings: PMSettings,
+  settings?: PMSettings | null,
   detectedAnchorDate?: string
 ): CalculatedDayInfo {
-  const cycleLength = settings.cycleLength ?? DEFAULT_CYCLE_LENGTH;
+  const safeSettings = settings ?? DEFAULT_PM_SETTINGS;
+  const cycleLength = safeSettings.cycleLength ?? DEFAULT_CYCLE_LENGTH;
 
   // ── 1. 単日オーバーライド（最優先） ──
-  const override: PMDayOverride | ShiftOverride | undefined = settings.overrides?.[targetDate];
+  const override: PMDayOverride | ShiftOverride | undefined = safeSettings.overrides?.[targetDate];
   if (override) {
     if (("isRestDay" in override && override.isRestDay) || ("type" in override && override.type === "holiday")) {
       return {
@@ -192,11 +193,11 @@ export function calculateDayIndex(
   }
 
   // ── 2. 起点日の決定 ──
-  const anchorDate = settings.manualAnchorDate ?? detectedAnchorDate ?? targetDate;
-  const anchorDay = settings.manualAnchorDay ?? 1;
+  const anchorDate = safeSettings.manualAnchorDate ?? detectedAnchorDate ?? targetDate;
+  const anchorDay = safeSettings.manualAnchorDay ?? 1;
 
   // ── 3. 起点日 === 対象日（または起点日未設定フォールバック） ──
-  if (anchorDate === targetDate && !settings.manualAnchorDate && !detectedAnchorDate) {
+  if (anchorDate === targetDate && !safeSettings.manualAnchorDate && !detectedAnchorDate) {
     return { dayIndex: anchorDay, cycleLength, isRestDay: false, isOverridden: false };
   }
 
@@ -217,7 +218,7 @@ export function calculateDayIndex(
  * computeDayResolution の互換ラッパー
  */
 export function computeDayResolution(
-  settings: PMSettings,
+  settings: PMSettings | null | undefined,
   targetDate: string,
   detectedAnchorDate?: string
 ): PMDayResolution {
@@ -231,13 +232,13 @@ export function computeDayResolution(
 }
 
 /** 互換: dayIndex のみを返す */
-export function computeDayIndex(settings: PMSettings, targetDate: string): number {
+export function computeDayIndex(settings: PMSettings | null | undefined, targetDate: string): number {
   return calculateDayIndex(targetDate, settings).dayIndex;
 }
 
 /** 互換: 指定日のテンプレートを order 順で返す */
 export function getDayPMItems(
-  settings: PMSettings,
+  settings: PMSettings | null | undefined,
   templates: PMTemplateItem[],
   dateStr?: string
 ): PMTemplateItem[] {
@@ -251,7 +252,7 @@ export function getDayPMItems(
 
 /** 互換: 今日のテンプレートを返す */
 export function getTodayPMItems(
-  settings: PMSettings,
+  settings: PMSettings | null | undefined,
   templates: PMTemplateItem[]
 ): PMTemplateItem[] {
   return getDayPMItems(settings, templates, todayDateStr());
@@ -259,14 +260,15 @@ export function getTodayPMItems(
 
 /** 互換: カレンダー用 date → dayIndex マップ */
 export function buildCalendarPMDates(
-  settings: PMSettings,
+  settings: PMSettings | null | undefined,
   templates: PMTemplateItem[],
   fromDate: string,
   toDate: string,
   includeRestDays = false
 ): Map<string, number> {
   const result = new Map<string, number>();
-  if (!settings.manualAnchorDate) return result;
+  const safeSettings = settings ?? DEFAULT_PM_SETTINGS;
+  if (!safeSettings.manualAnchorDate) return result;
 
   const fromEpoch = dateStrToEpochDays(fromDate);
   const toEpoch = dateStrToEpochDays(toDate);
@@ -490,8 +492,10 @@ export function resolveShiftInfo(
   events: CalendarEvent[],
   settings?: PMSettings | null
 ): ShiftInfo {
+  const safeSettings = settings ?? DEFAULT_PM_SETTINGS;
+
   // 1. 対象日のステータス取得（手動オーバーライド最優先）
-  const currentStatus = getDayShiftStatus(targetDate, events, settings);
+  const currentStatus = getDayShiftStatus(targetDate, events, safeSettings);
 
   let result: ShiftInfo;
 
@@ -508,16 +512,16 @@ export function resolveShiftInfo(
     // 2. カレンダー・オーバーライド全体に仕事予定が存在するかチェック
     const hasAnyWork =
       events.some((e) => isWorkEvent(e.title)) ||
-      Object.values(settings?.overrides || {}).some((o) => (o as any)?.type === "work");
+      Object.values(safeSettings.overrides || {}).some((o) => (o as any)?.type === "work");
 
     // 仕事予定が全期間で0件の場合
     if (!hasAnyWork) {
-      if (settings?.manualAnchorDate) {
-        const anchorEpoch = dateStrToEpochDays(settings.manualAnchorDate);
+      if (safeSettings.manualAnchorDate) {
+        const anchorEpoch = dateStrToEpochDays(safeSettings.manualAnchorDate);
         const targetEpoch = dateStrToEpochDays(targetDate);
-        const cycleLen = settings.cycleLength || DEFAULT_CYCLE_LENGTH;
+        const cycleLen = safeSettings.cycleLength || DEFAULT_CYCLE_LENGTH;
         const diff = targetEpoch - anchorEpoch;
-        const dayIndex = (((diff % cycleLen) + cycleLen) % cycleLen) + (settings.manualAnchorDay || 1);
+        const dayIndex = (((diff % cycleLen) + cycleLen) % cycleLen) + (safeSettings.manualAnchorDay || 1);
         const normDay = ((dayIndex - 1) % cycleLen) + 1;
         result = {
           date: targetDate,
@@ -546,7 +550,7 @@ export function resolveShiftInfo(
 
       while (streakCount < 30) {
         const prevDateStr = epochDaysToDateStr(cursorEpoch);
-        const prevStatus = getDayShiftStatus(prevDateStr, events, settings);
+        const prevStatus = getDayShiftStatus(prevDateStr, events, safeSettings);
 
         if (isWorkDay ? prevStatus.isWork : !prevStatus.isWork) {
           streakCount++;
@@ -648,10 +652,11 @@ export function isTemplateActiveForDate(
   template: PMTemplateItem,
   shiftInfo: DateShiftInfo,
   targetDate: string,
-  settings: PMSettings,
+  settings?: PMSettings | null,
   detectedAnchor?: string
 ): boolean {
   if (template.enabled === false) return false;
+  const safeSettings = settings ?? DEFAULT_PM_SETTINGS;
 
   // 1. timing が明示されている場合
   if (template.timing) {
@@ -670,13 +675,13 @@ export function isTemplateActiveForDate(
         return shiftInfo.isWorkDay;
       case "interval_days": {
         const interval = template.intervalDays || 7;
-        const anchor = settings.manualAnchorDate || detectedAnchor || targetDate;
+        const anchor = safeSettings.manualAnchorDate || detectedAnchor || targetDate;
         const diff = Math.abs(getDaysDifference(anchor, targetDate));
         return diff % interval === 0;
       }
       case "custom_day": {
         if (template.dayIndex == null) return false;
-        const dayInfo = calculateDayIndex(targetDate, settings, detectedAnchor);
+        const dayInfo = calculateDayIndex(targetDate, safeSettings, detectedAnchor);
         return !dayInfo.isRestDay && dayInfo.dayIndex === template.dayIndex;
       }
     }
@@ -684,7 +689,7 @@ export function isTemplateActiveForDate(
 
   // 2. timing 未指定で dayIndex のみある場合（後方互換）
   if (template.dayIndex != null) {
-    const dayInfo = calculateDayIndex(targetDate, settings, detectedAnchor);
+    const dayInfo = calculateDayIndex(targetDate, safeSettings, detectedAnchor);
     return !dayInfo.isRestDay && dayInfo.dayIndex === template.dayIndex;
   }
 
@@ -698,13 +703,14 @@ export function getActivePMTasksForDate(
   targetDate: string,
   templates: PMTemplateItem[],
   events: CalendarEvent[],
-  settings: PMSettings
+  settings?: PMSettings | null
 ): PMTemplateItem[] {
-  const shiftInfo = resolveDateShiftInfo(targetDate, events, settings);
+  const safeSettings = settings ?? DEFAULT_PM_SETTINGS;
+  const shiftInfo = resolveDateShiftInfo(targetDate, events, safeSettings);
   const detectedAnchor = detectAnchorFromEvents(events, targetDate)?.anchorDate;
 
   return templates
-    .filter((t) => isTemplateActiveForDate(t, shiftInfo, targetDate, settings, detectedAnchor))
+    .filter((t) => isTemplateActiveForDate(t, shiftInfo, targetDate, safeSettings, detectedAnchor))
     .sort((a, b) => a.order - b.order);
 }
 
@@ -971,4 +977,124 @@ export async function getEffectivePMTasksForDate(
     };
   });
 }
+
+// ═══════════════════════════════════════════════════════════
+// SECTION I: 4勤2休サイクル計算（ダッシュボード・Cockpit用）
+// ═══════════════════════════════════════════════════════════
+
+/** 4勤2休サイクルの各日情報 */
+export interface CycleDayInfo {
+  /** 日付文字列 "YYYY-MM-DD" */
+  date: string;
+  /** 曜日日本語表記 ("日"〜"土") */
+  dayOfWeek: string;
+  /** 月 (1〜12) */
+  month: number;
+  /** 日 (1〜31) */
+  dayOfMonth: number;
+  /** 対象日（または今日）と一致するか */
+  isToday: boolean;
+  /** その日のシフト情報（手動オーバーライド等も加味） */
+  shift: ShiftInfo;
+  /** サイクル内の通し番号 (1〜6) */
+  cycleDayNumber: number;
+  /** サイクル内の基本種別 (1〜4: work, 5〜6: holiday) */
+  cycleDayType: "work" | "holiday";
+}
+
+/** 4勤2休サイクル範囲 */
+export interface FourTwoCycleRange {
+  /** サイクル開始日 "YYYY-MM-DD" (出勤1日目) */
+  startDate: string;
+  /** サイクル終了日 "YYYY-MM-DD" (休日2日目) */
+  endDate: string;
+  /** 6日間の詳細配列 */
+  days: CycleDayInfo[];
+}
+
+const JAPANESE_WEEKDAYS = ["日", "月", "火", "水", "木", "金", "土"];
+
+/**
+ * 対象日が含まれる「4勤2休サイクル（計6日間：出勤4日＋休日2日）」の期間と各日の状態を算出する
+ *
+ * @param targetDate 基準日 "YYYY-MM-DD" (通常は今日)
+ * @param events カレンダーイベント一覧
+ * @param settings PM/シフト設定
+ */
+export function calculateFourTwoCycleRange(
+  targetDate: string,
+  events: CalendarEvent[],
+  settings?: PMSettings | null
+): FourTwoCycleRange {
+  const safeSettings = settings ?? DEFAULT_PM_SETTINGS;
+  const targetEpoch = dateStrToEpochDays(targetDate);
+  const currentShift = resolveShiftInfo(targetDate, events, safeSettings);
+
+  // カレンダーまたはオーバーライドに勤務情報があるか確認
+  const hasAnyWork =
+    events.some((e) => isWorkEvent(e.title)) ||
+    Object.values(safeSettings.overrides || {}).some((o) => (o as any)?.type === "work");
+
+  let startEpoch: number;
+
+  if (!hasAnyWork && safeSettings.manualAnchorDate) {
+    // 手動アンカー日からのモジュロ（6日周期）計算
+    const anchorEpoch = dateStrToEpochDays(safeSettings.manualAnchorDate);
+    const cycleLen = safeSettings.cycleLength || DEFAULT_CYCLE_LENGTH;
+    const diff = targetEpoch - anchorEpoch;
+    const anchorDay = safeSettings.manualAnchorDay || 1;
+    const dayIndex = (((diff % cycleLen) + cycleLen) % cycleLen) + anchorDay;
+    const normDay = ((dayIndex - 1) % cycleLen) + 1; // 1〜6
+    startEpoch = targetEpoch - (normDay - 1);
+  } else if (currentShift.type === "work") {
+    // 出勤日の場合: 4連勤ブロック内の位置から開始日（出勤1日目）を割り出す
+    const streak = currentShift.streakNumber || 1;
+    const offsetInWork = (streak - 1) % 4;
+    startEpoch = targetEpoch - offsetInWork;
+  } else {
+    // 休日の場合: 出勤4日の後に休日2日が続く前提
+    const streak = currentShift.streakNumber || 1;
+    if (streak === 1) {
+      // 休日1日目 ➔ 出勤1日目は4日前
+      startEpoch = targetEpoch - 4;
+    } else if (streak === 2) {
+      // 休日2日目 ➔ 出勤1日目は5日前
+      startEpoch = targetEpoch - 5;
+    } else {
+      // 3連休以上（有休等）の場合の安全な周期割り当て
+      const offsetInHoliday = (streak - 1) % 2;
+      startEpoch = targetEpoch - (4 + offsetInHoliday);
+    }
+  }
+
+  const todayStr = todayDateStr();
+  const days: CycleDayInfo[] = [];
+
+  for (let i = 0; i < 6; i++) {
+    const dayEpoch = startEpoch + i;
+    const dayDateStr = epochDaysToDateStr(dayEpoch);
+    const [y, m, d] = dayDateStr.split("-").map(Number);
+    const utcDate = new Date(Date.UTC(y, m - 1, d));
+    const dayOfWeek = JAPANESE_WEEKDAYS[utcDate.getUTCDay()];
+    const dayShift = resolveShiftInfo(dayDateStr, events, safeSettings);
+
+    days.push({
+      date: dayDateStr,
+      dayOfWeek,
+      month: m,
+      dayOfMonth: d,
+      isToday: dayDateStr === todayStr,
+      shift: dayShift,
+      cycleDayNumber: i + 1,
+      cycleDayType: i < 4 ? "work" : "holiday",
+    });
+  }
+
+  return {
+    startDate: days[0].date,
+    endDate: days[5].date,
+    days,
+  };
+}
+
 

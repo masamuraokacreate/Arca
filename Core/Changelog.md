@@ -2,6 +2,93 @@
 
 ---
 
+## [2026-09-13] Sprint 10.15 - 10.19: ダッシュボード 3×2 均等グリッド完全整列・Notes エクスプローラー化 ＆ 子ページ NodeView 刷新・Finance 速報重複判定是正・初期化クラッシュ根本解消
+
+- **日付**: 2026年9月13日
+- **ステータス**: 全体タスク完了（ダッシュボード 3×2 CSS Grid 垂直水平整列・6枚個別カードコンポーネント化・クイックメモ Scratchpad 自動保存・Notes Windowsエクスプローラー風刷新・Tiptap ChildPageNode カスタムNodeView・Gmail速報メール取り込み重複判定是正・pmSettings初期化バグ修正・全495テスト100%パス・型エラー0件・本番デプロイ完了）
+
+---
+
+### 🚀 2026-09-13 で達成したこと
+
+#### 1. 📐 Sprint 10.19: Dashboard 3×2 均等グリッドによる垂直・水平ライン完全整列
+- **CSS Grid による厳密な 2行3列（3×2）配置の導入 (`src/components/Dashboard.tsx`)**:
+  - 従来の「3つの縦カラムコンテナ」では各カラム内のカードの高さが内部コンテンツの行数や空状態によって個別に伸縮し、左右カード間で水平ライン（中間境界やフッター底辺）に段差が生じていた問題を根本解決。
+  - 外枠コンテナを `w-full max-w-[1360px] mx-auto px-4 sm:px-6 lg:px-8 py-6` に最適化。
+  - グリッド構造を `grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 lg:grid-rows-[210px_240px] gap-5 items-stretch flex-1` に刷新。
+  - 6枚のカードを独立コンポーネントとして直接グリッドの子要素に並べることで、デスクトップ表示（lg以上）時に上段（210px固定）と下段（240px固定）の行高さがCSSレベルで厳密に拘束され、上端・中間仕切りライン・フッター底辺がピクセル単位で100%一直線に整列。
+- **全6枚カード共通レイアウト規約の適用**:
+  - 外枠: `bg-white dark:bg-stone-900 rounded-2xl p-5 shadow-xs flex flex-col h-full overflow-hidden border-none`
+  - ヘッダー: `flex items-center justify-between h-7 mb-3.5 pb-2 border-b border-stone-100 dark:border-stone-800 shrink-0`
+  - 本文: `flex-1 flex flex-col min-h-0 overflow-y-auto no-scrollbar`
+  - フッター: `mt-auto pt-2.5 shrink-0`
+  - 枠線完全排除、Core/Rules.md 準拠の微細二重シャドウ、Apple HIG スタイルの角丸と余白を徹底。絵文字は一切使用せず Lucide React アイコンのみで構成。
+- **個別カードの独立コンポーネント化 ＆ 後方互換ラッパーの整備**:
+  - **上段左 [210px]**: `CycleEventsCard` (`src/components/dashboard/ActionColumn.tsx`)
+    - 今サイクルの予定（Calendar Widget）、日付と開始時刻（または終日）の整列表示、空状態の前向きフィードバック、最下部「予定を登録」ボタン。
+  - **上段中央 [210px]**: `CycleMenuCard` (`src/components/dashboard/LifeFinanceColumn.tsx`)
+    - 今サイクルの献立（お気に入り優先・直近更新順）、サムネイル・星・材料3点プレビュー、最下部「レシピ一覧を見る」導線。
+  - **上段右 [210px]**: `RecentNotesCard` (`src/components/dashboard/KnowledgeColumn.tsx`)
+    - 直近更新ノート（見出し・本文プレビュー）、最下部「ノート一覧を見る」導線。
+  - **下段左 [240px]**: `UpcomingTasksCard` (`src/components/dashboard/ActionColumn.tsx`)
+    - 期限が近い未完了タスク（期日超過・今サイクル内・直近7日以内）、期限バッジ、タスクグループバッジ、インライン・クイックタスク追加フォーム（Enterで即時登録）。
+  - **下段中央 [240px]**: `ShoppingListCard` (`src/components/dashboard/LifeFinanceColumn.tsx`)
+    - 買い物リストに属する未購入アイテム、チェックボックストグル、インライン・買い物アイテムクイック追加フォーム（Enterで即時登録）。
+  - **下段右 [240px]**: `QuickMemoCard` (`src/components/dashboard/KnowledgeColumn.tsx`)
+    - カード内部のスペース全体に広がる Scratchpad textarea。
+    - 入力内容を `localStorage`（`arca_quick_memo_draft`）に 400ms debounce で自動保存。
+    - ヘッダー右端に控えめな「保存済み」/「保存中...」リアルタイムステータス表示。
+    - フッターに文字数に応じたクリア機能。
+  - 従来の `ActionColumn`, `LifeFinanceColumn`, `KnowledgeColumn` も内部でこれらカードを束ねる後方互換ラッパーとして維持。
+
+#### 2. 🗂️ Notes モジュール エクスプローラー化 ＆ メモ（Memo）集約
+- **ノート（Pages）におけるグリッド表示の完全撤廃**:
+  - ノート一覧のカードグリッド表示を完全撤廃し、Windows エクスプローラーのような直感的かつ階層的なファイル管理・執筆体験へ刷新。
+  - メモ・カード一覧・タグ絞り込み・クイック作成などのグリッド関連機能をすべて「メモ (Memo)」側へ完全移行・集約。
+- **初期画面のエクスプローラー化 (`src/components/notes/ExplorerHomeView.tsx`)**:
+  - 未選択時の初期画面を「＜ノート一覧」に戻るのではなく、Windowsエクスプローラーのように「クイックアクセス」「お気に入り」「直近更新されたノート」を体系的にリスト表示する専用ビューへ刷新。
+- **構文ガイドポップアップの洗練 (`src/components/notes/MarkdownGuideModal.tsx`)**:
+  - ガイドポップアップヘッダーの不要な「M↓」アイコンを削除。
+  - 名称を「Markdown 構文ガイド」から「構文ガイド」へ変更し、スラッシュコマンド（`/`）で実行できる機能一覧（見出し、箇条書き、子ページ作成など）の案内を拡充。
+- **ダークモード配色修正**:
+  - ノートの左側フォルダツリータブやダッシュボードの日別カードがダークモード時に灰色黒文字になっていた配色を、テーマカラー（ディープスペース）に適合するようテキスト色・背景色・コントラストを最適化。
+
+#### 3. 🔗 Notes 子ページリンクの Tiptap カスタム NodeView 化 (`ChildPageNode.tsx`)
+- **SPA 内部ナビゲーション破綻の根本解決**:
+  - `/page` コマンド実行時に従来のテキストリンク（`<a>`）として挿入されていたため、クリック時にブラウザが通常の外部リンクとして反応し、ページがリロードされてトップ画面に戻ってしまう問題を解消。
+  - Tiptap の Atom ブロック要素としてカスタム NodeView `ChildPageNode` を新設。
+  - クリックイベントをキャプチャし、SPA 内部の `onSelectNote(childPageId)` を呼び出すことで、リロードなしのスムーズなページ遷移を実現。
+- **子ページタイトルの自動同期**:
+  - 作成時の仮タイトル「📄 （タイトルなし）」が固定テキストとしてハードコードされる問題を解消。
+  - Firestore / IndexedDB の子ノートドキュメントからリアルタイムにタイトルを取得し、子ページ側でタイトルが編集された場合でも親ページ内のボタンラベルが即時同期する仕組みを構築。
+- **複数子ページの作成 ＆ 削除連動**:
+  - 子ページを連続作成しても1つしかボタンが表示されない問題、および子ページ削除時に親ページ内のボタンが消えない問題を修正。親ノート本文内の `[child-page:id]` 参照ブロックを安全に同期・パージするロジックを確立。
+
+#### 4. 💳 Finance 速報メール取り込み ＆ 重複判定の根本再設計 (`src/services/gmailFinanceService.ts`)
+- **同日・同額決済の過剰スキップ撤廃**:
+  - 「同日・同額」というだけで新規メールを重複と誤認してスキップしていた不具合を撤廃。同日に同一金額で別店舗を利用した場合や、同日同額の別カード決済を正当に取り込めるよう改善。
+- **冪等性（重複判定）の唯一の基準化**:
+  - 重複防止判定の唯一の基準を `emailMessageId` の完全一致に統一。
+- **過去メール遡及取得の解放**:
+  - Gmail API 検索クエリ `newer_than:14d` のハードコードを解除し、任意の過去期間や未処理メールを安全に遡及取り込み可能に拡張。
+- **トランザクションマージの利便性向上**:
+  - 重複候補の確認・手動統合を行う `TransactionMergeModal.tsx` を整備。
+
+#### 5. 🛠️ ダッシュボード予定追加ポップアップ ＆ 天気表示削除 ＆ バグ修正
+- **直接予定登録ポップアップ (`src/components/dashboard/AddEventModal.tsx`)**:
+  - 今サイクルの予定カードにある「＋予定を追加」をクリックした際、単にカレンダー画面へ遷移するだけだった動作を改善。
+  - その場でタイトル・日付・開始/終了時刻・メモを入力し、Google カレンダー連動付きで即座に予定を作成できるポップアップモーダルを新設。
+- **不要機能の整理とタイポグラフィ改善**:
+  - ダッシュボード上の天気表示（`weatherService`）を削除し、ヘッダーおよびカードの情報密度を整理。
+  - ヘッダーのサイクル表記を「4-WORK 2-REST CYCLE COCKPIT」から「COCKPIT」にシンプル化。
+  - 日付・勤務ステータスバッジ（例: `9月13日(日) ✦出勤 1日目 (遅番(15時))`）のフォントサイズを拡大し、一目で当日のシフトと日付を把握できるよう視認性を向上。
+  - ダッシュボード上から家計・支出カードを撤廃。
+- **`pmSettings` 未初期化によるクラッシュバグの根本修正 (`src/services/pmCycleService.ts`)**:
+  - `Uncaught TypeError: Cannot read properties of null (reading 'cycleLength')` によりログイン直後に画面が真っ白になる問題を解消。
+  - Firestore からの設定ロード前でも安全に動作するよう、`DEFAULT_PM_SETTINGS` へのフォールバックとオプショナルチェイニングを徹底。
+
+---
+
 ## [2026-08-31] Sprint 4.8 & 4.9: Notes モジュール Tiptap リッチテキスト刷新・Firebase Storage 画像参照・スラッシュコマンド & テキストモード統合
 
 - **日付**: 2026年8月31日

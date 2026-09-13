@@ -27,6 +27,7 @@ import {
   resolveDateShiftInfo,
   resolveShiftInfo,
   getActivePMTasksForDate,
+  calculateFourTwoCycleRange,
 } from "./pmCycleService";
 import type { PMSettings, PMTemplateItem, PMLogItem } from "../types/pm";
 import type { CalendarEvent } from "../types";
@@ -890,6 +891,90 @@ describe("resolveDateShiftInfo & getActivePMTasksForDate (Sprint 9 改修)", () 
     expect(isWorkEvent(undefined)).toBe(false);
     expect(isWorkEvent("歯医者")).toBe(false);
     expect(isWorkEvent("映画鑑賞")).toBe(false);
+  });
+
+  describe("calculateFourTwoCycleRange (4勤2休サイクル算出)", () => {
+    // 4勤2休（出勤4日＋休日2日）のイベント
+    // 2026-09-01〜04: 出勤
+    // 2026-09-05〜06: 休日
+    const sampleEvents: CalendarEvent[] = [
+      { id: "e1", title: "早番", date: "2026-09-01", startTime: "07:00", endTime: "16:00", note: "", createdAt: null },
+      { id: "e2", title: "早番", date: "2026-09-02", startTime: "07:00", endTime: "16:00", note: "", createdAt: null },
+      { id: "e3", title: "遅番", date: "2026-09-03", startTime: "13:00", endTime: "22:00", note: "", createdAt: null },
+      { id: "e4", title: "遅番", date: "2026-09-04", startTime: "13:00", endTime: "22:00", note: "", createdAt: null },
+    ];
+
+    it("出勤1日目（2026-09-01）のとき、2026-09-01〜06 の6日間が算出されること", () => {
+      const cycle = calculateFourTwoCycleRange("2026-09-01", sampleEvents);
+      expect(cycle.startDate).toBe("2026-09-01");
+      expect(cycle.endDate).toBe("2026-09-06");
+      expect(cycle.days).toHaveLength(6);
+      expect(cycle.days[0].shift.type).toBe("work");
+      expect(cycle.days[0].shift.streakNumber).toBe(1);
+      expect(cycle.days[3].shift.type).toBe("work");
+      expect(cycle.days[3].shift.streakNumber).toBe(4);
+      expect(cycle.days[4].shift.type).toBe("holiday");
+      expect(cycle.days[5].shift.type).toBe("holiday");
+    });
+
+    it("出勤3日目（2026-09-03）のときも、同じ 2026-09-01〜06 の6日間が算出されること", () => {
+      const cycle = calculateFourTwoCycleRange("2026-09-03", sampleEvents);
+      expect(cycle.startDate).toBe("2026-09-01");
+      expect(cycle.endDate).toBe("2026-09-06");
+      expect(cycle.days[2].date).toBe("2026-09-03");
+      expect(cycle.days[2].shift.shiftName).toBe("遅番");
+    });
+
+    it("休日1日目（2026-09-05）のとき、直前の4勤と合わせた 2026-09-01〜06 の6日間が算出されること", () => {
+      const cycle = calculateFourTwoCycleRange("2026-09-05", sampleEvents);
+      expect(cycle.startDate).toBe("2026-09-01");
+      expect(cycle.endDate).toBe("2026-09-06");
+      expect(cycle.days[4].date).toBe("2026-09-05");
+      expect(cycle.days[4].shift.type).toBe("holiday");
+    });
+
+    it("休日2日目（2026-09-06）のとき、直前の4勤と合わせた 2026-09-01〜06 の6日間が算出されること", () => {
+      const cycle = calculateFourTwoCycleRange("2026-09-06", sampleEvents);
+      expect(cycle.startDate).toBe("2026-09-01");
+      expect(cycle.endDate).toBe("2026-09-06");
+      expect(cycle.days[5].date).toBe("2026-09-06");
+      expect(cycle.days[5].shift.type).toBe("holiday");
+    });
+
+    it("手動アンカー設定がある場合、循環計算で6日間が算出されること", () => {
+      const settings: PMSettings = {
+        cycleLength: 6,
+        manualAnchorDate: "2026-09-01",
+        manualAnchorDay: 1,
+      };
+      const cycle = calculateFourTwoCycleRange("2026-09-03", [], settings);
+      expect(cycle.startDate).toBe("2026-09-01");
+      expect(cycle.endDate).toBe("2026-09-06");
+      expect(cycle.days).toHaveLength(6);
+    });
+
+    it("settings が null または undefined でもクラッシュせず安全にフォールバックする", () => {
+      // calculateFourTwoCycleRange
+      expect(() => calculateFourTwoCycleRange("2026-09-03", [], null)).not.toThrow();
+      expect(() => calculateFourTwoCycleRange("2026-09-03", [], undefined)).not.toThrow();
+      const cycle = calculateFourTwoCycleRange("2026-09-03", [], null);
+      expect(cycle.days).toHaveLength(6);
+
+      // calculateDayIndex
+      expect(() => calculateDayIndex("2026-09-03", null)).not.toThrow();
+      expect(() => calculateDayIndex("2026-09-03", undefined)).not.toThrow();
+      const dayInfo = calculateDayIndex("2026-09-03", null);
+      expect(dayInfo.cycleLength).toBe(6);
+
+      // getActivePMTasksForDate with templates
+      const templates: PMTemplateItem[] = [
+        { id: "t1", title: "タスク1", content: "", timing: "rest_day_1", order: 0, enabled: true },
+        { id: "t2", title: "カスタムタスク", content: "", timing: "custom_day", dayIndex: 1, order: 1, enabled: true },
+        { id: "t3", title: "レガシータスク", content: "", dayIndex: 2, order: 2, enabled: true },
+      ];
+      expect(() => getActivePMTasksForDate("2026-09-03", templates, [], null)).not.toThrow();
+      expect(() => getActivePMTasksForDate("2026-09-03", templates, [], undefined)).not.toThrow();
+    });
   });
 });
 

@@ -4,6 +4,7 @@
  */
 
 import { useState, useMemo } from "react";
+import { Check } from "lucide-react";
 import type {
   CreditCardCsvRow,
   ExpenseTransaction,
@@ -109,7 +110,7 @@ export function ReconcileWorkbench({
   const handleCommitBatch = async (preview: ReconcilePreviewResult) => {
     const result = await commitBatchReconcile(preview);
     const parts: string[] = [];
-    if (result.matchedCount > 0) parts.push(`${result.matchedCount}件を突合`);
+    if (result.matchedCount > 0) parts.push(`${result.matchedCount}件を確認`);
     if (result.createdCount > 0) parts.push(`${result.createdCount}件を新規登録`);
     setBatchSuccessMessage(`✓ ${parts.join("・")}しました`);
     setTimeout(() => setBatchSuccessMessage(null), 4500);
@@ -179,7 +180,7 @@ export function ReconcileWorkbench({
               クレジットカード明細 CSV インポート
             </h3>
             <p style={{ fontSize: "0.74rem", color: C.charcoalLight, margin: "0.2rem 0 0" }}>
-              Olive / SMBC・dカード・イオンカード・Viewカード等の明細CSVを読み込んで自動突合します
+              Olive / SMBC・dカード・イオンカード・Viewカード等の明細CSVを読み込んで自動照合・確認します
             </p>
           </div>
           {csvRows.length > 0 && (
@@ -363,7 +364,7 @@ export function ReconcileWorkbench({
               {previewResult && (
                 <div style={{ display: "flex", gap: "0.4rem" }}>
                   <span style={{ fontSize: "0.72rem", color: "#2E7D32", fontWeight: 650 }}>
-                    突合: {previewResult.matchedCount}件
+                    確認: {previewResult.matchedCount}件
                   </span>
                   <span style={{ fontSize: "0.72rem", color: "#1565C0", fontWeight: 650 }}>
                     新規: {previewResult.createdCount}件
@@ -397,7 +398,7 @@ export function ReconcileWorkbench({
                     gap: "0.35rem",
                   }}
                 >
-                  <span>📊</span>
+                  <Check size={14} strokeWidth={2.5} />
                   <span>
                     すべて登録して確定 (
                     {previewResult.matchedCount + previewResult.createdCount}件)
@@ -421,7 +422,7 @@ export function ReconcileWorkbench({
                     boxShadow: "0 2px 8px rgba(46, 125, 50, 0.25)",
                   }}
                 >
-                  {isProcessing ? "突合処理中..." : "高信頼度のみ突合"}
+                  {isProcessing ? "確認処理中..." : "高信頼度のみ確認"}
                 </button>
               )}
             </div>
@@ -565,7 +566,7 @@ export function ReconcileWorkbench({
                               cursor: "pointer",
                             }}
                           >
-                            突合を解除
+                            確認を解除
                           </button>
                         ) : (
                           <button
@@ -650,11 +651,11 @@ export function ReconcileWorkbench({
                       }}
                     >
                       <div style={{ fontSize: "0.72rem", fontWeight: 700, color: C.charcoalLight, marginBottom: "0.4rem" }}>
-                        突合する支出を選択:
+                        確認する支出を選択:
                       </div>
                       {unreconciledTransactions.length === 0 ? (
                         <div style={{ fontSize: "0.74rem", color: C.charcoalLight, fontStyle: "italic", padding: "0.4rem 0" }}>
-                          未突合の支出がありません
+                          未確認の支出がありません
                         </div>
                       ) : (
                         <div style={{ maxHeight: "150px", overflowY: "auto", display: "flex", flexDirection: "column", gap: "0.3rem" }}>

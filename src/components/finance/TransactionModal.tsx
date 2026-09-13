@@ -4,6 +4,7 @@
  */
 
 import { useState, useEffect } from "react";
+import { BookOpen } from "lucide-react";
 import {
   EXPENSE_CATEGORIES,
   PAYMENT_METHODS,
@@ -16,6 +17,10 @@ import { createEmptyExpenseItem } from "../../lib/financeStorage";
 import { formatCurrency } from "../../utils/financeSummary";
 import { CategoryGuideModal } from "./CategoryGuideModal";
 import { C } from "../../lib/designSystem";
+
+interface FormExpenseItem extends Omit<ExpenseItem, "amount"> {
+  amount: number | "";
+}
 
 interface TransactionModalProps {
   isOpen: boolean;
@@ -37,7 +42,7 @@ export function TransactionModal({
   const [totalAmount, setTotalAmount] = useState<number | "">("");
   const [category, setCategory] = useState<ExpenseCategory>("食料品");
   const [paymentMethod, setPaymentMethod] = useState<PaymentMethod>("Oliveカード");
-  const [items, setItems] = useState<ExpenseItem[]>([]);
+  const [items, setItems] = useState<FormExpenseItem[]>([]);
   const [memo, setMemo] = useState("");
   const [receiptImageUrl, setReceiptImageUrl] = useState<string | undefined>(undefined);
   const [isAutoSum, setIsAutoSum] = useState(true);
@@ -54,7 +59,10 @@ export function TransactionModal({
         setPaymentMethod(initialTransaction.paymentMethod || "Oliveカード");
         setItems(
           Array.isArray(initialTransaction.items) && initialTransaction.items.length > 0
-            ? initialTransaction.items.map((it) => ({ ...it }))
+            ? initialTransaction.items.map((it) => ({
+                ...it,
+                amount: it.amount === 0 ? "" : (it.amount ?? ""),
+              }))
             : []
         );
         setMemo(initialTransaction.memo || "");
@@ -90,14 +98,29 @@ export function TransactionModal({
   if (!isOpen) return null;
 
   const handleAddItem = () => {
-    const newItem = createEmptyExpenseItem(category);
+    const emptyItem = createEmptyExpenseItem(category);
+    const newItem: FormExpenseItem = {
+      ...emptyItem,
+      amount: "", // 初期状態は空文字（0円の誤入力を防ぎ入力しやすくする）
+    };
     setItems((prev) => [...prev, newItem]);
     if (!isAutoSum && items.length === 0) {
       setIsAutoSum(true);
     }
   };
 
-  const handleItemChange = (index: number, patch: Partial<ExpenseItem>) => {
+  const handleCategoryChange = (newCategory: ExpenseCategory) => {
+    setCategory(newCategory);
+    // 上のカテゴリを変更した際、下の品目内訳（レシート明細）のカテゴリもすべて連動して更新する
+    setItems((prev) =>
+      prev.map((item) => ({
+        ...item,
+        category: newCategory,
+      }))
+    );
+  };
+
+  const handleItemChange = (index: number, patch: Partial<FormExpenseItem>) => {
     setItems((prev) => {
       const next = [...prev];
       next[index] = { ...next[index], ...patch };
@@ -124,7 +147,12 @@ export function TransactionModal({
         totalAmount: isAutoSum && items.length > 0 ? itemsSum : finalTotal,
         category,
         paymentMethod,
-        items: items.filter((it) => it.name.trim() || it.amount !== 0),
+        items: items
+          .map((it) => ({
+            ...it,
+            amount: Number(it.amount) || 0,
+          }))
+          .filter((it) => it.name.trim() || it.amount !== 0),
         isReconciled: initialTransaction?.isReconciled || false,
         matchedCsvRowId: initialTransaction?.matchedCsvRowId || "",
         receiptImageUrl: receiptImageUrl || initialTransaction?.receiptImageUrl,
@@ -404,17 +432,17 @@ export function TransactionModal({
                       padding: "0 0.2rem",
                       display: "inline-flex",
                       alignItems: "center",
-                      gap: "0.2rem",
+                      gap: "0.25rem",
                     }}
                     title="12カテゴリの具体例と分類ガイドを開く"
                   >
-                    <span>📖</span>
+                    <BookOpen size={13} />
                     <span>ガイド</span>
                   </button>
                 </div>
                 <select
                   value={category}
-                  onChange={(e) => setCategory(e.target.value as ExpenseCategory)}
+                  onChange={(e) => handleCategoryChange(e.target.value as ExpenseCategory)}
                   style={{
                     width: "100%",
                     padding: "0.55rem 0.75rem",
@@ -689,10 +717,10 @@ export function TransactionModal({
                           <input
                             type="number"
                             placeholder="金額"
-                            value={item.amount !== undefined ? item.amount : ""}
+                            value={item.amount}
                             onChange={(e) =>
                               handleItemChange(index, {
-                                amount: e.target.value === "" ? 0 : Number(e.target.value),
+                                amount: e.target.value === "" ? "" : Number(e.target.value),
                               })
                             }
                             style={{

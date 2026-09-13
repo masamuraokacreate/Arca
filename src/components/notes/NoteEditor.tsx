@@ -33,6 +33,9 @@ import { Markdown } from "tiptap-markdown";
 import { Extension } from "@tiptap/core";
 import { C } from "../../lib/designSystem";
 import { uploadNoteImage } from "../../services/imageUploadService";
+import { ChildPageNode } from "./extensions/ChildPageNode";
+import { NoteEditorContext } from "./NoteEditorContext";
+import type { NoteItem } from "../../types";
 
 /**
  * Markdown 出力時の不要な過剰エスケープ（\*, \_, &lt;, &gt; 等）を正規化・クレンジングする
@@ -87,10 +90,25 @@ export interface SlashCommand {
   label: string;
   description: string;
   icon: string;
-  action: (editor: any, triggers?: { openImageDialog?: () => void }) => void;
+  action: (
+    editor: any,
+    triggers?: {
+      openImageDialog?: () => void;
+      insertChildPage?: () => void;
+    }
+  ) => void;
 }
 
 export const SLASH_COMMANDS: SlashCommand[] = [
+  {
+    id: "page",
+    label: "子ページ",
+    description: "新しいサブページをここに作成・挿入",
+    icon: "📄",
+    action: (_editor, triggers) => {
+      triggers?.insertChildPage?.();
+    },
+  },
   {
     id: "h1",
     label: "見出し 1",
@@ -188,19 +206,24 @@ function SlashMenu({
       if (!filtered.length) return;
       if (e.key === "ArrowDown") {
         e.preventDefault();
+        e.stopPropagation();
         setFocusIdx((i) => (i + 1) % filtered.length);
       } else if (e.key === "ArrowUp") {
         e.preventDefault();
+        e.stopPropagation();
         setFocusIdx((i) => (i - 1 + filtered.length) % filtered.length);
       } else if (e.key === "Enter") {
         e.preventDefault();
+        e.stopPropagation();
         onSelect(filtered[focusIdx]);
       } else if (e.key === "Escape") {
+        e.preventDefault();
+        e.stopPropagation();
         onDismiss();
       }
     };
-    window.addEventListener("keydown", handler);
-    return () => window.removeEventListener("keydown", handler);
+    window.addEventListener("keydown", handler, true);
+    return () => window.removeEventListener("keydown", handler, true);
   }, [filtered, focusIdx, onSelect, onDismiss]);
 
   useEffect(() => {
@@ -321,6 +344,8 @@ function SlashMenu({
 export interface NoteEditorHandles {
   insertSyntax: (syntax: string) => void;
   insertImage: (file: File) => Promise<void>;
+  insertChildPageLink: (noteId: string, title?: string) => void;
+  insertChildPageNode: (pageId: string) => void;
   focus: () => void;
 }
 
@@ -331,10 +356,21 @@ export interface NoteEditorProps {
   onAttachmentsChange?: (attachments: Record<string, string>) => void;
   placeholder?: string;
   isSourceMode?: boolean;
+  onInsertChildPage?: () => void;
+  onSelectNote?: (noteId: string) => void;
+  allNotes?: NoteItem[];
 }
 
 export const NoteEditor = forwardRef<NoteEditorHandles, NoteEditorProps>(function NoteEditor(
-  { content, onChange, placeholder, isSourceMode = false },
+  {
+    content,
+    onChange,
+    placeholder,
+    isSourceMode = false,
+    onInsertChildPage,
+    onSelectNote,
+    allNotes = [],
+  },
   ref
 ) {
   const [slashActive, setSlashActive] = useState(false);
@@ -343,6 +379,16 @@ export const NoteEditor = forwardRef<NoteEditorHandles, NoteEditorProps>(functio
   const [isUploading, setIsUploading] = useState(false);
   const isComposingRef = useRef(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const sourceTextareaRef = useRef<HTMLTextAreaElement>(null);
+
+  // ソースモード時: コンテンツ量に合わせて高さを自動リサイズ
+  useEffect(() => {
+    if (isSourceMode && sourceTextareaRef.current) {
+      sourceTextareaRef.current.style.height = "auto";
+      const scrollH = sourceTextareaRef.current.scrollHeight;
+      sourceTextareaRef.current.style.height = `${Math.max(480, scrollH + 20)}px`;
+    }
+  }, [content, isSourceMode]);
 
   // Tiptap エディタ初期化
   const editor = useEditor({
@@ -383,6 +429,7 @@ export const NoteEditor = forwardRef<NoteEditorHandles, NoteEditorProps>(functio
           class: "arca-tiptap-image rounded-2xl",
         },
       }),
+      ChildPageNode,
       Markdown.configure({
         html: false,
         tightLists: true,
@@ -539,6 +586,38 @@ export const NoteEditor = forwardRef<NoteEditorHandles, NoteEditorProps>(functio
       insertImage: async (file: File) => {
         await handleUploadAndInsert(file);
       },
+      insertChildPageNode: (pageId: string) => {
+        if (!editor) return;
+        editor
+          .chain()
+          .focus()
+          .insertContent([
+            {
+              type: "childPage",
+              attrs: { pageId },
+            },
+            {
+              type: "paragraph",
+            },
+          ])
+          .run();
+      },
+      insertChildPageLink: (noteId: string) => {
+        if (!editor) return;
+        editor
+          .chain()
+          .focus()
+          .insertContent([
+            {
+              type: "childPage",
+              attrs: { pageId: noteId },
+            },
+            {
+              type: "paragraph",
+            },
+          ])
+          .run();
+      },
       focus: () => {
         editor?.commands.focus();
       },
@@ -561,6 +640,9 @@ export const NoteEditor = forwardRef<NoteEditorHandles, NoteEditorProps>(functio
       openImageDialog: () => {
         fileInputRef.current?.click();
       },
+      insertChildPage: () => {
+        onInsertChildPage?.();
+      },
     });
   };
 
@@ -568,43 +650,50 @@ export const NoteEditor = forwardRef<NoteEditorHandles, NoteEditorProps>(functio
   if (isSourceMode) {
     return (
       <div
+        className="w-full flex-1 flex flex-col min-h-0"
         style={{
           position: "relative",
           width: "100%",
-          minHeight: "120px",
-          paddingBottom: "1.5rem",
+          paddingBottom: "2rem",
         }}
       >
-        <div
-          style={{
-            fontSize: "0.75rem",
-            fontWeight: 600,
-            color: C.goldDark,
-            background: C.goldFaint,
-            padding: "0.3rem 0.8rem",
-            borderRadius: "6px",
-            display: "inline-block",
-            marginBottom: "0.8rem",
-          }}
-        >
-          Markdown ソース編集モード
+        <div className="flex items-center justify-between mb-2.5">
+          <div
+            style={{
+              fontSize: "0.72rem",
+              fontWeight: 600,
+              color: "var(--accent-gold-dark)",
+              background: "var(--accent-gold-faint)",
+              padding: "0.25rem 0.75rem",
+              borderRadius: "8px",
+              display: "inline-flex",
+              alignItems: "center",
+              gap: "0.4rem",
+            }}
+          >
+            <span>Markdown ソース編集モード</span>
+          </div>
+          <span className="text-[0.72rem] text-charcoal-light font-medium">
+            文字数: {content.length}
+          </span>
         </div>
         <textarea
+          ref={sourceTextareaRef}
           value={content}
           onChange={(e) => onChange(normalizeMarkdown(e.target.value))}
           placeholder={placeholder || "Markdownで書き始める…"}
-          className="arca-scroll"
+          className="arca-scroll w-full flex-1"
           style={{
             display: "block",
             width: "100%",
-            minHeight: "140px",
+            minHeight: "480px",
             background: "transparent",
             border: "none",
             outline: "none",
             resize: "none",
             fontSize: "0.95rem",
             lineHeight: 1.85,
-            color: C.charcoal,
+            color: "var(--text-main)",
             fontFamily: `"SF Mono", Menlo, Monaco, Consolas, monospace`,
             padding: 0,
             boxSizing: "border-box",
@@ -657,7 +746,9 @@ export const NoteEditor = forwardRef<NoteEditorHandles, NoteEditorProps>(functio
         </div>
       )}
 
-      <EditorContent editor={editor} />
+      <NoteEditorContext.Provider value={{ allNotes: allNotes || [], onSelectNote }}>
+        <EditorContent editor={editor} />
+      </NoteEditorContext.Provider>
 
       {slashActive && (
         <SlashMenu
@@ -808,6 +899,30 @@ export const NoteEditor = forwardRef<NoteEditorHandles, NoteEditorProps>(functio
         }
         .arca-tiptap-link:hover {
           color: var(--accent-gold);
+        }
+
+        /* Notion風インライン子ページリンクボタン */
+        .arca-tiptap-prose a[href^="note:"] {
+          display: inline-flex;
+          align-items: center;
+          gap: 0.35rem;
+          padding: 0.25rem 0.65rem;
+          margin: 0.15rem 0.2rem;
+          border-radius: 10px;
+          background: rgba(181, 141, 61, 0.1);
+          color: var(--accent-gold-dark, #8C6D2D);
+          font-weight: 600;
+          font-size: 0.9em;
+          text-decoration: none;
+          box-shadow: 0 1px 3px rgba(0, 0, 0, 0.03);
+          transition: all 0.15s ease;
+          cursor: pointer;
+        }
+        .arca-tiptap-prose a[href^="note:"]:hover {
+          background: rgba(181, 141, 61, 0.18);
+          color: var(--accent-gold, #B58D3D);
+          transform: translateY(-1px);
+          box-shadow: 0 3px 8px rgba(0, 0, 0, 0.06);
         }
 
         /* 水平線 */

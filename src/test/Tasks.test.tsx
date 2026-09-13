@@ -607,7 +607,7 @@ describe("Tasks コンポーネント", () => {
 
     // メインタスクとサブタスク進捗バッジ
     expect(screen.getByText("大型プロジェクト準備")).toBeInTheDocument();
-    expect(screen.getByText("1/2")).toBeInTheDocument();
+    expect(screen.getByText("1/2 完了")).toBeInTheDocument();
 
     // デフォルトでサブタスク一覧がインデント表示されていること
     const subtaskList = screen.getByTestId("subtask-list");
@@ -615,12 +615,12 @@ describe("Tasks コンポーネント", () => {
     expect(screen.getByText("要件ヒアリング")).toBeInTheDocument();
     expect(screen.getByText("見積書作成")).toBeInTheDocument();
 
-    // 開閉ボタン（＞）が存在すること
+    // 開閉ボタンが存在すること
     const collapseBtn = screen.getByTestId("subtask-collapse-btn");
     expect(collapseBtn).toBeInTheDocument();
   });
 
-  it("開閉ボタン（＞）をクリックするとサブタスクが折りたたまれ、再度クリックすると展開される", async () => {
+  it("開閉ボタンをクリックするとサブタスクが折りたたまれ、再度クリックすると展開される", async () => {
     mockSnapshot([
       {
         id: "t-collapsible",
@@ -642,7 +642,7 @@ describe("Tasks コンポーネント", () => {
     expect(screen.getByTestId("subtask-list")).toBeInTheDocument();
     expect(screen.getByText("サブタスクA")).toBeInTheDocument();
 
-    // ＞をクリックして折りたたむ
+    // クリックして折りたたむ
     const collapseBtn = screen.getByTestId("subtask-collapse-btn");
     await user.click(collapseBtn);
 
@@ -692,6 +692,103 @@ describe("Tasks コンポーネント", () => {
 
     // 親タスクの詳細モーダルは開いていないこと
     expect(screen.queryByText("TASK DETAILS")).not.toBeInTheDocument();
+  });
+
+  it("インセット・コンテナ内の「サブタスクを追加」ボタンからインラインでサブタスクを追加できる", async () => {
+    mockSnapshot([
+      {
+        id: "t-inline-add",
+        data: {
+          title: "親タスクインライン追加",
+          completed: false,
+          listId: "default",
+          subtasks: [
+            { id: "st-exist", title: "既存のサブタスク", completed: false },
+          ],
+          createdAt: null,
+        },
+      },
+    ]);
+    const user = userEvent.setup();
+    render(<Tasks />);
+
+    // 「サブタスクを追加」ボタンをクリック
+    const addBtn = screen.getByTestId("add-subtask-inline-btn");
+    await user.click(addBtn);
+
+    // 入力フォームが表示される
+    const input = screen.getByPlaceholderText("サブタスクを入力...");
+    expect(input).toBeInTheDocument();
+
+    // 入力して「追加」
+    await user.type(input, "新しいサブタスク{Enter}");
+
+    // FirestoreのupdateDocが呼ばれ、subtasks配列に追加される
+    expect(updateDoc).toHaveBeenCalled();
+    const callArgs = (updateDoc as Mock).mock.calls;
+    const lastCall = callArgs[callArgs.length - 1];
+    expect(lastCall[1].subtasks).toHaveLength(2);
+    expect(lastCall[1].subtasks[0].title).toBe("既存のサブタスク");
+    expect(lastCall[1].subtasks[1].title).toBe("新しいサブタスク");
+    expect(lastCall[1].subtasks[1].completed).toBe(false);
+  });
+
+  it("親タスクを完了にした場合、配下の未完了サブタスクも連動して一括完了状態に更新される", async () => {
+    mockSnapshot([
+      {
+        id: "t-cascade",
+        data: {
+          title: "親タスク一括連動",
+          completed: false,
+          listId: "default",
+          subtasks: [
+            { id: "sub-1", title: "子タスク1", completed: false },
+            { id: "sub-2", title: "子タスク2", completed: true },
+          ],
+          createdAt: null,
+        },
+      },
+    ]);
+    const user = userEvent.setup();
+    render(<Tasks />);
+
+    // 親タスクのトグルボタンをクリック
+    const parentToggleBtn = screen.getByTestId("task-toggle-btn");
+    await user.click(parentToggleBtn);
+
+    // FirestoreのupdateDocが呼ばれ、completed: true とともに未完了サブタスクも completed: true に更新される
+    expect(updateDoc).toHaveBeenCalled();
+    const callArgs = (updateDoc as Mock).mock.calls;
+    const lastCall = callArgs[callArgs.length - 1];
+    expect(lastCall[1].completed).toBe(true);
+    expect(lastCall[1].subtasks).toEqual([
+      { id: "sub-1", title: "子タスク1", completed: true },
+      { id: "sub-2", title: "子タスク2", completed: true },
+    ]);
+  });
+
+  it("子タスクが全て完了しても親タスクは自動完了せず、進捗バッジが「2/2 完了」となる", () => {
+    mockSnapshot([
+      {
+        id: "t-all-sub-done",
+        data: {
+          title: "親タスク未完了のまま",
+          completed: false,
+          listId: "default",
+          subtasks: [
+            { id: "sub-a", title: "子A", completed: true },
+            { id: "sub-b", title: "子B", completed: true },
+          ],
+          createdAt: null,
+        },
+      },
+    ]);
+    render(<Tasks />);
+
+    // 進捗バッジが「2/2 完了」として表示される
+    expect(screen.getByText("2/2 完了")).toBeInTheDocument();
+    // 親タスクは未完了リストに留まっている
+    expect(screen.getByText("親タスク未完了のまま")).toBeInTheDocument();
   });
 
   // ─── カスタムSVGリストアイコン & Firestore永続化 テスト ───

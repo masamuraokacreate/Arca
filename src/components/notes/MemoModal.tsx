@@ -76,10 +76,22 @@ export function MemoModal({
     });
   }, [note, title, content, tagsInput, onSave]);
 
-  const handleClose = () => {
+  const handleClose = useCallback(() => {
     commitChanges();
     onClose();
-  };
+  }, [commitChanges, onClose]);
+
+  // Escape キーで保存して閉じる
+  useEffect(() => {
+    if (!isOpen) return;
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === "Escape") {
+        handleClose();
+      }
+    };
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [isOpen, handleClose]);
 
   // 画像ファイル挿入
   const handleImageSelected = async (e: React.ChangeEvent<HTMLInputElement>) => {

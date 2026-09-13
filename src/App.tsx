@@ -669,6 +669,7 @@ function App() {
   const [isBackupModalOpen, setIsBackupModalOpen] = useState(false);
   const [isThemeModalOpen, setIsThemeModalOpen] = useState(false);
   const [isMobile, setIsMobile] = useState(typeof window !== "undefined" ? window.innerWidth < 640 : false);
+  const [isRecipeDetailActive, setIsRecipeDetailActive] = useState(false);
 
   // 画面幅監視
   useEffect(() => {
@@ -773,6 +774,9 @@ function App() {
     if (module !== "notes") {
       setSelectedNoteId(null);
     }
+    if (module !== "recipes") {
+      setIsRecipeDetailActive(false);
+    }
     if (module === "tasks") {
       setTasksTab(tab || "default");
     }
@@ -788,26 +792,33 @@ function App() {
     setSelectedNoteId(null);
   }, []);
 
+  const isRecipeDetailMobile = isMobile && activeModule === "recipes" && isRecipeDetailActive;
   const headerHeight = isMobile ? "94px" : "52px";
 
   return (
     <div style={{ minHeight: "100vh", position: "relative" }}>
-      {/* ナビゲーションバー */}
-      <NavBar
-        active={activeModule}
-        onChange={(m) => handleNavigate(m, "tasks")}
-        onOpenBackup={() => setIsBackupModalOpen(true)}
-        onOpenTheme={() => setIsThemeModalOpen(true)}
-        googleSyncStatus={googleSyncStatus}
-        onManualSync={handleManualGoogleSync}
-      />
+      {/* ナビゲーションバー (モバイルのレシピ詳細画面では非表示) */}
+      {!isRecipeDetailMobile && (
+        <NavBar
+          active={activeModule}
+          onChange={(m) => handleNavigate(m, "tasks")}
+          onOpenBackup={() => setIsBackupModalOpen(true)}
+          onOpenTheme={() => setIsThemeModalOpen(true)}
+          googleSyncStatus={googleSyncStatus}
+          onManualSync={handleManualGoogleSync}
+        />
+      )}
 
       {/* メインコンテンツ領域（ナビバー分の余白 & セーフエリア） */}
       <main
         style={{
-          paddingTop: `calc(${headerHeight} + env(safe-area-inset-top, 0px))`,
+          paddingTop: isRecipeDetailMobile
+            ? "0px"
+            : `calc(${headerHeight} + env(safe-area-inset-top, 0px))`,
           paddingBottom: "env(safe-area-inset-bottom, 0px)",
-          minHeight: `calc(100vh - ${headerHeight} - env(safe-area-inset-top, 0px))`,
+          minHeight: isRecipeDetailMobile
+            ? "100vh"
+            : `calc(100vh - ${headerHeight} - env(safe-area-inset-top, 0px))`,
           width: "100%",
           transition: "padding-top 0.2s ease",
         }}
@@ -840,7 +851,10 @@ function App() {
             />
           )}
           {activeModule === "recipes" && (
-            <Recipes onNavigateToLists={() => handleNavigate("tasks", "lists")} />
+            <Recipes
+              onNavigateToLists={() => handleNavigate("tasks", "lists")}
+              onDetailViewChange={setIsRecipeDetailActive}
+            />
           )}
           {activeModule === "finance" && <Finance />}
         </div>

@@ -52,14 +52,12 @@ import type {
 import { MemoModal } from "./notes/MemoModal";
 import { MemoSpace } from "./notes/MemoSpace";
 import { DocumentSpace } from "./notes/DocumentSpace";
+import { ExplorerHomeView } from "./notes/ExplorerHomeView";
 import { JournalSpace } from "./notes/JournalSpace";
 import { NotesSpaceNav } from "./notes/NotesSpaceNav";
 import {
-  List,
-  LayoutGrid,
   Sparkles,
   Folder,
-  FileText,
 } from "lucide-react";
 import { C } from "../lib/designSystem";
 import { useUndoToast } from "../hooks/useUndoToast";
@@ -646,12 +644,12 @@ export function NoteViewer({
   allNotes,
   breadcrumbs,
   onSelectBreadcrumb,
-  childNotes,
+  childNotes: _childNotes,
   onSelectChildNote,
-  onNewChildNote,
-  onDeleteChildNote,
-  onDownloadChildNote,
-  onMoveChildNote,
+  onNewChildNote: _onNewChildNote,
+  onDeleteChildNote: _onDeleteChildNote,
+  onDownloadChildNote: _onDownloadChildNote,
+  onMoveChildNote: _onMoveChildNote,
   isFullWidth,
   saveStatus,
   onBack,
@@ -664,7 +662,7 @@ export function NoteViewer({
   onImportMarkdown,
   onToggleFullWidth,
   onToastMessage,
-  onChildViewModeChange,
+  onChildViewModeChange: _onChildViewModeChange,
   onNewJournalNote: _onNewJournalNote,
   onMoodChange,
   onJournalDateChange,
@@ -771,6 +769,53 @@ export function NoteViewer({
     }
   };
 
+  // 既存の子ページで親の content にリンクが含まれていないものを自動同期・補完
+  useEffect(() => {
+    if (!note || !note.id || note.isDeleted) return;
+    const currentChildren = allNotes.filter(
+      (n) => n.parentId === note.id && !n.isDeleted
+    );
+    if (currentChildren.length === 0) return;
+
+    const content = note.content || "";
+    const missingChildren = currentChildren.filter((child) => {
+      return (
+        !content.includes(`[child-page:${child.id}]`) &&
+        !content.includes(`note:${child.id}`) &&
+        !content.includes(`data-page-id="${child.id}"`)
+      );
+    });
+
+    if (missingChildren.length > 0) {
+      const missingAppend = missingChildren
+        .map((child) => `[child-page:${child.id}]`)
+        .join("\n\n");
+      const separator = content.trim() ? "\n\n" : "";
+      const updated = `${content.trim()}${separator}${missingAppend}\n`;
+      onContentChange(updated);
+    }
+  }, [note.id, allNotes]);
+
+  // 本文中へのインライン子ページ作成・挿入ハンドラ
+  const handleCreateAndInsertChildPage = async () => {
+    try {
+      const docRef = await addDoc(collection(db, "notes"), {
+        title: "",
+        content: "",
+        tags: [],
+        spaceType: note.spaceType || "document",
+        createdAt: serverTimestamp(),
+        updatedAt: serverTimestamp(),
+        isDeleted: false,
+        parentId: note.id,
+      });
+      editorRef.current?.insertChildPageNode(docRef.id);
+      onToastMessage?.("子ページを作成し、リンクカードを挿入しました");
+    } catch (err) {
+      console.error("Failed to insert child page:", err);
+    }
+  };
+
   // 画像ファイル選択後の処理
   const handleImageFileSelected = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -833,7 +878,6 @@ export function NoteViewer({
   }, []);
 
   const toc = extractToc(note.content);
-  const currentChildViewMode: NoteChildViewMode = note.childViewMode || "list";
 
   // 目次（TOC）サイドバーの描画
   const renderTocSidebar = (
@@ -1125,223 +1169,10 @@ export function NoteViewer({
         onAttachmentsChange={onAttachmentsChange}
         onChange={onContentChange}
         isSourceMode={isSourceMode}
+        onInsertChildPage={handleCreateAndInsertChildPage}
+        onSelectNote={onSelectChildNote}
+        allNotes={allNotes}
       />
-
-      {/* ────── サブノート（Sub-notes Hub）セクション ────── */}
-      <div
-        style={{
-          marginTop: isDocumentSpace ? "3.5rem" : "2rem",
-          paddingTop: isDocumentSpace ? "2rem" : "1.5rem",
-          borderTop: "1px solid rgba(0, 0, 0, 0.06)",
-        }}
-      >
-        <div
-          style={{
-            display: "flex",
-            alignItems: "center",
-            justifyContent: "space-between",
-            marginBottom: "1.2rem",
-            flexWrap: "wrap",
-            gap: "0.8rem",
-          }}
-        >
-          <div style={{ display: "flex", alignItems: "center", gap: "0.8rem", flexWrap: "wrap" }}>
-            <div style={{ display: "flex", alignItems: "center", gap: "0.6rem" }}>
-              <h3
-                style={{
-                  fontSize: "1.08rem",
-                  fontWeight: 700,
-                  color: C.charcoal,
-                  margin: 0,
-                  letterSpacing: "-0.02em",
-                }}
-              >
-                サブノート
-              </h3>
-              {childNotes.length > 0 && (
-                <span
-                  style={{
-                    fontSize: "0.72rem",
-                    color: C.charcoalMid,
-                    background: "rgba(0,0,0,0.04)",
-                    borderRadius: "12px",
-                    padding: "0.15rem 0.55rem",
-                    fontWeight: 600,
-                  }}
-                >
-                  {childNotes.length}件
-                </span>
-              )}
-            </div>
-
-            {/* ビュー切り替えピル（セグメントコントロール）: [ リスト | カード ] */}
-            <div
-              role="radiogroup"
-              aria-label="サブノート表示形式切り替え"
-              className="flex items-center shrink-0"
-              style={{
-                background: "rgba(0, 0, 0, 0.04)",
-                borderRadius: "9px",
-                padding: "2px",
-                gap: "2px",
-              }}
-            >
-              <button
-                type="button"
-                role="radio"
-                aria-checked={currentChildViewMode !== "board"}
-                aria-label="リスト表示"
-                title="Notion風リスト表示"
-                onClick={() => onChildViewModeChange?.("list")}
-                className="appearance-none whitespace-nowrap shrink-0 flex items-center gap-1.5"
-                style={{
-                  background: currentChildViewMode !== "board" ? "var(--bg-card-solid)" : "transparent",
-                  color: currentChildViewMode !== "board" ? C.charcoal : C.charcoalLight,
-                  border: "none",
-                  borderRadius: "7px",
-                  padding: "0.35rem 0.65rem",
-                  cursor: "pointer",
-                  fontSize: "0.76rem",
-                  fontWeight: currentChildViewMode !== "board" ? 650 : 500,
-                  boxShadow: currentChildViewMode !== "board" ? "0 1px 3px rgba(0,0,0,0.08)" : "none",
-                  transition: "all 0.15s ease",
-                }}
-              >
-                <List size={14} />
-                <span>リスト</span>
-              </button>
-              <button
-                type="button"
-                role="radio"
-                aria-checked={currentChildViewMode === "board"}
-                aria-label="カード表示"
-                title="Keep風カード表示"
-                onClick={() => onChildViewModeChange?.("board")}
-                className="appearance-none whitespace-nowrap shrink-0 flex items-center gap-1.5"
-                style={{
-                  background: currentChildViewMode === "board" ? "var(--bg-card-solid)" : "transparent",
-                  color: currentChildViewMode === "board" ? C.charcoal : C.charcoalLight,
-                  border: "none",
-                  borderRadius: "7px",
-                  padding: "0.35rem 0.65rem",
-                  cursor: "pointer",
-                  fontSize: "0.76rem",
-                  fontWeight: currentChildViewMode === "board" ? 650 : 500,
-                  boxShadow: currentChildViewMode === "board" ? "0 1px 3px rgba(0,0,0,0.08)" : "none",
-                  transition: "all 0.15s ease",
-                }}
-              >
-                <LayoutGrid size={14} />
-                <span>カード</span>
-              </button>
-            </div>
-          </div>
-
-          <button
-            type="button"
-            onClick={onNewChildNote}
-            className="appearance-none whitespace-nowrap shrink-0"
-            style={{
-              display: "inline-flex",
-              alignItems: "center",
-              gap: "0.35rem",
-              background: C.goldFaint2,
-              border: "none",
-              borderRadius: "8px",
-              padding: "0.4rem 0.85rem",
-              fontSize: "0.78rem",
-              fontWeight: 600,
-              color: C.goldDark,
-              cursor: "pointer",
-              transition: "all 0.15s ease",
-            }}
-            onMouseEnter={(e) => {
-              e.currentTarget.style.background = C.goldFaint3;
-            }}
-            onMouseLeave={(e) => {
-              e.currentTarget.style.background = C.goldFaint2;
-            }}
-          >
-            <span style={{ fontSize: "0.95rem", lineHeight: 1 }}>＋</span>
-            <span>子ノート作成</span>
-          </button>
-        </div>
-
-        {childNotes.length === 0 ? (
-          <div
-            style={{
-              background: "rgba(0, 0, 0, 0.015)",
-              borderRadius: "14px",
-              border: "1px dashed rgba(0, 0, 0, 0.07)",
-              padding: "1.8rem 1.5rem",
-              textAlign: "center",
-            }}
-          >
-            <p style={{ margin: 0, fontSize: "0.8rem", color: C.charcoalLight }}>
-              サブノートはまだありません
-            </p>
-          </div>
-        ) : currentChildViewMode === "list" ? (
-          /* Notion風リスト表示 */
-          <div
-            className="flex flex-col w-full"
-            style={{ gap: "0.25rem" }}
-            data-testid="subnotes-list-view"
-          >
-            {childNotes.map((child) => (
-              <NoteSubNoteListItem
-                key={child.id}
-                note={child}
-                childCount={getChildCount(allNotes, child.id)}
-                onClick={() => onSelectChildNote(child.id)}
-                onMove={(e) => {
-                  e.stopPropagation();
-                  onMoveChildNote?.(child);
-                }}
-                onDelete={(e) => {
-                  e.stopPropagation();
-                  onDeleteChildNote(child);
-                }}
-                onDownload={(e) => {
-                  e.stopPropagation();
-                  onDownloadChildNote(child);
-                }}
-              />
-            ))}
-          </div>
-        ) : (
-          /* Google Keep風カードグリッド表示 */
-          <div
-            style={{
-              display: "grid",
-              gridTemplateColumns: "repeat(auto-fill, minmax(260px, 1fr))",
-              gap: "1rem",
-            }}
-            data-testid="subnotes-board-view"
-          >
-            {childNotes.map((child) => (
-              <NoteCard
-                key={child.id}
-                note={child}
-                childCount={getChildCount(allNotes, child.id)}
-                onClick={() => onSelectChildNote(child.id)}
-                onMove={(e) => {
-                  e.stopPropagation();
-                  onMoveChildNote?.(child);
-                }}
-                onDelete={(e) => {
-                  e.stopPropagation();
-                  onDeleteChildNote(child);
-                }}
-                onDownload={(e) => {
-                  e.stopPropagation();
-                  onDownloadChildNote(child);
-                }}
-              />
-            ))}
-          </div>
-        )}
-      </div>
     </>
   );
 
@@ -1384,11 +1215,21 @@ export function NoteViewer({
 
       {/* ────── 本文コンテナ（Notion風シームレス執筆エリア / 浮遊カード） ────── */}
       {isDocumentSpace ? (
-        <div className="flex-1 w-full h-full overflow-y-auto">
+        <div
+          className="flex-1 w-full h-full overflow-y-auto arca-scroll"
+          style={{
+            WebkitOverflowScrolling: "touch",
+            overscrollBehaviorY: "contain",
+            touchAction: "pan-y",
+          }}
+        >
           <div
-            className={`w-full mx-auto px-6 sm:px-12 py-6 pb-32 transition-all duration-200 flex gap-8 ${
+            className={`w-full mx-auto px-4 sm:px-12 py-6 transition-all duration-200 flex gap-8 ${
               isFullWidth ? "max-w-none" : "max-w-4xl"
             }`}
+            style={{
+              paddingBottom: "calc(8rem + env(safe-area-inset-bottom, 0px))",
+            }}
           >
             <div className="flex-1 min-w-0">{editorBody}</div>
             {showToc && renderTocSidebar}
@@ -1402,8 +1243,8 @@ export function NoteViewer({
             justifyContent: "center",
             gap: "2rem",
             padding: isFullWidth
-              ? "2rem clamp(1.5rem, 5vw, 4rem) 7rem"
-              : "2rem clamp(1rem, 4vw, 3rem) 7rem",
+              ? "2rem clamp(1.5rem, 5vw, 4rem) calc(8rem + env(safe-area-inset-bottom, 0px))"
+              : "2rem clamp(1rem, 4vw, 3rem) calc(8rem + env(safe-area-inset-bottom, 0px))",
             boxSizing: "border-box",
           }}
         >
@@ -1567,253 +1408,7 @@ function getFirstImageUrl(note: NoteItem): string | null {
   return match ? match[1] : null;
 }
 
-/**
- * Notion風リストアイテム（枠線なし、上品なホバー、1行コンパクト表示）
- */
-function NoteSubNoteListItem({
-  note,
-  childCount = 0,
-  onClick,
-  onMove,
-  onDelete,
-  onDownload,
-}: {
-  note: NoteItem;
-  childCount?: number;
-  onClick: () => void;
-  onMove?: (e: React.MouseEvent) => void;
-  onDelete: (e: React.MouseEvent) => void;
-  onDownload: (e: React.MouseEvent) => void;
-}) {
-  const [menuOpen, setMenuOpen] = useState(false);
-  const menuRef = useRef<HTMLDivElement>(null);
-  const hasChildren = childCount > 0;
 
-  useEffect(() => {
-    if (!menuOpen) return;
-    const handler = (e: MouseEvent) => {
-      if (menuRef.current && !menuRef.current.contains(e.target as Node)) {
-        setMenuOpen(false);
-      }
-    };
-    document.addEventListener("mousedown", handler);
-    return () => document.removeEventListener("mousedown", handler);
-  }, [menuOpen]);
-
-  return (
-    <div
-      role="button"
-      tabIndex={0}
-      onClick={onClick}
-      onKeyDown={(e) => {
-        if (e.key === "Enter" || e.key === " ") {
-          e.preventDefault();
-          onClick();
-        }
-      }}
-      className="group w-full max-w-full rounded-xl px-3.5 py-2.5 flex items-center justify-between cursor-pointer transition-colors duration-150 hover:bg-stone-100/60 dark:hover:bg-stone-800/60"
-      style={{
-        border: "none",
-        background: "transparent",
-        minHeight: "44px",
-        boxSizing: "border-box",
-        position: "relative",
-        zIndex: menuOpen ? 100 : 1,
-      }}
-      data-testid={`subnote-list-item-${note.id}`}
-    >
-      {/* 左側: アイコン + タイトル + サブノート件数 + タグ */}
-      <div className="flex items-center gap-2.5 min-w-0 flex-1 mr-3">
-        {/* アイコン: フォルダまたはドキュメント */}
-        <span
-          className="shrink-0 flex items-center justify-center select-none"
-          style={{ opacity: 0.85, color: hasChildren ? C.gold : C.charcoalLight }}
-          aria-hidden="true"
-        >
-          {hasChildren ? <Folder size={16} /> : <FileText size={16} />}
-        </span>
-
-        {/* タイトル */}
-        <span
-          className="font-medium text-sm truncate"
-          style={{
-            color: C.charcoal,
-            letterSpacing: "-0.012em",
-          }}
-        >
-          {note.title || "（タイトルなし）"}
-        </span>
-
-        {/* 子ノート件数バッジ */}
-        {hasChildren && (
-          <span
-            className="shrink-0 whitespace-nowrap text-xs rounded px-1.5 py-0.5"
-            style={{
-              fontSize: "0.65rem",
-              color: C.charcoalMid,
-              background: "rgba(0,0,0,0.04)",
-              fontWeight: 600,
-            }}
-          >
-            {childCount}件
-          </span>
-        )}
-
-        {/* タグ */}
-        {note.tags && note.tags.length > 0 && (
-          <div className="hidden sm:flex items-center gap-1 shrink-0">
-            {note.tags.slice(0, 2).map((tag) => (
-              <span
-                key={tag}
-                className="whitespace-nowrap rounded px-1.5 py-0.5 font-medium"
-                style={{
-                  fontSize: "0.62rem",
-                  color: C.gold,
-                  background: C.goldFaint,
-                }}
-              >
-                #{tag}
-              </span>
-            ))}
-          </div>
-        )}
-      </div>
-
-      {/* 右側: 更新日時 + メニュー */}
-      <div className="flex items-center gap-3 shrink-0">
-        <span
-          className="text-xs whitespace-nowrap"
-          style={{ fontSize: "0.7rem", color: C.charcoalXLight }}
-        >
-          {formatDateRelative(note.updatedAt)}
-        </span>
-
-        {/* 「…」メニュー */}
-        <div
-          ref={menuRef}
-          className="relative shrink-0"
-          onClick={(e) => e.stopPropagation()}
-        >
-          <button
-            type="button"
-            onClick={(e) => {
-              e.stopPropagation();
-              setMenuOpen((o) => !o);
-            }}
-            aria-label="メニュー"
-            className="appearance-none shrink-0 flex items-center justify-center cursor-pointer transition-opacity"
-            style={{
-              background: menuOpen ? C.goldFaint2 : "transparent",
-              border: "none",
-              borderRadius: "6px",
-              width: "28px",
-              height: "28px",
-              color: C.charcoalLight,
-              fontSize: "0.9rem",
-              lineHeight: 1,
-            }}
-          >
-            ···
-          </button>
-          {menuOpen && (
-            <div
-              style={{
-                position: "absolute",
-                top: "calc(100% + 4px)",
-                right: 0,
-                background: "var(--bg-card-solid)",
-                borderRadius: "10px",
-                boxShadow: "var(--shadow-modal)",
-                padding: "0.35rem",
-                minWidth: "135px",
-                zIndex: 100,
-                border: "1px solid var(--border-subtle)",
-              }}
-            >
-              {onMove && (
-                <button
-                  type="button"
-                  onClick={(e) => {
-                    setMenuOpen(false);
-                    onMove(e);
-                  }}
-                  className="appearance-none whitespace-nowrap flex items-center gap-2 w-full text-left cursor-pointer transition-colors"
-                  style={{
-                    background: "transparent",
-                    border: "none",
-                    borderRadius: "7px",
-                    padding: "0.5rem 0.75rem",
-                    fontSize: "0.8rem",
-                    color: C.charcoal,
-                  }}
-                  onMouseEnter={(e) => {
-                    e.currentTarget.style.background = C.goldFaint;
-                  }}
-                  onMouseLeave={(e) => {
-                    e.currentTarget.style.background = "transparent";
-                  }}
-                >
-                  <MenuFolderMoveIcon />
-                  <span>移動</span>
-                </button>
-              )}
-              <button
-                type="button"
-                onClick={(e) => {
-                  setMenuOpen(false);
-                  onDownload(e);
-                }}
-                className="appearance-none whitespace-nowrap flex items-center gap-2 w-full text-left cursor-pointer transition-colors"
-                style={{
-                  background: "transparent",
-                  border: "none",
-                  borderRadius: "7px",
-                  padding: "0.5rem 0.75rem",
-                  fontSize: "0.8rem",
-                  color: C.charcoal,
-                }}
-                onMouseEnter={(e) => {
-                  e.currentTarget.style.background = C.goldFaint;
-                }}
-                onMouseLeave={(e) => {
-                  e.currentTarget.style.background = "transparent";
-                }}
-              >
-                <MenuFileDownloadIcon />
-                <span>md 保存</span>
-              </button>
-              <button
-                type="button"
-                onClick={(e) => {
-                  setMenuOpen(false);
-                  onDelete(e);
-                }}
-                className="appearance-none whitespace-nowrap flex items-center gap-2 w-full text-left cursor-pointer transition-colors"
-                style={{
-                  background: "transparent",
-                  border: "none",
-                  borderRadius: "7px",
-                  padding: "0.5rem 0.75rem",
-                  fontSize: "0.8rem",
-                  color: "#c0614a",
-                }}
-                onMouseEnter={(e) => {
-                  e.currentTarget.style.background = "rgba(192,97,74,0.07)";
-                }}
-                onMouseLeave={(e) => {
-                  e.currentTarget.style.background = "transparent";
-                }}
-              >
-                <MenuTrashIcon />
-                <span>削除</span>
-              </button>
-            </div>
-          )}
-        </div>
-      </div>
-    </div>
-  );
-}
 
 function NoteCard({
   note,
@@ -2592,14 +2187,16 @@ export function NoteDashboard({
 
   return (
     <div
-      className="arca-view-in"
+      className="arca-view-in arca-scroll"
       style={{
-        minHeight: "100vh",
+        height: "100%",
         width: "100%",
         maxWidth: "100%",
         overflowX: "hidden",
+        overflowY: "auto",
+        WebkitOverflowScrolling: "touch",
         boxSizing: "border-box",
-        padding: "2.4rem clamp(1.5rem, 5vw, 4rem) 6rem",
+        padding: "2.4rem clamp(1.5rem, 5vw, 4rem) calc(8rem + env(safe-area-inset-bottom, 0px))",
       }}
     >
       {/* ── ヘッダー部（タイトル） ── */}
@@ -3213,6 +2810,26 @@ export default function Notes({
             updateDoc(doc(db, "notes", dId), { isDeleted: true })
           )
         );
+
+        // 親ノートが存在する場合、親ノート本文から該当子ページリンク（[child-page:id] 等）を除去
+        const parentId = target.parentId;
+        if (parentId) {
+          const parentNote = notes.find((n) => n.id === parentId);
+          if (parentNote && parentNote.content) {
+            let updatedContent = parentNote.content;
+            descendantIds.forEach((dId) => {
+              const regexChildPage = new RegExp(`\\n*\\[child-page:${dId}\\]\\n*`, "g");
+              const regexNoteLink = new RegExp(`\\n*\\[[^\\]]*\\]\\(note:${dId}\\)\\n*`, "g");
+              updatedContent = updatedContent
+                .replace(regexChildPage, "\n\n")
+                .replace(regexNoteLink, "\n\n");
+            });
+            updatedContent = updatedContent.replace(/\n{3,}/g, "\n\n").trim();
+            if (updatedContent !== parentNote.content) {
+              mutateNote(parentId, { content: updatedContent }, true);
+            }
+          }
+        }
       } catch (e) {
         console.error("Delete failed", e);
       }
@@ -3239,7 +2856,7 @@ export default function Notes({
         },
       });
     },
-    [notes, view, showUndoToast]
+    [notes, view, showUndoToast, mutateNote]
   );
 
   // ノートダウンロード
@@ -3299,6 +2916,15 @@ export default function Notes({
   const activeNote =
     view.type === "viewer" ? (notes.find((n) => n.id === view.noteId) ?? null) : null;
 
+  // ノート（Pages / Document）スペースで開くアクティブノート（未選択時は null でホーム画面を表示）
+  const activeDocNote = useMemo(() => {
+    if (view.type === "viewer" && view.noteId) {
+      const found = documentNotes.find((n) => n.id === view.noteId);
+      if (found) return found;
+    }
+    return null;
+  }, [view, documentNotes]);
+
   // 新規メモ作成（画面遷移せずポップアップモーダルを即起動）
   const handleNewMemo = useCallback(async () => {
     try {
@@ -3342,12 +2968,24 @@ export default function Notes({
           isDeleted: false,
           parentId: parentId || null,
         });
+
+        // 親ノートが指定されている場合、親ノートの本文末尾に子ページボタンを追加して保存
+        if (parentId) {
+          const parentNote = notes.find((n) => n.id === parentId);
+          if (parentNote) {
+            const currentContent = parentNote.content || "";
+            const separator = currentContent.trim() ? "\n\n" : "";
+            const newContent = `${currentContent.trim()}${separator}[child-page:${docRef.id}]\n`;
+            mutateNote(parentId, { content: newContent }, true);
+          }
+        }
+
         setView({ type: "viewer", noteId: docRef.id });
       } catch (e) {
         console.error("Create failed", e);
       }
     },
-    []
+    [notes, mutateNote]
   );
 
   // 新規ジャーナルノート作成（トップレベル / 当日ライフログ）
@@ -3425,9 +3063,17 @@ export default function Notes({
     [activeNote, notes, showMessageToast]
   );
 
-  const handleSelectNote = useCallback((id: string) => {
-    setView({ type: "viewer", noteId: id });
-  }, []);
+  const handleSelectNote = useCallback(
+    (id: string) => {
+      if (id) {
+        setView({ type: "viewer", noteId: id });
+      } else {
+        setView({ type: "dashboard" });
+        onClearSelectedNote?.();
+      }
+    },
+    [onClearSelectedNote]
+  );
 
   const handleSelectBreadcrumb = useCallback((id: string | null) => {
     if (id) {
@@ -3487,7 +3133,12 @@ export default function Notes({
     }
   }, [deletedNotes, showMessageToast]);
 
-  const currentId = view.type === "viewer" ? view.noteId : null;
+  const currentId =
+    activeSpace === "document"
+      ? activeDocNote?.id ?? null
+      : view.type === "viewer"
+      ? view.noteId
+      : null;
 
   // 削除対象のノート配下の子孫ノート件数を集計
   const subNotesCountToDelete = noteToDelete
@@ -3523,90 +3174,48 @@ export default function Notes({
 
       {/* ── 1. メモ（Memo）スペース ── */}
       {activeSpace === "memo" && (
-        <>
-          {view.type === "dashboard" ? (
-            <MemoSpace
-              notes={memoNotes}
-              onOpenMemo={(note) => setEditingMemo(note)}
-              onNewMemo={handleNewMemo}
-              onDeleteNote={(target) => setNoteToDelete(target)}
-              onTogglePin={(id, pinned) => mutateNote(id, { pinned })}
-              onDownloadNote={handleDownloadNote}
-              onTriggerImport={() => fileInputRef.current?.click()}
-              onOpenTrash={() => setShowTrash(true)}
-            />
-          ) : activeNote ? (
-            <NoteErrorBoundary key={`boundary-memo-${activeNote.id}`}>
-              <NoteViewer
-                key={activeNote.id}
-                note={activeNote}
-                allNotes={memoNotes}
-                breadcrumbs={getBreadcrumbs(memoNotes, activeNote.id)}
-                onSelectBreadcrumb={handleSelectBreadcrumb}
-                childNotes={getChildNotes(memoNotes, activeNote.id)}
-                onSelectChildNote={handleSelectNote}
-                onNewChildNote={() => handleNewNote(activeNote.id, "memo")}
-                onMoveChildNote={(target) => setMovingNote(target)}
-                onDeleteChildNote={(target) => setNoteToDelete(target)}
-                onDownloadChildNote={handleDownloadNote}
-                isFullWidth={isFullWidth}
-                saveStatus={saveStatus}
-                onBack={handleBack}
-                onTitleChange={(val) => currentId && mutateNote(currentId, { title: val })}
-                onContentChange={(val) => currentId && mutateNote(currentId, { content: val })}
-                onTagsChange={(tags) => currentId && mutateNote(currentId, { tags })}
-                onAttachmentsChange={(attachments) => currentId && mutateNote(currentId, { attachments })}
-                onMoveNote={() => setMovingNote(activeNote)}
-                onDelete={() => setNoteToDelete(activeNote)}
-                onImportMarkdown={() => fileInputRef.current?.click()}
-                onToggleFullWidth={() => setIsFullWidth((v) => !v)}
-                onToastMessage={showMessageToast}
-                onChildViewModeChange={(mode) =>
-                  currentId && mutateNote(currentId, { childViewMode: mode }, true)
-                }
-                onNewJournalNote={handleNewJournalNote}
-                onMoodChange={(mood) => currentId && mutateNote(currentId, { mood }, true)}
-                onJournalDateChange={(date) => currentId && mutateNote(currentId, { journalDate: date }, true)}
-                onContextSnapshotChange={(snapshot) =>
-                  currentId && mutateNote(currentId, { contextSnapshot: snapshot }, true)
-                }
-              />
-            </NoteErrorBoundary>
-          ) : (
-            <MemoSpace
-              notes={memoNotes}
-              onOpenMemo={(note) => setEditingMemo(note)}
-              onNewMemo={handleNewMemo}
-              onDeleteNote={(target) => setNoteToDelete(target)}
-              onTogglePin={(id, pinned) => mutateNote(id, { pinned })}
-              onDownloadNote={handleDownloadNote}
-              onTriggerImport={() => fileInputRef.current?.click()}
-              onOpenTrash={() => setShowTrash(true)}
-            />
-          )}
-        </>
+        <MemoSpace
+          notes={memoNotes}
+          onOpenMemo={(note) => setEditingMemo(note)}
+          onNewMemo={handleNewMemo}
+          onDeleteNote={(target) => setNoteToDelete(target)}
+          onTogglePin={(id, pinned) => mutateNote(id, { pinned })}
+          onDownloadNote={handleDownloadNote}
+          onTriggerImport={() => fileInputRef.current?.click()}
+          onOpenTrash={() => setShowTrash(true)}
+          activeSpace={activeSpace}
+          onSpaceChange={handleSpaceChange}
+          spaceCounts={spaceCounts}
+        />
       )}
 
       {/* ── 2. ノート（Pages / Document）スペース ── */}
       {activeSpace === "document" && (
         <DocumentSpace
           notes={documentNotes}
-          activeNoteId={view.type === "viewer" && activeNote ? activeNote.id : null}
+          activeNoteId={activeDocNote?.id ?? null}
           onSelectNote={handleSelectNote}
           onCreateRootNote={() => handleNewNote(null, "document")}
           onCreateChildNote={(parentId) => handleNewNote(parentId, "document")}
+          onMoveNote={handleMoveNote}
+          onRenameNote={(id, title) => mutateNote(id, { title })}
+          onDeleteNote={(target) => setNoteToDelete(target)}
+          onOpenMoveModal={(target) => setMovingNote(target)}
+          activeSpace={activeSpace}
+          onSpaceChange={handleSpaceChange}
+          spaceCounts={spaceCounts}
         >
-          {view.type === "viewer" && activeNote ? (
-            <NoteErrorBoundary key={`boundary-doc-${activeNote.id}`}>
+          {activeDocNote ? (
+            <NoteErrorBoundary key={`boundary-doc-${activeDocNote.id}`}>
               <NoteViewer
-                key={activeNote.id}
-                note={activeNote}
+                key={activeDocNote.id}
+                note={activeDocNote}
                 allNotes={documentNotes}
-                breadcrumbs={getBreadcrumbs(documentNotes, activeNote.id)}
+                breadcrumbs={getBreadcrumbs(documentNotes, activeDocNote.id)}
                 onSelectBreadcrumb={handleSelectBreadcrumb}
-                childNotes={getChildNotes(documentNotes, activeNote.id)}
+                childNotes={getChildNotes(documentNotes, activeDocNote.id)}
                 onSelectChildNote={handleSelectNote}
-                onNewChildNote={() => handleNewNote(activeNote.id, "document")}
+                onNewChildNote={() => handleNewNote(activeDocNote.id, "document")}
                 onMoveChildNote={(target) => setMovingNote(target)}
                 onDeleteChildNote={(target) => setNoteToDelete(target)}
                 onDownloadChildNote={handleDownloadNote}
@@ -3617,8 +3226,8 @@ export default function Notes({
                 onContentChange={(val) => currentId && mutateNote(currentId, { content: val })}
                 onTagsChange={(tags) => currentId && mutateNote(currentId, { tags })}
                 onAttachmentsChange={(attachments) => currentId && mutateNote(currentId, { attachments })}
-                onMoveNote={() => setMovingNote(activeNote)}
-                onDelete={() => setNoteToDelete(activeNote)}
+                onMoveNote={() => setMovingNote(activeDocNote)}
+                onDelete={() => setNoteToDelete(activeDocNote)}
                 onImportMarkdown={() => fileInputRef.current?.click()}
                 onToggleFullWidth={() => setIsFullWidth((v) => !v)}
                 onToastMessage={showMessageToast}
@@ -3635,17 +3244,10 @@ export default function Notes({
               />
             </NoteErrorBoundary>
           ) : (
-            <NoteDashboard
-              key="dashboard"
-              notes={documentNotes.filter((n: NoteItem) => !n.parentId)}
-              allNotes={documentNotes}
+            <ExplorerHomeView
+              notes={documentNotes}
               onSelectNote={handleSelectNote}
-              onNewNote={() => handleNewNote(null, "document")}
-              onMoveNote={(target) => setMovingNote(target)}
-              onDeleteNote={(target) => setNoteToDelete(target)}
-              onDownloadNote={handleDownloadNote}
-              onTriggerImport={() => fileInputRef.current?.click()}
-              onOpenTrash={() => setShowTrash(true)}
+              onCreateNewPage={() => handleNewNote(null, "document")}
             />
           )}
         </DocumentSpace>

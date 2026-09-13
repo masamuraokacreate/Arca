@@ -1,7 +1,7 @@
 @import "tailwindcss";
 
 @theme {
-  --color-base: var(--bg-base);
+  --color-bg-base: var(--bg-base);
   --color-base-ivory: var(--bg-base-tint);
   --color-surface: var(--bg-surface);
   --color-surface-glass: var(--bg-surface-glass);
@@ -13,6 +13,10 @@
   --color-accent: var(--accent-gold);
   --color-accent-dark: var(--accent-gold-dark);
   --color-sage: #52796F;
+  --color-charcoal: var(--text-main);
+  --color-charcoal-mid: var(--text-mid);
+  --color-charcoal-light: var(--text-muted);
+  --color-charcoal-xlight: var(--text-xmuted);
 }
 
 :root {

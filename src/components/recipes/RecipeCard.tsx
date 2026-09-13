@@ -27,7 +27,7 @@ const StarOutlineIcon = () => (
 );
 
 const ChefHatIcon = () => (
-  <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" style={{ color: C.charcoalXLight, opacity: 0.65 }}>
+  <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" style={{ color: C.goldDark, opacity: 0.8 }}>
     <path d="M6 13.87A4 4 0 0 1 7.41 6a5.11 5.11 0 0 1 1.05-1.54 5 5 0 0 1 7.08 0A5.11 5.11 0 0 1 16.59 6 4 4 0 0 1 18 13.87V21H6Z" />
     <line x1="6" y1="17" x2="18" y2="17" />
   </svg>
@@ -106,7 +106,9 @@ export function RecipeCard({
         <div
           className="w-[105px] sm:w-[140px] shrink-0 relative overflow-hidden flex items-center justify-center"
           style={{
-            background: "var(--bg-base-tint)",
+            background: recipe.imageUrl
+              ? "transparent"
+              : "linear-gradient(145deg, var(--accent-gold-faint, rgba(197, 160, 89, 0.09)) 0%, rgba(197, 160, 89, 0.03) 100%)",
             alignSelf: "stretch",
           }}
         >
@@ -127,7 +129,7 @@ export function RecipeCard({
           ) : (
             <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: "0.25rem", zIndex: 1 }}>
               <ChefHatIcon />
-              <span style={{ fontSize: "0.68rem", color: C.charcoalLight, letterSpacing: "0.04em", fontWeight: 500 }}>
+              <span style={{ fontSize: "0.68rem", color: C.goldDark, letterSpacing: "0.04em", fontWeight: 600, opacity: 0.9 }}>
                 No Photo
               </span>
             </div>
@@ -426,7 +428,9 @@ export function RecipeCard({
           width: "100%",
           height: "170px",
           position: "relative",
-          background: "var(--bg-base-tint)",
+          background: recipe.imageUrl
+            ? "transparent"
+            : "linear-gradient(145deg, var(--accent-gold-faint, rgba(197, 160, 89, 0.09)) 0%, rgba(197, 160, 89, 0.03) 100%)",
           display: "flex",
           alignItems: "center",
           justifyContent: "center",
@@ -448,7 +452,7 @@ export function RecipeCard({
         ) : (
           <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: "0.3rem" }}>
             <ChefHatIcon />
-            <span style={{ fontSize: "0.72rem", color: C.charcoalLight, letterSpacing: "0.04em", fontWeight: 500 }}>
+            <span style={{ fontSize: "0.72rem", color: C.goldDark, letterSpacing: "0.04em", fontWeight: 600, opacity: 0.9 }}>
               No Photo
             </span>
           </div>

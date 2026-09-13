@@ -71,12 +71,21 @@ const ChefPlaceholderIcon = () => (
 
 export interface RecipesProps {
   onNavigateToLists?: () => void;
+  onDetailViewChange?: (isDetail: boolean) => void;
 }
 
-export default function Recipes({ onNavigateToLists }: RecipesProps = {}) {
+export default function Recipes({ onNavigateToLists, onDetailViewChange }: RecipesProps = {}) {
   const [recipes, setRecipes] = useState<Recipe[]>([]);
   const [viewMode, setViewMode] = useState<RecipeViewMode>("list");
   const [selectedRecipeId, setSelectedRecipeId] = useState<string | null>(null);
+
+  // 詳細画面表示状態の親への通知（モバイルでのナビバー制御用）
+  useEffect(() => {
+    onDetailViewChange?.(viewMode === "detail");
+    return () => {
+      onDetailViewChange?.(false);
+    };
+  }, [viewMode, onDetailViewChange]);
 
   // フィルタ・ソート状態
   const [searchQuery, setSearchQuery] = useState("");

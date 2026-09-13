@@ -66,6 +66,54 @@ export function normalizeJapaneseText(text: string): string {
 }
 
 /**
+ * コア店舗名抽出（付加語句や店舗名サフィックスの除去）
+ * 例:
+ * "ヤオコー MARKETPLACE" -> "ヤオコー"
+ * "セブン-イレブン 渋谷店" -> "セブンイレブン"
+ * "イオンモール 幕張新都心店" -> "イオン"
+ */
+export function extractCoreStoreName(title: string): string {
+  if (!title) return "";
+  let str = title.trim();
+
+  // 括弧内の注記等を除去
+  str = str.replace(/（[^）]+）|\([^)]+\)/g, "");
+
+  // スペース区切りの店舗名サフィックスを除去（例: 「セブン-イレブン 渋谷店」->「セブン-イレブン」）
+  str = str.replace(/[\s\u3000]+[^\s\u3000]{1,10}(?:店|支店|号店)$/g, "");
+
+  // 一般的な付加語句・業態表記を除去（大文字小文字無視）
+  str = str.replace(/(marketplace|マーケットプレイス|スーパーマーケット|スーパー|ストア|モール|ショッピングセンター|ショッピング|ショップ)/gi, "");
+
+  let norm = normalizeJapaneseText(str);
+
+  // 末尾に残った単独サフィックスを除去
+  norm = norm.replace(/(\d+号店|\d+店|支店|店舗|店)$/g, "").trim();
+
+  return norm;
+}
+
+/**
+ * 2つの店舗名が実質的に同一または関連店舗とみなせるか柔軟に判定する
+ */
+export function isStoreNameSimilar(a: string, b: string): boolean {
+  if (!a || !b) return false;
+  const normA = normalizeJapaneseText(a);
+  const normB = normalizeJapaneseText(b);
+  if (normA === normB) return true;
+  if (normA.includes(normB) || normB.includes(normA)) return true;
+
+  const coreA = extractCoreStoreName(a);
+  const coreB = extractCoreStoreName(b);
+  if (coreA && coreB) {
+    if (coreA === coreB) return true;
+    if (coreA.includes(coreB) || coreB.includes(coreA)) return true;
+  }
+
+  return calculateTitleSimilarity(a, b) >= 0.45;
+}
+
+/**
  * 簡易レーベンシュタイン距離または部分一致による文字列類似度算出 (0.0〜1.0)
  */
 export function calculateTitleSimilarity(a: string, b: string): number {
@@ -75,6 +123,13 @@ export function calculateTitleSimilarity(a: string, b: string): number {
   if (!normA || !normB) return 0;
   if (normA === normB) return 1;
   if (normA.includes(normB) || normB.includes(normA)) return 0.85;
+
+  const coreA = extractCoreStoreName(a);
+  const coreB = extractCoreStoreName(b);
+  if (coreA && coreB) {
+    if (coreA === coreB) return 0.95;
+    if (coreA.includes(coreB) || coreB.includes(coreA)) return 0.85;
+  }
 
   // 簡易2-gram 類似度
   const getBigrams = (s: string) => {

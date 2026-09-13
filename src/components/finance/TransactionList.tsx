@@ -3,10 +3,20 @@
  * Arca — 支出一覧 ＆ アコーディオン品目内訳（1対N）表示コンポーネント
  */
 
-import { useState } from "react";
+import { useState, useMemo } from "react";
+import { Link as LinkIcon } from "lucide-react";
 import type { ExpenseTransaction } from "../../types/finance";
 import { CATEGORY_VISUALS, formatCurrency } from "../../utils/financeSummary";
+import { getDaysDifference, isStoreNameSimilar } from "../../utils/csvReconcile";
 import { C } from "../../lib/designSystem";
+
+export const isManualOrOcr = (tx: ExpenseTransaction): boolean => {
+  return tx.source === "manual" || tx.source === "ocr" || (Array.isArray(tx.items) && tx.items.length > 0);
+};
+
+export const isEmailNotice = (tx: ExpenseTransaction): boolean => {
+  return tx.source === "email_notice" || Boolean(tx.emailMessageId);
+};
 
 interface TransactionListProps {
   transactions: ExpenseTransaction[];
@@ -14,6 +24,8 @@ interface TransactionListProps {
   onDuplicate: (tx: ExpenseTransaction) => void;
   onDelete: (tx: ExpenseTransaction) => void;
   onToggleReconciled: (tx: ExpenseTransaction) => void;
+  onMerge?: (targetTx: ExpenseTransaction, sourceTx: ExpenseTransaction) => void;
+  onOpenMergeModal?: (manualOrOcrTx: ExpenseTransaction, emailTx: ExpenseTransaction) => void;
 }
 
 export function TransactionList({
@@ -22,6 +34,8 @@ export function TransactionList({
   onDuplicate,
   onDelete,
   onToggleReconciled,
+  onMerge,
+  onOpenMergeModal,
 }: TransactionListProps) {
   const [expandedIds, setExpandedIds] = useState<Set<string>>(new Set());
 
@@ -37,9 +51,67 @@ export function TransactionList({
     });
   };
 
+  // 有効レコード（論理削除 isDeleted: true を 100% 除外）
+  const activeTransactions = useMemo(() => {
+    return transactions.filter((t) => !t.isDeleted);
+  }, [transactions]);
+
+  // 未突合レコード間の突合候補ペア（手動/レシート側 ⇄ 速報メール側、または同日同額ペア）マップ
+  const mergeCandidatesMap = useMemo(() => {
+    const map = new Map<string, ExpenseTransaction>();
+    const unreconciled = activeTransactions.filter((t) => !t.isReconciled);
+
+    for (const t of unreconciled) {
+      const tIsManual = isManualOrOcr(t);
+      const tIsEmail = isEmailNotice(t);
+
+      // 1. 店舗名類似（スマート名寄せ）を含む候補を最優先探索 (±1日以内)
+      let candidate = unreconciled.find((other) => {
+        if (other.id === t.id) return false;
+        if (other.totalAmount !== t.totalAmount) return false;
+        if (getDaysDifference(t.date, other.date) > 1) return false;
+        if (!isStoreNameSimilar(t.title, other.title)) return false;
+
+        const otherIsManual = isManualOrOcr(other);
+        const otherIsEmail = isEmailNotice(other);
+
+        return (tIsManual && otherIsEmail) || (tIsEmail && otherIsManual);
+      });
+
+      // 2. 店舗名類似の候補がなくても、同じ日と同じ金額の手動/メール速報ペアを探索
+      if (!candidate) {
+        candidate = unreconciled.find((other) => {
+          if (other.id === t.id) return false;
+          if (other.totalAmount !== t.totalAmount) return false;
+          if (t.date !== other.date) return false;
+
+          const otherIsManual = isManualOrOcr(other);
+          const otherIsEmail = isEmailNotice(other);
+
+          return (tIsManual && otherIsEmail) || (tIsEmail && otherIsManual);
+        });
+      }
+
+      // 3. （予備）同じ日と同じ金額の未突合レコードを探索
+      if (!candidate) {
+        candidate = unreconciled.find((other) => {
+          if (other.id === t.id) return false;
+          if (other.totalAmount !== t.totalAmount) return false;
+          if (t.date !== other.date) return false;
+          return true;
+        });
+      }
+
+      if (candidate) {
+        map.set(t.id, candidate);
+      }
+    }
+    return map;
+  }, [activeTransactions]);
+
   // 日付（YYYY-MM-DD）ごとにグループ化
   const groupedByDate: Record<string, ExpenseTransaction[]> = {};
-  for (const tx of transactions) {
+  for (const tx of activeTransactions) {
     const d = tx.date || "日付未設定";
     if (!groupedByDate[d]) {
       groupedByDate[d] = [];
@@ -50,7 +122,7 @@ export function TransactionList({
   // 日付の降順ソート
   const sortedDates = Object.keys(groupedByDate).sort((a, b) => b.localeCompare(a));
 
-  if (transactions.length === 0) {
+  if (activeTransactions.length === 0) {
     return (
       <div
         className="arca-card"
@@ -168,6 +240,7 @@ export function TransactionList({
                 const isExpanded = expandedIds.has(tx.id);
                 const visual = CATEGORY_VISUALS[tx.category] || CATEGORY_VISUALS["その他"];
                 const hasItems = Array.isArray(tx.items) && tx.items.length > 0;
+                const mergeCandidate = mergeCandidatesMap.get(tx.id);
 
                 return (
                   <div
@@ -181,14 +254,12 @@ export function TransactionList({
                     {/* 親決済行 */}
                     <div
                       onClick={() => toggleExpand(tx.id)}
+                      className="flex flex-col gap-1.5 sm:flex-row sm:items-center sm:justify-between sm:gap-3"
                       style={{
-                        display: "flex",
-                        alignItems: "center",
-                        justifyContent: "space-between",
-                        padding: "0.9rem 1.2rem",
+                        padding: "0.85rem 1.05rem",
                         cursor: "pointer",
-                        gap: "0.8rem",
                         userSelect: "none",
+                        transition: "background 0.15s ease",
                       }}
                       onMouseEnter={(e) => {
                         (e.currentTarget as HTMLDivElement).style.background = "rgba(0, 0, 0, 0.012)";
@@ -197,9 +268,11 @@ export function TransactionList({
                         (e.currentTarget as HTMLDivElement).style.background = "transparent";
                       }}
                     >
-                      {/* 左側: カテゴリバッジ ＆ 店舗名 ＆ 品目数 */}
-                      <div style={{ display: "flex", alignItems: "center", gap: "0.65rem", minWidth: 0, flex: 1 }}>
+                      {/* モバイル上段 / デスクトップ左側: 店舗名 & 金額 (モバイル) */}
+                      <div className="flex items-center justify-between sm:justify-start gap-2 min-w-0 sm:flex-1">
+                        {/* デスクトップ用カテゴリバッジ */}
                         <span
+                          className="hidden sm:inline-block shrink-0"
                           style={{
                             fontSize: "0.68rem",
                             fontWeight: 700,
@@ -209,16 +282,16 @@ export function TransactionList({
                             padding: "0.2rem 0.5rem",
                             borderRadius: "6px",
                             whiteSpace: "nowrap",
-                            flexShrink: 0,
                           }}
                         >
                           {tx.category}
                         </span>
 
-                        <div style={{ minWidth: 0, display: "flex", alignItems: "baseline", gap: "0.4rem" }}>
+                        {/* 店舗名 ＆ 品目数（デスクトップ） */}
+                        <div className="flex items-baseline gap-1.5 min-w-0 flex-1 mr-1 sm:mr-2">
                           <span
                             style={{
-                              fontSize: "0.88rem",
+                              fontSize: "0.9rem",
                               fontWeight: 650,
                               color: C.charcoal,
                               overflow: "hidden",
@@ -231,6 +304,7 @@ export function TransactionList({
 
                           {hasItems && (
                             <span
+                              className="hidden sm:inline-block shrink-0"
                               style={{
                                 fontSize: "0.68rem",
                                 color: C.charcoalLight,
@@ -238,24 +312,83 @@ export function TransactionList({
                                 padding: "0.1rem 0.35rem",
                                 borderRadius: "4px",
                                 whiteSpace: "nowrap",
-                                flexShrink: 0,
                               }}
                             >
                               {tx.items.length}品
                             </span>
                           )}
                         </div>
+
+                        {/* モバイル上段右側: 金額 ＆ 展開シェブロン */}
+                        <div className="flex sm:hidden items-center gap-1.5 shrink-0">
+                          <span
+                            style={{
+                              fontSize: "0.96rem",
+                              fontWeight: 750,
+                              color: C.charcoal,
+                              letterSpacing: "-0.01em",
+                            }}
+                          >
+                            {formatCurrency(tx.totalAmount)}
+                          </span>
+                          <svg
+                            width="13"
+                            height="13"
+                            viewBox="0 0 24 24"
+                            fill="none"
+                            stroke="currentColor"
+                            strokeWidth="2"
+                            style={{
+                              color: C.charcoalLight,
+                              transform: isExpanded ? "rotate(180deg)" : "rotate(0deg)",
+                              transition: "transform 0.2s ease",
+                            }}
+                          >
+                            <polyline points="6 9 12 15 18 9" />
+                          </svg>
+                        </div>
                       </div>
 
-                      {/* 中央: 支払方法 ＆ 突合ステータスバッジ */}
-                      <div
-                        style={{
-                          display: "flex",
-                          alignItems: "center",
-                          gap: "0.45rem",
-                          flexShrink: 0,
-                        }}
-                      >
+                      {/* モバイル下段 / デスクトップ中央＋右側 */}
+                      <div className="flex items-center justify-between sm:justify-end gap-2 shrink-0">
+                        {/* モバイル用メタデータ: 日付 ＋ カテゴリ ＋ 支払方法 */}
+                        <div className="flex sm:hidden items-center gap-1.5 min-w-0 overflow-hidden">
+                          {tx.date && (
+                            <span style={{ fontSize: "0.68rem", color: "#555", flexShrink: 0 }}>
+                              {tx.date.substring(5).replace("-", "/")}
+                            </span>
+                          )}
+                          <span
+                            style={{
+                              fontSize: "0.65rem",
+                              fontWeight: 700,
+                              color: visual.color,
+                              background: visual.bgColor,
+                              border: `1px solid ${visual.borderColor}`,
+                              padding: "0.1rem 0.35rem",
+                              borderRadius: "5px",
+                              whiteSpace: "nowrap",
+                              flexShrink: 0,
+                            }}
+                          >
+                            {tx.category}
+                          </span>
+                          <span
+                            style={{
+                              fontSize: "0.65rem",
+                              color: "#4A4A4A",
+                              background: "rgba(0, 0, 0, 0.04)",
+                              padding: "0.1rem 0.35rem",
+                              borderRadius: "5px",
+                              whiteSpace: "nowrap",
+                              flexShrink: 0,
+                            }}
+                          >
+                            {tx.paymentMethod}
+                          </span>
+                        </div>
+
+                        {/* デスクトップ用支払方法 */}
                         <span
                           className="hidden sm:inline"
                           style={{
@@ -269,92 +402,132 @@ export function TransactionList({
                           {tx.paymentMethod}
                         </span>
 
-                        {/* メール速報バッジ */}
-                        {(tx.source === "email_notice" || tx.emailMessageId) && (
-                          <span
-                            data-testid="email-notice-badge"
-                            style={{
-                              display: "inline-flex",
-                              alignItems: "center",
-                              gap: "0.2rem",
-                              fontSize: "0.68rem",
-                              fontWeight: 650,
-                              color: "#856404",
-                              background: "rgba(255, 193, 7, 0.15)",
-                              padding: "0.18rem 0.45rem",
-                              borderRadius: "9999px",
-                            }}
-                            title="Gmail利用速報メールより取得"
-                          >
-                            <span>✉️</span>
-                            <span className="hidden sm:inline">速報</span>
-                          </span>
-                        )}
+                        {/* バッジ群（モバイル下段右側 / デスクトップ中央） */}
+                        <div className="flex items-center gap-1.5 shrink-0">
+                          {hasItems && (
+                            <span
+                              className="inline-block sm:hidden shrink-0"
+                              style={{
+                                fontSize: "0.65rem",
+                                color: "#4A4A4A",
+                                background: "rgba(0, 0, 0, 0.05)",
+                                padding: "0.1rem 0.32rem",
+                                borderRadius: "4px",
+                                whiteSpace: "nowrap",
+                              }}
+                            >
+                              {tx.items.length}品
+                            </span>
+                          )}
 
-                        {tx.isReconciled ? (
+                          {/* メール速報バッジ */}
+                          {(tx.source === "email_notice" || tx.emailMessageId) && (
+                            <span
+                              data-testid="email-notice-badge"
+                              style={{
+                                display: "inline-flex",
+                                alignItems: "center",
+                                gap: "0.2rem",
+                                fontSize: "0.66rem",
+                                fontWeight: 650,
+                                color: "#856404",
+                                background: "rgba(255, 193, 7, 0.15)",
+                                padding: "0.14rem 0.4rem",
+                                borderRadius: "9999px",
+                              }}
+                              title="Gmail利用速報メールより取得"
+                            >
+                              <span>速報</span>
+                            </span>
+                          )}
+
+                          {tx.isReconciled ? (
+                            <span
+                              style={{
+                                display: "inline-flex",
+                                alignItems: "center",
+                                gap: "0.2rem",
+                                fontSize: "0.66rem",
+                                fontWeight: 650,
+                                color: "#2E7D32",
+                                background: "rgba(46, 125, 50, 0.10)",
+                                padding: "0.14rem 0.4rem",
+                                borderRadius: "9999px",
+                              }}
+                              title="クレジットカード明細CSVと確認済み"
+                            >
+                              <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3">
+                                <polyline points="20 6 9 17 4 12" />
+                              </svg>
+                              <span>確認済</span>
+                            </span>
+                          ) : (
+                            <>
+                              <span
+                                style={{
+                                  fontSize: "0.66rem",
+                                  fontWeight: 550,
+                                  color: "#555",
+                                  background: "rgba(0, 0, 0, 0.04)",
+                                  padding: "0.14rem 0.4rem",
+                                  borderRadius: "9999px",
+                                }}
+                                title="クレジットカード明細未確認"
+                              >
+                                未確認
+                              </span>
+                              {mergeCandidate && (
+                                <span
+                                  data-testid="merge-candidate-badge"
+                                  style={{
+                                    display: "inline-flex",
+                                    alignItems: "center",
+                                    fontSize: "0.66rem",
+                                    fontWeight: 650,
+                                    color: "#B45309",
+                                    background: "rgba(245, 158, 11, 0.12)",
+                                    border: "1px solid rgba(245, 158, 11, 0.28)",
+                                    padding: "0.12rem 0.4rem",
+                                    borderRadius: "9999px",
+                                  }}
+                                  title={`同額の未確認決済「${mergeCandidate.title}」と結合可能`}
+                                >
+                                  <span>確認候補あり</span>
+                                </span>
+                              )}
+                            </>
+                          )}
+                        </div>
+
+                        {/* デスクトップ用右側: 金額 ＆ 展開シェブロン */}
+                        <div className="hidden sm:flex items-center gap-2 shrink-0">
                           <span
                             style={{
-                              display: "inline-flex",
-                              alignItems: "center",
-                              gap: "0.2rem",
-                              fontSize: "0.68rem",
-                              fontWeight: 650,
-                              color: "#2E7D32",
-                              background: "rgba(46, 125, 50, 0.10)",
-                              padding: "0.18rem 0.45rem",
-                              borderRadius: "9999px",
+                              fontSize: "0.95rem",
+                              fontWeight: 750,
+                              color: C.charcoal,
+                              letterSpacing: "-0.01em",
                             }}
-                            title="クレジットカード明細CSVと突合済み"
                           >
-                            <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3">
-                              <polyline points="20 6 9 17 4 12" />
-                            </svg>
-                            <span className="hidden sm:inline">突合済</span>
+                            {formatCurrency(tx.totalAmount)}
                           </span>
-                        ) : (
-                          <span
+
+                          <svg
+                            width="14"
+                            height="14"
+                            viewBox="0 0 24 24"
+                            fill="none"
+                            stroke="currentColor"
+                            strokeWidth="2"
                             style={{
-                              fontSize: "0.68rem",
                               color: C.charcoalLight,
-                              background: "rgba(0, 0, 0, 0.03)",
-                              padding: "0.18rem 0.45rem",
-                              borderRadius: "9999px",
+                              transform: isExpanded ? "rotate(180deg)" : "rotate(0deg)",
+                              transition: "transform 0.2s ease",
                             }}
-                            title="クレジットカード明細未突合"
                           >
-                            未突合
-                          </span>
-                        )}
-                      </div>
-
-                      {/* 右側: 合計金額 ＆ 展開シェブロン */}
-                      <div style={{ display: "flex", alignItems: "center", gap: "0.6rem", flexShrink: 0 }}>
-                        <span
-                          style={{
-                            fontSize: "0.95rem",
-                            fontWeight: 750,
-                            color: C.charcoal,
-                            letterSpacing: "-0.01em",
-                          }}
-                        >
-                          {formatCurrency(tx.totalAmount)}
-                        </span>
-
-                        <svg
-                          width="14"
-                          height="14"
-                          viewBox="0 0 24 24"
-                          fill="none"
-                          stroke="currentColor"
-                          strokeWidth="2"
-                          style={{
-                            color: C.charcoalLight,
-                            transform: isExpanded ? "rotate(180deg)" : "rotate(0deg)",
-                            transition: "transform 0.2s ease",
-                          }}
-                        >
-                          <polyline points="6 9 12 15 18 9" />
-                        </svg>
+                            <polyline points="6 9 12 15 18 9" />
+                          </svg>
+                        </div>
                       </div>
                     </div>
 
@@ -466,8 +639,92 @@ export function TransactionList({
                               cursor: "pointer",
                             }}
                           >
-                            {tx.isReconciled ? "突合を解除" : "突合済みにする"}
+                            {tx.isReconciled ? "確認を解除" : "確認済みにする"}
                           </button>
+
+                          {mergeCandidate && !tx.isReconciled && (onOpenMergeModal || onMerge) && (() => {
+                            const txIsEmail = isEmailNotice(tx);
+                            const candIsEmail = isEmailNotice(mergeCandidate);
+                            const txHasItems = Array.isArray(tx.items) && tx.items.length > 0;
+                            const candHasItems = Array.isArray(mergeCandidate.items) && mergeCandidate.items.length > 0;
+
+                            let buttonLabel = "速報メールと結合";
+                            if (txIsEmail && !candIsEmail) {
+                              buttonLabel = "手動・レシート記録と結合";
+                            } else if (!txIsEmail && candIsEmail) {
+                              buttonLabel = "速報メールと結合";
+                            } else {
+                              buttonLabel = "同日同額の記録と結合";
+                            }
+
+                            // 相手先のサブ表示
+                            let subText = "";
+                            if (candHasItems) {
+                              subText = `${mergeCandidate.title} (${mergeCandidate.items.length}品目)`;
+                            } else if (candIsEmail) {
+                              const candMethod = mergeCandidate.paymentMethod || "カード決済";
+                              subText = `${mergeCandidate.title} (${candMethod})`;
+                            } else {
+                              const candMethod = mergeCandidate.paymentMethod || "未確認";
+                              subText = `${mergeCandidate.title} (${candMethod})`;
+                            }
+
+                            const handleMergeClick = (e: React.MouseEvent) => {
+                              e.stopPropagation();
+                              let manualTx = tx;
+                              let emailTx = mergeCandidate;
+
+                              if (candHasItems && !txHasItems) {
+                                manualTx = mergeCandidate;
+                                emailTx = tx;
+                              } else if (txHasItems && !candHasItems) {
+                                manualTx = tx;
+                                emailTx = mergeCandidate;
+                              } else if (txIsEmail && !candIsEmail) {
+                                manualTx = mergeCandidate;
+                                emailTx = tx;
+                              } else if (!txIsEmail && candIsEmail) {
+                                manualTx = tx;
+                                emailTx = mergeCandidate;
+                              }
+
+                              if (onOpenMergeModal) {
+                                onOpenMergeModal(manualTx, emailTx);
+                              } else if (onMerge) {
+                                onMerge(manualTx, emailTx);
+                              }
+                            };
+
+                            return (
+                              <button
+                                data-testid="merge-button"
+                                onClick={handleMergeClick}
+                                style={{
+                                  background: "rgba(197, 160, 89, 0.10)",
+                                  border: "1px solid rgba(197, 160, 89, 0.35)",
+                                  borderRadius: "7px",
+                                  padding: "0.32rem 0.65rem",
+                                  fontSize: "0.72rem",
+                                  fontWeight: 650,
+                                  color: C.goldDark,
+                                  cursor: "pointer",
+                                  display: "inline-flex",
+                                  alignItems: "center",
+                                  gap: "0.4rem",
+                                  transition: "all 0.15s ease",
+                                }}
+                                title={`「${subText}」と統合して確定レコードにします`}
+                              >
+                                <LinkIcon size={13} strokeWidth={2.4} />
+                                <div style={{ display: "flex", flexDirection: "column", alignItems: "flex-start", lineHeight: 1.25 }}>
+                                  <span>{buttonLabel}</span>
+                                  <span style={{ fontSize: "0.62rem", color: C.charcoalLight, fontWeight: 500 }}>
+                                    {subText}
+                                  </span>
+                                </div>
+                              </button>
+                            );
+                          })()}
 
                           <button
                             onClick={() => onDuplicate(tx)}

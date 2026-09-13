@@ -33,6 +33,7 @@ interface MemoSpaceProps {
   onDownloadNote: (note: NoteItem) => void;
   onTriggerImport: () => void;
   onOpenTrash: () => void;
+  activeSpace?: NoteSpaceType;
   onSpaceChange?: (space: NoteSpaceType) => void;
   spaceCounts?: {
     memo: number;
@@ -84,6 +85,7 @@ export const MemoSpace: React.FC<MemoSpaceProps> = ({
   onDownloadNote,
   onTriggerImport,
   onOpenTrash,
+  activeSpace: _activeSpace,
   onSpaceChange: _onSpaceChange,
   spaceCounts: _spaceCounts,
 }) => {

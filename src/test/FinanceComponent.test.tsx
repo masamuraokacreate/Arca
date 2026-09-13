@@ -94,8 +94,8 @@ describe("Finance コンポーネント", () => {
     expect(screen.getByText("カテゴリ別支出内訳")).toBeInTheDocument();
     expect(screen.getByText("日別支出推移")).toBeInTheDocument();
 
-    // 「クレカ明細突合」タブをクリック
-    const reconcileTabBtn = screen.getByText(/クレカ明細突合/);
+    // 「クレカ明細確認」タブをクリック
+    const reconcileTabBtn = screen.getByText(/クレカ明細確認/);
     fireEvent.click(reconcileTabBtn);
     expect(screen.getByText("クレジットカード明細 CSV インポート")).toBeInTheDocument();
   });
@@ -142,10 +142,10 @@ describe("Finance コンポーネント", () => {
     });
   });
 
-  it("クレカ明細突合タブでCSVテキストを貼り付けて解析できる", async () => {
+  it("クレカ明細確認タブでCSVテキストを貼り付けて解析できる", async () => {
     render(<Finance />);
 
-    const reconcileTabBtn = screen.getByText(/クレカ明細突合/);
+    const reconcileTabBtn = screen.getByText(/クレカ明細確認/);
     fireEvent.click(reconcileTabBtn);
 
     // テキスト入力アコーディオンを開く
@@ -277,6 +277,251 @@ describe("Finance コンポーネント", () => {
       expect(screen.getByTestId("sync-toast")).toHaveTextContent(/1件の速報決済を取り込み/);
     });
   });
+
+  it("同日・同額の未突合レコードが存在する場合に『突合候補あり』バッジと双方向マージボタン・モーダルが機能する", async () => {
+    const mergeableTxs: ExpenseTransaction[] = [
+      {
+        id: "tx-ocr-merge",
+        date: "2026-08-10",
+        title: "ヤオコー MARKETPLACE",
+        totalAmount: 7221,
+        category: "食料品",
+        paymentMethod: "現金",
+        items: [{ id: "i1", name: "牛乳", amount: 7221, category: "食料品" }],
+        isReconciled: false,
+        source: "ocr",
+        createdAt: "2026-08-10T10:00:00Z",
+        updatedAt: "2026-08-10T10:00:00Z",
+        isDeleted: false,
+      },
+      {
+        id: "tx-email-merge",
+        date: "2026-08-10",
+        title: "ヤオコー",
+        totalAmount: 7221,
+        category: "食料品",
+        paymentMethod: "Oliveカード",
+        items: [],
+        isReconciled: false,
+        source: "email_notice",
+        emailMessageId: "msg-123",
+        createdAt: "2026-08-10T11:00:00Z",
+        updatedAt: "2026-08-10T11:00:00Z",
+        isDeleted: false,
+      },
+    ];
+
+    vi.spyOn(financeStorage, "subscribeExpenseTransactions").mockImplementation((cb) => {
+      cb(mergeableTxs);
+      return () => {};
+    });
+
+    const updateSpy = vi.spyOn(financeStorage, "updateExpenseTransaction").mockResolvedValue();
+    const deleteSpy = vi.spyOn(financeStorage, "deleteExpenseTransaction").mockResolvedValue();
+
+    render(<Finance />);
+
+    // 「確認候補あり」バッジが表示されていることを確認
+    const badges = screen.getAllByTestId("merge-candidate-badge");
+    expect(badges.length).toBeGreaterThanOrEqual(1);
+    expect(badges[0]).toHaveTextContent("確認候補あり");
+
+    // レシート側取引カードをクリックして展開
+    fireEvent.click(screen.getByText("ヤオコー MARKETPLACE"));
+
+    // レシート側カードに「速報メールと結合」ボタンが表示されることを確認
+    const mergeButtons = screen.getAllByTestId("merge-button");
+    expect(mergeButtons[0]).toHaveTextContent("速報メールと結合");
+    expect(mergeButtons[0]).toHaveTextContent("ヤオコー (Oliveカード)");
+
+    // クリックして結合確認モーダルを開く
+    fireEvent.click(mergeButtons[0]);
+
+    // モーダルが開き、対比情報が表示されていることを確認
+    expect(screen.getByText("決済レコードの結合・確定")).toBeInTheDocument();
+    expect(screen.getByText("1品目の内訳を維持")).toBeInTheDocument();
+    expect(screen.getByText(/Oliveカード 決済情報を引き継ぐ/)).toBeInTheDocument();
+
+    // モーダル内の「この2件を結合して確定」ボタンをクリック
+    const confirmBtn = screen.getByTestId("confirm-merge-btn");
+    fireEvent.click(confirmBtn);
+
+    await waitFor(() => {
+      expect(updateSpy).toHaveBeenCalledWith(
+        "tx-ocr-merge",
+        expect.objectContaining({
+          isReconciled: true,
+          paymentMethod: "Oliveカード",
+          emailMessageId: "msg-123",
+        })
+      );
+      expect(deleteSpy).toHaveBeenCalledWith("tx-email-merge");
+    });
+  });
+
+  it("店舗名が全く異なっていても同じ日・同じ金額であれば突合候補になり手動結合できる", async () => {
+    const sameDaySameAmountTxs: ExpenseTransaction[] = [
+      {
+        id: "tx-manual-lunch",
+        date: "2026-08-10",
+        title: "お昼ごはん",
+        totalAmount: 397,
+        category: "食料品",
+        paymentMethod: "現金",
+        items: [
+          { id: "i-onigiri", name: "ツナマヨおにぎり", amount: 160, category: "食料品", quantity: 1 },
+          { id: "i-tea", name: "緑茶", amount: 237, category: "食料品", quantity: 1 },
+        ],
+        isReconciled: false,
+        createdAt: "2026-08-10T12:00:00Z",
+        updatedAt: "2026-08-10T12:00:00Z",
+        isDeleted: false,
+      },
+      {
+        id: "tx-email-famima",
+        date: "2026-08-10",
+        title: "ファミリーマート（買物）",
+        totalAmount: 397,
+        category: "食料品",
+        paymentMethod: "Oliveカード",
+        items: [],
+        isReconciled: false,
+        source: "email_notice",
+        emailMessageId: "msg-famima-397",
+        createdAt: "2026-08-10T04:38:00Z",
+        updatedAt: "2026-08-10T04:38:00Z",
+        isDeleted: false,
+      },
+    ];
+
+    vi.spyOn(financeStorage, "subscribeExpenseTransactions").mockImplementation((cb) => {
+      cb(sameDaySameAmountTxs);
+      return () => {};
+    });
+
+    const updateSpy = vi.spyOn(financeStorage, "updateExpenseTransaction").mockResolvedValue();
+    const deleteSpy = vi.spyOn(financeStorage, "deleteExpenseTransaction").mockResolvedValue();
+
+    render(<Finance />);
+
+    // 「確認候補あり」バッジが表示されていることを確認
+    const badges = screen.getAllByTestId("merge-candidate-badge");
+    expect(badges.length).toBeGreaterThanOrEqual(1);
+    expect(badges[0]).toHaveTextContent("確認候補あり");
+
+    // 手動取引カードをクリックして展開
+    fireEvent.click(screen.getByText("お昼ごはん"));
+
+    // 結合ボタンが表示され、相手先の「ファミリーマート（買物）」が表示されていること
+    const mergeButtons = screen.getAllByTestId("merge-button");
+    expect(mergeButtons[0]).toHaveTextContent("速報メールと結合");
+    expect(mergeButtons[0]).toHaveTextContent("ファミリーマート（買物） (Oliveカード)");
+
+    // 結合確認モーダルを開いて確定
+    fireEvent.click(mergeButtons[0]);
+    expect(screen.getByText("決済レコードの結合・確定")).toBeInTheDocument();
+    expect(screen.getByText("2品目の内訳を維持")).toBeInTheDocument();
+
+    const confirmBtn = screen.getByTestId("confirm-merge-btn");
+    fireEvent.click(confirmBtn);
+
+    await waitFor(() => {
+      expect(updateSpy).toHaveBeenCalledWith(
+        "tx-manual-lunch",
+        expect.objectContaining({
+          isReconciled: true,
+          paymentMethod: "Oliveカード",
+          emailMessageId: "msg-famima-397",
+        })
+      );
+      expect(deleteSpy).toHaveBeenCalledWith("tx-email-famima");
+    });
+  });
+
+  it("モバイルFABボタンをタップすると展開メニューが開き、手動記録やOCR・メール取得が選択できる", async () => {
+    render(<Finance />);
+
+    // FABボタンが存在することを確認
+    const fabButton = screen.getByTestId("fab-main-button");
+    expect(fabButton).toBeInTheDocument();
+
+    // FABをタップ
+    fireEvent.click(fabButton);
+
+    // アクションシートのメニュー項目が表示されること
+    expect(screen.getByText("手動で支出を記録")).toBeInTheDocument();
+    expect(screen.getByText("レシートを読み取る (OCR)")).toBeInTheDocument();
+    expect(screen.getByText(/カード速報メールを取得/)).toBeInTheDocument();
+
+    // 「手動で支出を記録」をタップすると支出記録モーダルが開く
+    fireEvent.click(screen.getByText("手動で支出を記録"));
+    expect(screen.getByRole("heading", { name: "支出を記録" })).toBeInTheDocument();
+  });
+
+  it("モバイルフィルターボタンをタップすると詳細絞り込みモーダルが開き、設定可能である", async () => {
+    render(<Finance />);
+
+    // 詳細絞り込みボタンを取得
+    const filterBtn = screen.getByTitle("詳細絞り込み");
+    expect(filterBtn).toBeInTheDocument();
+
+    // タップしてモーダルを開く
+    fireEvent.click(filterBtn);
+
+    // 詳細絞り込みの見出しとリセット・閉じるボタンが表示されること
+    expect(screen.getByText("詳細絞り込み")).toBeInTheDocument();
+    expect(screen.getByText("すべてのカテゴリ")).toBeInTheDocument();
+    expect(screen.getByText("すべて表示")).toBeInTheDocument();
+    expect(screen.getByText("リセット")).toBeInTheDocument();
+
+    // 「閉じる」でモーダルが閉じること
+    fireEvent.click(screen.getByText("閉じる"));
+    await waitFor(() => {
+      expect(screen.queryByText("すべてのカテゴリ")).not.toBeInTheDocument();
+    });
+  });
+
+  it("品目を追加したとき、初期で0円ではなく空欄で入力しやすくなっている", async () => {
+    render(<Finance />);
+
+    // 「支出を記録」ボタンをクリック
+    const recordBtn = screen.getByText("支出を記録");
+    fireEvent.click(recordBtn);
+
+    // 「+ 品目を追加」をクリック
+    const addItemBtn = screen.getByText("+ 品目を追加");
+    fireEvent.click(addItemBtn);
+
+    // 追加された品目の金額inputを取得
+    const amountInput = screen.getByPlaceholderText("金額") as HTMLInputElement;
+    expect(amountInput).toBeInTheDocument();
+    expect(amountInput.value).toBe(""); // 0 ではなく空文字！
+  });
+
+  it("上のカテゴリを変更すると、下の品目内訳（レシート明細）のすべてのカテゴリが連動して変更される", async () => {
+    render(<Finance />);
+
+    // 既存取引（イオンモール: 食料品）を展開して編集を開く
+    fireEvent.click(screen.getByText("イオンモール"));
+    fireEvent.click(screen.getByText("編集"));
+
+    expect(screen.getByText("支出を編集")).toBeInTheDocument();
+
+    // 上のカテゴリselect（食料品）を探して「日用品・消耗品」に変更
+    const allSelects = screen.getAllByRole("combobox") as HTMLSelectElement[];
+    const mainCategorySelect = allSelects.find(
+      (s) => s.value === "食料品" && s.options.length === 12
+    );
+    expect(mainCategorySelect).toBeDefined();
+
+    fireEvent.change(mainCategorySelect!, { target: { value: "日用品・消耗品" } });
+
+    // 下の品目のselect（牛乳、お米）もすべて「日用品・消耗品」に変更されていることを確認
+    const updatedSelects = screen.getAllByRole("combobox") as HTMLSelectElement[];
+    const itemSelects = updatedSelects.filter((s) => s !== mainCategorySelect && s.options.length === 12);
+    expect(itemSelects.length).toBeGreaterThanOrEqual(2);
+    for (const select of itemSelects) {
+      expect(select.value).toBe("日用品・消耗品");
+    }
+  });
 });
-
-

@@ -4,7 +4,7 @@
  */
 
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { render, screen, fireEvent } from "@testing-library/react";
+import { render, screen, fireEvent, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { MarkdownViewer } from "../components/notes/MarkdownViewer";
 import { MarkdownGuideModal } from "../components/notes/MarkdownGuideModal";
@@ -212,7 +212,7 @@ describe("MarkdownGuideModal", () => {
       <MarkdownGuideModal isOpen={true} onClose={handleClose} onInsert={handleInsert} />
     );
 
-    expect(screen.getByText("Markdown 構文ガイド")).toBeInTheDocument();
+    expect(screen.getByText("構文ガイド")).toBeInTheDocument();
     expect(screen.getByRole("heading", { level: 3, name: "基本の装飾" })).toBeInTheDocument();
 
     // 太字アイテムをクリック
@@ -395,7 +395,7 @@ describe("NoteToolbar", () => {
     expect(onImportMarkdown).toHaveBeenCalled();
 
     // ガイド
-    const guideBtn = screen.getByTitle("Markdown 構文ガイドを確認");
+    const guideBtn = screen.getByTitle("構文ガイドを確認");
     await userEvent.click(guideBtn);
     expect(onOpenGuide).toHaveBeenCalled();
 
@@ -517,25 +517,30 @@ describe("NoteToolbar", () => {
       return vi.fn();
     });
 
-    render(<Notes />);
+    localStorage.setItem("arca_notes_active_space", "memo");
+    try {
+      render(<Notes />);
 
-    // ごみ箱ボタンをクリック
-    const trashBtn = screen.getByRole("button", { name: "ごみ箱" });
-    await userEvent.click(trashBtn);
+      // ごみ箱ボタンをクリック
+      const trashBtn = screen.getByRole("button", { name: "ごみ箱" });
+      await userEvent.click(trashBtn);
 
-    // ごみ箱モーダルが開く
-    expect(screen.getByRole("heading", { name: "ごみ箱" })).toBeInTheDocument();
-    expect(screen.getByText("ごみ箱のノート1")).toBeInTheDocument();
+      // ごみ箱モーダルが開く
+      expect(screen.getByRole("heading", { name: "ごみ箱" })).toBeInTheDocument();
+      expect(screen.getByText("ごみ箱のノート1")).toBeInTheDocument();
 
-    // 完全に削除ボタンをクリック
-    const deleteBtns = screen.getAllByRole("button", { name: "完全に削除" });
-    await userEvent.click(deleteBtns[0]);
-    expect(deleteDoc).toHaveBeenCalled();
+      // 完全に削除ボタンをクリック
+      const deleteBtns = screen.getAllByRole("button", { name: "完全に削除" });
+      await userEvent.click(deleteBtns[0]);
+      expect(deleteDoc).toHaveBeenCalled();
 
-    // ごみ箱を空にするボタンをクリック
-    const emptyTrashBtn = screen.getByRole("button", { name: "ごみ箱を空にする" });
-    await userEvent.click(emptyTrashBtn);
-    expect(deleteDoc).toHaveBeenCalled();
+      // ごみ箱を空にするボタンをクリック
+      const emptyTrashBtn = screen.getByRole("button", { name: "ごみ箱を空にする" });
+      await userEvent.click(emptyTrashBtn);
+      expect(deleteDoc).toHaveBeenCalled();
+    } finally {
+      localStorage.clear();
+    }
   });
 });
 
@@ -649,17 +654,22 @@ describe("Notes 階層化・ハブ＆カード（Parent-Child Hub）統合テス
       return vi.fn();
     });
 
-    render(<Notes />);
+    const { container } = render(<Notes />);
+    const sidebar = container.querySelector("aside")!;
 
-    // ルートノートが表示される（サイドバーおよびダッシュボード）
-    expect(screen.getAllByText("プロジェクトハブ")[0]).toBeInTheDocument();
-    expect(screen.getAllByText("単独ノート")[0]).toBeInTheDocument();
-    // 子ノートはトップ一覧には直接表示されない
-    expect(screen.queryByText("サブノートA")).not.toBeInTheDocument();
-    expect(screen.queryByText("サブノートB")).not.toBeInTheDocument();
+    // ルートノートが表示される（サイドバー内）
+    expect(within(sidebar).getByText("プロジェクトハブ")).toBeInTheDocument();
+    expect(within(sidebar).getByText("単独ノート")).toBeInTheDocument();
+    // 子ノートはツリー展開前には表示されない
+    expect(within(sidebar).queryByText("サブノートA")).not.toBeInTheDocument();
+    expect(within(sidebar).queryByText("サブノートB")).not.toBeInTheDocument();
 
-    // 子ノート件数バッジが表示されている（2件）
-    expect(screen.getByText("2件")).toBeInTheDocument();
+    // 展開ボタンをクリックすると子ノートが表示される
+    const expandBtns = within(sidebar).getAllByRole("button", { name: "展開する" });
+    const visibleExpandBtn = expandBtns.find((b) => !b.classList.contains("pointer-events-none")) || expandBtns[0];
+    await userEvent.click(visibleExpandBtn);
+    expect(within(sidebar).getByText("サブノートA")).toBeInTheDocument();
+    expect(within(sidebar).getByText("サブノートB")).toBeInTheDocument();
   });
 
   it("親ノートを開くとパンくずとサブノート一覧が表示され、子ノート作成ができる", async () => {
@@ -697,17 +707,13 @@ describe("Notes 階層化・ハブ＆カード（Parent-Child Hub）統合テス
     render(<Notes initialNoteId="hub-1" />);
 
     // パンくずとタイトルが表示されている
-    expect(screen.getByRole("button", { name: "Notes" })).toBeInTheDocument();
+    expect(screen.getByText("Pages")).toBeInTheDocument();
     expect(screen.getByDisplayValue("プロジェクトハブ")).toBeInTheDocument();
-    expect(screen.getByTitle("プロジェクトハブ")).toBeInTheDocument(); // パンくずのtitle属性
+    expect(screen.getAllByTitle("プロジェクトハブ")[0]).toBeInTheDocument(); // パンくずのtitle属性
 
-    // サブノートセクションが表示されている
-    expect(screen.getByRole("heading", { level: 3, name: "サブノート" })).toBeInTheDocument();
-    expect(screen.getByText("サブノートA")).toBeInTheDocument();
-
-    // 「＋ 子ノート作成」ボタンを押すと parentId: "hub-1" で addDoc が呼ばれる
-    const createSubNoteBtn = screen.getByRole("button", { name: /子ノート作成/ });
-    await userEvent.click(createSubNoteBtn);
+    // 「＋ 子ページ」ボタンを押すと parentId: "hub-1" で addDoc が呼ばれる
+    const createChildPageBtns = screen.getAllByRole("button", { name: /子ページ/ });
+    await userEvent.click(createChildPageBtns[0]);
 
     expect(addDoc).toHaveBeenCalledWith(
       expect.anything(),
@@ -718,114 +724,27 @@ describe("Notes 階層化・ハブ＆カード（Parent-Child Hub）統合テス
     );
   });
 
-  it("親ノートのサブノート一覧でNotion風リスト⇄Keep風カードの切り替えピルが動作し即時保存される", async () => {
-    const { onSnapshot, updateDoc } = await import("firebase/firestore");
-    const Notes = (await import("../components/Notes")).default;
-
-    (onSnapshot as any).mockImplementation((_q: any, callback: any) => {
-      callback({
-        forEach: (fn: any) => {
-          fn({
-            id: "hub-toggle",
-            data: () => ({
-              title: "ビュー切り替えハブ",
-              content: "ハブの本文",
-              tags: ["game"],
-              parentId: null,
-              isDeleted: false,
-              // childViewMode 未指定 -> デフォルトは 'list'
-            }),
-          });
-          fn({
-            id: "sub-child-1",
-            data: () => ({
-              title: "ゼルダ攻略メモ",
-              content: "祠の場所メモ",
-              tags: ["攻略"],
-              parentId: "hub-toggle",
-              isDeleted: false,
-            }),
-          });
-        },
-      });
-      return vi.fn();
-    });
-
-    render(<Notes initialNoteId="hub-toggle" />);
-
-    // 1. デフォルトはNotion風リスト表示
-    const listBtn = screen.getByRole("radio", { name: "リスト表示" });
-    const cardBtn = screen.getByRole("radio", { name: "カード表示" });
-    expect(listBtn).toHaveAttribute("aria-checked", "true");
-    expect(cardBtn).toHaveAttribute("aria-checked", "false");
-    expect(screen.getByTestId("subnotes-list-view")).toBeInTheDocument();
-    expect(screen.queryByTestId("subnotes-board-view")).not.toBeInTheDocument();
-    expect(screen.getByTestId("subnote-list-item-sub-child-1")).toBeInTheDocument();
-
-    // 2. 「カード」ボタンをクリック -> Keep風カード表示に切り替わり updateDoc が即座に呼ばれる
-    await userEvent.click(cardBtn);
-
-    expect(updateDoc).toHaveBeenCalledWith(
-      expect.anything(),
-      expect.objectContaining({
-        childViewMode: "board",
-      })
+  it("Notion風インライン子ページボタン: 本文中の [タイトル](note:childId) が FileText アイコン付きインラインボタンとしてレンダリングされる", async () => {
+    const { MarkdownViewer } = await import("../components/notes/MarkdownViewer");
+    const onSelectNote = vi.fn();
+    render(
+      <MarkdownViewer
+        content={"親ノートの本文です。\n\n[子ページリンク](note:sub-child-1)\n\n続きの本文"}
+        onSelectNote={onSelectNote}
+      />
     );
 
-    // 3. 再度「リスト」ボタンをクリック -> リスト表示に戻り updateDoc が呼ばれる
-    await userEvent.click(listBtn);
-
-    expect(updateDoc).toHaveBeenCalledWith(
-      expect.anything(),
-      expect.objectContaining({
-        childViewMode: "list",
-      })
-    );
+    const childLinkBtn = screen.getByRole("button", { name: /子ページリンク/ });
+    expect(childLinkBtn).toBeInTheDocument();
+    await userEvent.click(childLinkBtn);
+    expect(onSelectNote).toHaveBeenCalledWith("sub-child-1");
   });
 
-  it("親ノートの childViewMode が 'board' の場合、最初からKeep風カードグリッドで描画される", async () => {
-    const { onSnapshot } = await import("firebase/firestore");
-    const Notes = (await import("../components/Notes")).default;
-
-    (onSnapshot as any).mockImplementation((_q: any, callback: any) => {
-      callback({
-        forEach: (fn: any) => {
-          fn({
-            id: "hub-board-preset",
-            data: () => ({
-              title: "カフェ巡りハブ",
-              content: "行きたいお店",
-              tags: ["cafe"],
-              parentId: null,
-              isDeleted: false,
-              childViewMode: "board",
-            }),
-          });
-          fn({
-            id: "sub-cafe-1",
-            data: () => ({
-              title: "渋谷カフェ",
-              content: "美味しいコーヒー",
-              tags: ["コーヒー"],
-              parentId: "hub-board-preset",
-              isDeleted: false,
-            }),
-          });
-        },
-      });
-      return vi.fn();
-    });
-
-    render(<Notes initialNoteId="hub-board-preset" />);
-
-    // 最初からカード表示が選択されている
-    const listBtn = screen.getByRole("radio", { name: "リスト表示" });
-    const cardBtn = screen.getByRole("radio", { name: "カード表示" });
-    expect(listBtn).toHaveAttribute("aria-checked", "false");
-    expect(cardBtn).toHaveAttribute("aria-checked", "true");
-    expect(screen.getByTestId("subnotes-board-view")).toBeInTheDocument();
-    expect(screen.queryByTestId("subnotes-list-view")).not.toBeInTheDocument();
-    expect(screen.getByText("渋谷カフェ")).toBeInTheDocument();
+  it("エディタのスラッシュコマンドに /page（子ページ作成・挿入）が含まれている", async () => {
+    const { SLASH_COMMANDS } = await import("../components/notes/NoteEditor");
+    const pageCommand = SLASH_COMMANDS.find((cmd) => cmd.id === "page");
+    expect(pageCommand).toBeDefined();
+    expect(pageCommand?.label).toBe("子ページ");
   });
 
   it("親ノート削除時にサブノートの警告ダイアログが表示され、親＋子ノートが一括論理削除＆Undoされる", async () => {
@@ -871,14 +790,11 @@ describe("Notes 階層化・ハブ＆カード（Parent-Child Hub）統合テス
       return vi.fn();
     });
 
-    render(<Notes />);
+    render(<Notes initialNoteId="hub-1" />);
 
-    // 削除メニューをクリック
-    const menuBtn = screen.getByLabelText("メニュー");
-    await userEvent.click(menuBtn);
-
-    const deleteOption = screen.getByRole("button", { name: "削除" });
-    await userEvent.click(deleteOption);
+    // ツールバーの削除ボタンをクリック
+    const deleteBtn = screen.getByTitle("このノートを削除");
+    await userEvent.click(deleteBtn);
 
     // カスケード削除の警告ダイアログが表示される
     expect(screen.getByText("ノートとサブノートをごみ箱に移動しますか？")).toBeInTheDocument();
@@ -1134,36 +1050,33 @@ describe("Notes 階層化・ハブ＆カード（Parent-Child Hub）統合テス
   });
 
   // ─────────────────────────────────────────
-  // 17. モバイル表示・ツールバーボタン配置最適化テスト
+  // 17. メモスペース ツールバーアクションテスト
   // ─────────────────────────────────────────
-  describe("モバイル表示・ツールバーボタン配置最適化", () => {
-    it("ダッシュボードの全アクションボタンに white-space: nowrap と flex-shrink: 0 が適用されている", async () => {
+  describe("メモスペース ツールバーアクション", () => {
+    it("メモスペースのアクションボタン（新しいメモ、ごみ箱、インポート）が正しく配置・表示されている", async () => {
       const Notes = (await import("../components/Notes")).default;
-      const { container } = render(<Notes />);
+      localStorage.setItem("arca_notes_active_space", "memo");
+      try {
+        render(<Notes />);
 
-      const newBtn = screen.getByRole("button", { name: /新しいノート/ });
-      const trashBtn = screen.getByRole("button", { name: "ごみ箱" });
-      const importBtn = screen.getByRole("button", { name: "インポート" });
+        const newBtn = screen.getByRole("button", { name: /新しいメモ/ });
+        const trashBtn = screen.getByRole("button", { name: "ごみ箱" });
+        const importBtn = screen.getByRole("button", { name: "インポート" });
 
-      expect(newBtn).toBeInTheDocument();
-      expect(trashBtn).toBeInTheDocument();
-      expect(importBtn).toBeInTheDocument();
-
-      // 各ボタンまたはその中身が改行禁止（nowrap）になっていることを検証
-      expect(newBtn.classList.contains("arca-notes-btn-primary")).toBe(true);
-      expect(trashBtn.classList.contains("arca-notes-btn-sub")).toBe(true);
-      expect(importBtn.classList.contains("arca-notes-btn-sub")).toBe(true);
-
-      const toolbarGrid = container.querySelector(".arca-notes-toolbar-grid");
-      expect(toolbarGrid).toBeInTheDocument();
+        expect(newBtn).toBeInTheDocument();
+        expect(trashBtn).toBeInTheDocument();
+        expect(importBtn).toBeInTheDocument();
+      } finally {
+        localStorage.clear();
+      }
     });
   });
 
   // ─────────────────────────────────────────
-  // 18. グリッド / リスト表示切り替えテスト
+  // 18. ノート（Pages）グリッド撤廃 ＆ エクスプローラー風レイアウトテスト
   // ─────────────────────────────────────────
-  describe("グリッド / リスト表示切り替え機能", () => {
-    it("グリッド表示とリスト表示をトグル切り替えでき、各モードのカードクラスが適用される", async () => {
+  describe("ノート（Pages）エクスプローラー風レイアウト", () => {
+    it("ノート（Pages）スペースではグリッド表示・リスト表示切り替えボタンが存在せず、階層サイドバーが表示される", async () => {
       const { onSnapshot } = await import("firebase/firestore");
       const Notes = (await import("../components/Notes")).default;
 
@@ -1180,6 +1093,7 @@ describe("Notes 階層化・ハブ＆カード（Parent-Child Hub）統合テス
                 createdAt: "2026-08-30T10:00:00Z",
                 updatedAt: "2026-08-30T10:00:00Z",
                 isDeleted: false,
+                spaceType: "document",
               }),
             },
           ],
@@ -1190,38 +1104,23 @@ describe("Notes 階層化・ハブ＆カード（Parent-Child Hub）統合テス
         return vi.fn();
       });
 
-      const { container } = render(<Notes />);
+      render(<Notes />);
 
-      // 初期状態: グリッド表示ボタンとリスト表示ボタンが存在する
-      const gridToggleBtn = screen.getByRole("button", { name: "グリッド表示" });
-      const listToggleBtn = screen.getByRole("button", { name: "リスト表示" });
+      // グリッド表示ボタンやリスト表示ボタンは存在しない
+      expect(screen.queryByRole("button", { name: "グリッド表示" })).not.toBeInTheDocument();
+      expect(screen.queryByRole("button", { name: "リスト表示" })).not.toBeInTheDocument();
 
-      expect(gridToggleBtn).toBeInTheDocument();
-      expect(listToggleBtn).toBeInTheDocument();
-
-      // 初期はグリッド表示カード
-      expect(container.querySelector(".arca-note-card-grid")).toBeInTheDocument();
-
-      // リスト表示ボタンをクリック
-      await userEvent.click(listToggleBtn);
-
-      // リスト表示カードに切り替わる
-      expect(container.querySelector(".arca-note-card-list")).toBeInTheDocument();
-      expect(screen.getAllByText("テストノート1")[0]).toBeInTheDocument();
-
-      // 再びグリッド表示ボタンをクリック
-      await userEvent.click(gridToggleBtn);
-      expect(container.querySelector(".arca-note-card-grid")).toBeInTheDocument();
+      // サイドバーの「ドキュメント」見出しが表示されている
+      expect(screen.getByText("ドキュメント")).toBeInTheDocument();
     });
   });
 
   // ─────────────────────────────────────────
-  // 19. サブノート表示形式の3態切り替え（リスト ⇄ カード ⇄ ジャーナル）
+  // 19. サブノート固定表示撤廃のテスト
   // ─────────────────────────────────────────
-  describe("サブノート表示形式の2態切り替え（リスト ⇄ カード）", () => {
-    it("親ノートを開いたとき、サブノートのセグメントコントロールに2つの選択肢（リスト・カード）が表示され、ジャーナル表示は削除されている", async () => {
-      const { onSnapshot, updateDoc } = await import("firebase/firestore");
-      (updateDoc as any).mockClear();
+  describe("サブノート固定表示撤廃", () => {
+    it("ノートを開いたとき、最下部に固定サブノートセクションやリスト・カード切り替えピルが存在しない", async () => {
+      const { onSnapshot } = await import("firebase/firestore");
       const Notes = (await import("../components/Notes")).default;
 
       (onSnapshot as any).mockImplementation((_q: any, callback: any) => {
@@ -1236,6 +1135,7 @@ describe("Notes 階層化・ハブ＆カード（Parent-Child Hub）統合テス
                 parentId: null,
                 isDeleted: false,
                 childViewMode: "list",
+                spaceType: "document",
               }),
             });
             fn({
@@ -1246,6 +1146,7 @@ describe("Notes 階層化・ハブ＆カード（Parent-Child Hub）統合テス
                 tags: ["Docs"],
                 parentId: "hub-parent-1",
                 isDeleted: false,
+                spaceType: "document",
               }),
             });
           },
@@ -1255,30 +1156,17 @@ describe("Notes 階層化・ハブ＆カード（Parent-Child Hub）統合テス
 
       render(<Notes initialNoteId="hub-parent-1" />);
 
-      // リストとカードのラジオボタンが存在し、ジャーナル表示は存在しない
-      const listBtn = screen.getByRole("radio", { name: "リスト表示" });
-      const cardBtn = screen.getByRole("radio", { name: "カード表示" });
-
-      expect(listBtn).toBeInTheDocument();
-      expect(cardBtn).toBeInTheDocument();
-      expect(screen.queryByRole("radio", { name: "ジャーナル表示" })).not.toBeInTheDocument();
-
-      // 初期はリスト表示
-      expect(listBtn).toHaveAttribute("aria-checked", "true");
-      expect(cardBtn).toHaveAttribute("aria-checked", "false");
-
-      // カード表示ボタンをクリック
-      await userEvent.click(cardBtn);
-
-      // updateDoc で childViewMode: "board" が即時保存される
-      expect(updateDoc).toHaveBeenCalledWith(
-        expect.anything(),
-        expect.objectContaining({
-          childViewMode: "board",
-        })
-      );
+      // 固定サブノート見出しや切り替えピルは存在しない
+      expect(screen.queryByRole("heading", { level: 3, name: "サブノート" })).not.toBeInTheDocument();
+      expect(screen.queryByRole("radio", { name: "リスト表示" })).not.toBeInTheDocument();
+      expect(screen.queryByRole("radio", { name: "カード表示" })).not.toBeInTheDocument();
     });
+  });
 
+  // ─────────────────────────────────────────
+  // 20. Notes 3大スペース分離（メモ・ノート・日記）テスト
+  // ─────────────────────────────────────────
+  describe("Notes 3大スペース分離（メモ・ノート・日記）", () => {
     it("メモ・ノート・日記で作成したノートが他スペースに混ざって表示されない（完全データ分離）", async () => {
       const { onSnapshot } = await import("firebase/firestore");
       const Notes = (await import("../components/Notes")).default;
@@ -1647,18 +1535,19 @@ describe("Notes 階層化・ハブ＆カード（Parent-Child Hub）統合テス
       expect(screen.queryByRole("button", { name: "Table" })).not.toBeInTheDocument();
     });
 
-    it("一覧表示で「…」メニューをクリックしたとき、カードが最前面（zIndex: 100）になりメニューウィンドウが正しく表示される", async () => {
+    it("階層ツリーでノート項目を右クリックするとカスタムコンテキストメニューが表示される", async () => {
       const Notes = (await import("../components/Notes")).default;
       const { onSnapshot } = await import("firebase/firestore");
+      const { fireEvent } = await import("@testing-library/react");
 
       (onSnapshot as any).mockImplementation((_query: any, callback: any) => {
         callback({
           forEach: (fn: any) => {
             fn({
-              id: "test-note-menu-popover",
+              id: "test-note-context-menu",
               data: () => ({
-                title: "メニュー検証ノート",
-                content: "ポップオーバーの検証本文",
+                title: "コンテキストメニュー検証ノート",
+                content: "右クリックの検証本文",
                 tags: ["テスト"],
                 parentId: null,
                 isDeleted: false,
@@ -1672,19 +1561,311 @@ describe("Notes 階層化・ハブ＆カード（Parent-Child Hub）統合テス
 
       render(<Notes />);
 
-      // 一覧の「…」メニューボタンを取得
-      const menuBtn = screen.getByRole("button", { name: "メニュー" });
-      expect(menuBtn).toBeInTheDocument();
+      // 右クリック前はコンテキストメニューが表示されていない
+      expect(screen.queryByRole("menuitem", { name: "名前を変更" })).not.toBeInTheDocument();
 
-      // クリック前はメニュー項目（移動・md 保存・削除）が表示されていない
-      expect(screen.queryByText("md 保存")).not.toBeInTheDocument();
+      // サイドバーのノート項目を右クリック
+      const noteItem = screen.getAllByText("コンテキストメニュー検証ノート")[0];
+      fireEvent.contextMenu(noteItem);
 
-      // クリックしてメニューを開く
-      await userEvent.click(menuBtn);
+      // コンテキストメニュー項目が表示される
+      expect(screen.getByRole("menuitem", { name: "名前の変更" })).toBeInTheDocument();
+      expect(screen.getByRole("menuitem", { name: "子ページを作成" })).toBeInTheDocument();
+      expect(screen.getByRole("menuitem", { name: "移動..." })).toBeInTheDocument();
+      expect(screen.getByRole("menuitem", { name: "削除" })).toBeInTheDocument();
+    });
 
-      // メニューウィンドウ内の項目が表示される
-      expect(screen.getByText("md 保存")).toBeInTheDocument();
-      expect(screen.getByText("削除")).toBeInTheDocument();
+    it("初期画面で ExplorerHomeView（クイックアクセス・最近のページ）が表示され、戻るボタンが存在しない", async () => {
+      const { onSnapshot } = await import("firebase/firestore");
+      (onSnapshot as any).mockImplementation((_query: any, callback: any) => {
+        callback({
+          forEach: (fn: any) => {
+            fn({
+              id: "home-test-note",
+              data: () => ({
+                title: "重要ドキュメント",
+                content: "ホーム画面の検証",
+                tags: [],
+                parentId: null,
+                isDeleted: false,
+                pinned: true,
+                spaceType: "document",
+                updatedAt: "2026-09-13T12:00:00.000Z",
+              }),
+            });
+          },
+        });
+        return vi.fn();
+      });
+
+      const Notes = (await import("../components/Notes")).default;
+      render(<Notes />);
+
+      // エクスプローラーホームのヘッダーとクイックアクセスが表示される
+      expect(screen.getByText("Pages ホーム")).toBeInTheDocument();
+      expect(screen.getByText("クイックアクセス")).toBeInTheDocument();
+      expect(screen.getByText("最近使用したページ")).toBeInTheDocument();
+      expect(screen.getAllByText("重要ドキュメント").length).toBeGreaterThan(0);
+
+      // 「＜ノート一覧」戻るボタンは存在しない
+      expect(screen.queryByTitle("ノート一覧に戻る")).not.toBeInTheDocument();
+    });
+
+    it("構文ガイドにスラッシュコマンドセクション（/page, /todo等）が表示される", async () => {
+      const { MarkdownGuideModal } = await import("../components/notes/MarkdownGuideModal");
+      render(<MarkdownGuideModal isOpen={true} onClose={vi.fn()} onInsert={vi.fn()} />);
+
+      expect(screen.getByText("構文ガイド")).toBeInTheDocument();
+      expect(screen.getByRole("heading", { level: 3, name: "スラッシュコマンド ( / )" })).toBeInTheDocument();
+      expect(screen.getAllByText("/page").length).toBeGreaterThan(0);
+      expect(screen.getAllByText("/todo").length).toBeGreaterThan(0);
+    });
+
+    it("MarkdownViewer が [child-page:id] を検出し、allNotes から最新タイトルを解決してカードを描画し、クリックで onSelectNote を呼ぶ", () => {
+      const mockSelectNote = vi.fn();
+      const mockNotes: NoteItem[] = [
+        {
+          id: "child-123",
+          title: "動的に変更された子ページタイトル",
+          content: "子ページ本文",
+          tags: [],
+          parentId: "parent-1",
+          isDeleted: false,
+          spaceType: "document",
+          createdAt: "2026-09-13T12:00:00.000Z",
+          updatedAt: "2026-09-13T12:00:00.000Z",
+        },
+      ];
+
+      const content = "親ノートのテキスト\n\n[child-page:child-123]\n\n続きのテキスト";
+
+      const { rerender } = render(
+        <MarkdownViewer
+          content={content}
+          allNotes={mockNotes}
+          onSelectNote={mockSelectNote}
+        />
+      );
+
+      // 最新のタイトルでカードが表示されていること
+      const childCard = screen.getByText("動的に変更された子ページタイトル");
+      expect(childCard).toBeInTheDocument();
+
+      // カードをクリックしたときに onSelectNote('child-123') が呼ばれること
+      const cardButton = screen.getByTitle("子ページを開く");
+      fireEvent.click(cardButton);
+      expect(mockSelectNote).toHaveBeenCalledWith("child-123");
+
+      // 子ページのタイトルが変更された場合、カードの表示がリアルタイムに更新されること
+      const updatedNotes: NoteItem[] = [
+        {
+          ...mockNotes[0],
+          title: "さらに更新された最新タイトル",
+        },
+      ];
+
+      rerender(
+        <MarkdownViewer
+          content={content}
+          allNotes={updatedNotes}
+          onSelectNote={mockSelectNote}
+        />
+      );
+
+      expect(screen.getByText("さらに更新された最新タイトル")).toBeInTheDocument();
+      expect(screen.queryByText("動的に変更された子ページタイトル")).not.toBeInTheDocument();
+    });
+
+    it("MarkdownViewer が過去の a[href^='note:'] 形式のリンクも同様にカードとしてレンダリングする", () => {
+      const mockSelectNote = vi.fn();
+      const mockNotes: NoteItem[] = [
+        {
+          id: "legacy-child-456",
+          title: "レガシーリンクの子ページ",
+          content: "本文",
+          tags: [],
+          parentId: "parent-1",
+          isDeleted: false,
+          spaceType: "document",
+          createdAt: "2026-09-13T12:00:00.000Z",
+          updatedAt: "2026-09-13T12:00:00.000Z",
+        },
+      ];
+
+      const content = "過去のノート\n\n[📄 （タイトルなし）](note:legacy-child-456)\n\n続き";
+
+      render(
+        <MarkdownViewer
+          content={content}
+          allNotes={mockNotes}
+          onSelectNote={mockSelectNote}
+        />
+      );
+
+      // 固定タイトル「（タイトルなし）」ではなく、allNotes の「レガシーリンクの子ページ」が表示されること
+      expect(screen.getByText("レガシーリンクの子ページ")).toBeInTheDocument();
+
+      const cardButton = screen.getByTitle("子ページを開く");
+      fireEvent.click(cardButton);
+      expect(mockSelectNote).toHaveBeenCalledWith("legacy-child-456");
+    });
+
+    it("NoteEditor の insertChildPageNode ハンドラによって childPage ノードが挿入される", async () => {
+      let editorRefInstance: any = null;
+      const handleChange = vi.fn();
+
+      render(
+        <NoteEditor
+          ref={(ref) => {
+            editorRefInstance = ref;
+          }}
+          content=""
+          onChange={handleChange}
+          allNotes={[]}
+        />
+      );
+
+      expect(editorRefInstance).toBeTruthy();
+      expect(typeof editorRefInstance.insertChildPageNode).toBe("function");
+
+      // insertChildPageNode を実行
+      editorRefInstance.insertChildPageNode("new-child-789");
+
+      // コンテンツが更新され、[child-page:new-child-789] が含まれること
+      expect(handleChange).toHaveBeenCalled();
+      const lastCallContent = handleChange.mock.calls[handleChange.mock.calls.length - 1][0];
+      expect(lastCallContent).toContain("child-page:new-child-789");
+    });
+
+    it("NoteEditor で insertChildPageNode を連続で呼び出しても、前のノードが上書きされず複数の子ページノードが共存する", async () => {
+      let editorRefInstance: any = null;
+      const handleChange = vi.fn();
+
+      render(
+        <NoteEditor
+          ref={(ref) => {
+            editorRefInstance = ref;
+          }}
+          content=""
+          onChange={handleChange}
+          allNotes={[]}
+        />
+      );
+
+      // 1つ目の子ページを挿入
+      editorRefInstance.insertChildPageNode("child-111");
+      // 2つ目の子ページを連続挿入
+      editorRefInstance.insertChildPageNode("child-222");
+
+      expect(handleChange).toHaveBeenCalled();
+      const lastCallContent = handleChange.mock.calls[handleChange.mock.calls.length - 1][0];
+
+      // 両方の子ページIDがMarkdown本文に含まれていること
+      expect(lastCallContent).toContain("child-page:child-111");
+      expect(lastCallContent).toContain("child-page:child-222");
+    });
+
+    it("削除された子ページ（allNotes に存在しない）は MarkdownViewer でゴースト表示されない（非表示になる）", () => {
+      const mockSelectNote = vi.fn();
+      // 有効な子ノートは "active-child" のみ（"deleted-child" は存在しない）
+      const mockNotes: NoteItem[] = [
+        {
+          id: "active-child",
+          title: "有効な子ページ",
+          content: "本文",
+          tags: [],
+          parentId: "parent-1",
+          isDeleted: false,
+          spaceType: "document",
+          createdAt: "2026-09-13T12:00:00.000Z",
+          updatedAt: "2026-09-13T12:00:00.000Z",
+        },
+      ];
+
+      // 親ノートの本文に削除済み子ページと有効な子ページの両方が記載されている状態
+      const content = "親ノート\n\n[child-page:deleted-child]\n\n[child-page:active-child]";
+
+      render(
+        <MarkdownViewer
+          content={content}
+          allNotes={mockNotes}
+          onSelectNote={mockSelectNote}
+        />
+      );
+
+      // 有効な子ページは表示される
+      expect(screen.getByText("有効な子ページ")).toBeInTheDocument();
+      // 削除された子ページは「無題のページ」等としてゴースト表示されない
+      expect(screen.queryByText("無題のページ")).not.toBeInTheDocument();
+      expect(screen.queryByText("deleted-child")).not.toBeInTheDocument();
+    });
+
+    it("子ノート削除時に親ノートの本文から該当子ページのリンク [child-page:id] が除去される", async () => {
+      vi.clearAllMocks();
+      const { updateDoc } = await import("firebase/firestore");
+      const { onSnapshot } = await import("firebase/firestore");
+
+      const parentNoteData = {
+        id: "parent-doc-1",
+        title: "親ノート",
+        content: "親ノートのテキスト\n\n[child-page:child-to-delete]\n\n残るテキスト",
+        tags: [],
+        parentId: null,
+        isDeleted: false,
+        spaceType: "document",
+        createdAt: "2026-09-13T12:00:00.000Z",
+        updatedAt: "2026-09-13T12:00:00.000Z",
+      };
+
+      const childNoteData = {
+        id: "child-to-delete",
+        title: "削除予定の子ページ",
+        content: "子ページ本文",
+        tags: [],
+        parentId: "parent-doc-1",
+        isDeleted: false,
+        spaceType: "document",
+        createdAt: "2026-09-13T12:00:00.000Z",
+        updatedAt: "2026-09-13T12:00:00.000Z",
+      };
+
+      (onSnapshot as any).mockImplementation((_query: any, callback: any) => {
+        callback({
+          forEach: (fn: any) => {
+            fn({ id: parentNoteData.id, data: () => parentNoteData });
+            fn({ id: childNoteData.id, data: () => childNoteData });
+          },
+        });
+        return vi.fn();
+      });
+
+      const Notes = (await import("../components/Notes")).default;
+      render(<Notes />);
+
+      // ツリーの親ノートを展開
+      const expandButton = screen.getByRole("button", { name: "展開する" });
+      fireEvent.click(expandButton);
+
+      // 展開された子ノートをクリックして開く
+      const childItems = screen.getAllByText("削除予定の子ページ");
+      fireEvent.click(childItems[0]);
+
+      // 子ページのツールバーの削除ボタンをクリック
+      const deleteButton = screen.getByTitle("このノートを削除");
+      fireEvent.click(deleteButton);
+
+      // 削除確認モーダルで「削除する」をクリック
+      const confirmButton = screen.getByRole("button", { name: "削除する" });
+      fireEvent.click(confirmButton);
+
+      // 非同期で updateDoc が呼ばれ、親ノートの content から child-to-delete が除去されていること
+      await vi.waitFor(() => {
+        const calls = (updateDoc as any).mock.calls;
+        const parentUpdateCall = calls.find((call: any) => call[1]?.content !== undefined);
+        expect(parentUpdateCall).toBeTruthy();
+        expect(parentUpdateCall[1].content).not.toContain("child-page:child-to-delete");
+        expect(parentUpdateCall[1].content).toContain("残るテキスト");
+      });
     });
   });
 });

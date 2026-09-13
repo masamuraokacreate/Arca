@@ -15,12 +15,16 @@ import { useState, useCallback, type ReactNode, isValidElement } from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import remarkBreaks from "remark-breaks";
+import { FileText, ChevronRight } from "lucide-react";
 import { C } from "../../lib/designSystem";
+import type { NoteItem } from "../../types";
 
 export interface MarkdownViewerProps {
   content: string;
   attachments?: Record<string, string>;
   onContentChange?: (newContent: string) => void;
+  onSelectNote?: (noteId: string) => void;
+  allNotes?: NoteItem[];
 }
 
 // ─────────────────────────────────────────
@@ -392,7 +396,13 @@ function escapeRegex(str: string): string {
 // メイン MarkdownViewer コンポーネント
 // ─────────────────────────────────────────
 
-export function MarkdownViewer({ content, attachments, onContentChange }: MarkdownViewerProps) {
+export function MarkdownViewer({
+  content,
+  attachments,
+  onContentChange,
+  onSelectNote,
+  allNotes = [],
+}: MarkdownViewerProps) {
   if (!content.trim()) {
     return (
       <p style={{ color: C.charcoalXLight, fontStyle: "italic", lineHeight: 1.9, fontSize: "0.95rem" }}>
@@ -400,6 +410,9 @@ export function MarkdownViewer({ content, attachments, onContentChange }: Markdo
       </p>
     );
   }
+
+  // [child-page:pageId] 構文を Markdown リンク [子ページ](note:pageId) に前処理
+  const processedContent = content.replace(/\[child-page:([a-zA-Z0-9_-]+)\]/g, "[$1](note:$1)");
 
   // タスクリストのチェックボックスをクリックした際のトグル処理
   const handleTaskToggle = (taskText: string, currentChecked: boolean) => {
@@ -628,10 +641,66 @@ export function MarkdownViewer({ content, attachments, onContentChange }: Markdo
             return <input type={type} {...props} />;
           },
 
-          // リンク（単独URLならスマートカード表示）
+          // リンク（単独URLならスマートカード表示、内部ノートリンクならNotion風子ページボタン）
           a: ({ href, children }) => {
             const url = href || "";
             const text = getHeadingText(children);
+
+            // 内部ノートリンク判定: note:xxx または arca-note://xxx または #note-xxx
+            if (url.startsWith("note:") || url.startsWith("arca-note://") || url.startsWith("#note-")) {
+              const noteId = url
+                .replace(/^note:/, "")
+                .replace(/^arca-note:\/\//, "")
+                .replace(/^#note-/, "");
+
+              const targetNote = allNotes?.find((n) => n.id === noteId);
+
+              // 削除済みまたは存在しない子ページは画面上にゴースト表示しない
+              if (allNotes && allNotes.length > 0 && !targetNote) {
+                return null;
+              }
+
+              const fallbackText = text.replace(/^📄\s*/, "").trim();
+              const title =
+                targetNote?.title?.trim() ||
+                (fallbackText && fallbackText !== noteId ? fallbackText : "無題のページ");
+
+              return (
+                <span
+                  role="button"
+                  tabIndex={0}
+                  onClick={(e) => {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    if (noteId && onSelectNote) {
+                      onSelectNote(noteId);
+                    }
+                  }}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter" || e.key === " ") {
+                      e.preventDefault();
+                      e.stopPropagation();
+                      if (noteId && onSelectNote) {
+                        onSelectNote(noteId);
+                      }
+                    }
+                  }}
+                  className="group inline-flex items-center justify-between gap-2.5 w-full max-w-md px-3.5 py-2.5 my-2 rounded-xl bg-stone-100/70 dark:bg-stone-800/70 hover:bg-stone-200/80 dark:hover:bg-stone-700/80 transition-all duration-150 cursor-pointer shadow-2xs hover:shadow-xs select-none"
+                  title="子ページを開く"
+                >
+                  <span className="flex items-center gap-2.5 min-w-0 flex-1">
+                    <span className="w-6 h-6 rounded-lg bg-amber-500/10 text-[#B58D3D] flex items-center justify-center shrink-0">
+                      <FileText className="w-3.5 h-3.5 stroke-[2]" />
+                    </span>
+                    <span className="text-sm font-medium text-charcoal dark:text-stone-200 group-hover:text-[#B58D3D] transition-colors truncate">
+                      {title}
+                    </span>
+                  </span>
+                  <ChevronRight className="w-4 h-4 text-charcoal-light dark:text-stone-400 group-hover:text-charcoal dark:group-hover:text-stone-200 group-hover:translate-x-0.5 transition-all shrink-0" />
+                </span>
+              );
+            }
+
             if (url === text && url.startsWith("http")) {
               let hostname = "";
               try {
@@ -760,7 +829,7 @@ export function MarkdownViewer({ content, attachments, onContentChange }: Markdo
           ),
         }}
       >
-        {content}
+        {processedContent}
       </ReactMarkdown>
     </div>
   );

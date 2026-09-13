@@ -17,12 +17,6 @@
 import { C } from "../../lib/designSystem";
 
 // アイコン定義
-const ChevronLeftIcon = () => (
-  <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0 }}>
-    <path d="m15 18-6-6 6-6" />
-  </svg>
-);
-
 // エクスポート（↑ 上向き矢印）
 const ExportIcon = () => (
   <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0 }}>
@@ -117,7 +111,7 @@ const CodeIcon = () => (
 );
 
 export interface NoteToolbarProps {
-  onBack: () => void;
+  onBack?: () => void;
   onMoveNote?: () => void;
   onInsertImage?: () => void;
   onExtract: () => void;
@@ -136,7 +130,7 @@ export interface NoteToolbarProps {
 }
 
 export function NoteToolbar({
-  onBack,
+  onBack: _onBack,
   onMoveNote,
   onInsertImage,
   onExtract,
@@ -155,22 +149,8 @@ export function NoteToolbar({
 }: NoteToolbarProps) {
   return (
     <header className="arca-toolbar">
-      {/* ── 左側: 戻る ── */}
-      <div style={{ display: "flex", alignItems: "center", flexShrink: 0 }}>
-        <button
-          onClick={onBack}
-          className="arca-tb-btn"
-          title="ノート一覧に戻る"
-          style={{ paddingLeft: "0.2rem" }}
-        >
-          <ChevronLeftIcon />
-          <span className="arca-btn-label-desktop">ノート一覧</span>
-          <span className="arca-btn-label-mobile">戻る</span>
-        </button>
-      </div>
-
       {/* ── 右側: コントロール群 ── */}
-      <div style={{ display: "flex", alignItems: "center", gap: "0.35rem", flexShrink: 0 }}>
+      <div style={{ display: "flex", alignItems: "center", gap: "0.35rem", flexShrink: 0, marginLeft: "auto" }}>
         {/* ✦ Aether 抽出ボタン */}
         <button
           onClick={onExtract}
@@ -255,11 +235,11 @@ export function NoteToolbar({
           </button>
         )}
 
-        {/* Markdown 構文ガイド（?）ボタン */}
+        {/* 構文ガイド（?）ボタン */}
         <button
           onClick={onOpenGuide}
           className="arca-tb-btn"
-          title="Markdown 構文ガイドを確認"
+          title="構文ガイドを確認"
         >
           <HelpCircleIcon />
           <span className="arca-btn-label-desktop">ガイド</span>
