@@ -29,7 +29,7 @@ import { TaskItem } from "@tiptap/extension-task-item";
 import Link from "@tiptap/extension-link";
 import Underline from "@tiptap/extension-underline";
 import { Markdown } from "tiptap-markdown";
-import { Extension } from "@tiptap/core";
+import { Extension, wrappingInputRule } from "@tiptap/core";
 import { Bookmark as BookmarkIcon, Link2, FileText } from "lucide-react";
 import { C } from "../../lib/designSystem";
 import { uploadNoteImage } from "../../services/imageUploadService";
@@ -39,6 +39,25 @@ import { CustomImageNode } from "./extensions/CustomImageNode";
 import { ToggleBlockNode } from "./extensions/ToggleBlockNode";
 import { NoteEditorContext } from "./NoteEditorContext";
 import type { NoteItem } from "../../types";
+
+/**
+ * チェックリスト (TaskItem) 拡張
+ * - nested: false (安全なテキスト入力)
+ * - [] , [ ] , - [] , - [ ] のいずれの入力でも即座にチェックリストに自動変換
+ */
+const CustomTaskItem = TaskItem.extend({
+  addInputRules() {
+    return [
+      wrappingInputRule({
+        find: /^\s*(- )?(\[([( |x])?\])\s$/,
+        type: this.type,
+        getAttributes: (match) => ({
+          checked: match[match.length - 1] === "x",
+        }),
+      }),
+    ];
+  },
+});
 
 /**
  * 文字列が有効なHTTP/HTTPS URL単体であるかを判定する
@@ -641,6 +660,8 @@ export const NoteEditor = forwardRef<NoteEditorHandles, NoteEditorProps>(functio
   const editor = useEditor({
     extensions: [
       StarterKit.configure({
+        link: false,
+        underline: false,
         heading: { levels: [1, 2, 3] },
         codeBlock: { HTMLAttributes: { class: "arca-tiptap-code-block" } },
         blockquote: { HTMLAttributes: { class: "arca-tiptap-blockquote" } },
@@ -666,7 +687,7 @@ export const NoteEditor = forwardRef<NoteEditorHandles, NoteEditorProps>(functio
       TaskList.configure({
         HTMLAttributes: { class: "arca-tiptap-task-list" },
       }),
-      TaskItem.configure({
+      CustomTaskItem.configure({
         nested: false,
         HTMLAttributes: { class: "arca-tiptap-task-item" },
       }),
@@ -801,7 +822,7 @@ export const NoteEditor = forwardRef<NoteEditorHandles, NoteEditorProps>(functio
 
   // 外部からの content 変更（別ノートを開いた時やソース切替時）を同期
   useEffect(() => {
-    if (!editor) return;
+    if (!editor || editor.isDestroyed) return;
 
     // ノートが切り替わった場合（別ノートの表示）
     const isNoteChanged = noteId !== undefined && noteId !== currentNoteIdRef.current;
@@ -831,10 +852,11 @@ export const NoteEditor = forwardRef<NoteEditorHandles, NoteEditorProps>(functio
   // Firebase Storage へのアップロード ＆ URL 挿入
   const handleUploadAndInsert = useCallback(
     async (file: File) => {
-      if (!editor) return;
+      if (!editor || editor.isDestroyed) return;
       setIsUploading(true);
       try {
         const result = await uploadNoteImage(file);
+        if (!editor || editor.isDestroyed) return;
         editor
           .chain()
           .focus()
@@ -868,7 +890,7 @@ export const NoteEditor = forwardRef<NoteEditorHandles, NoteEditorProps>(functio
     ref,
     () => ({
       insertSyntax: (syntax: string) => {
-        if (!editor) return;
+        if (!editor || editor.isDestroyed) return;
         if (syntax.startsWith("# ")) editor.chain().focus().toggleHeading({ level: 1 }).run();
         else if (syntax.startsWith("## ")) editor.chain().focus().toggleHeading({ level: 2 }).run();
         else if (syntax.startsWith("### ")) editor.chain().focus().toggleHeading({ level: 3 }).run();
@@ -876,6 +898,7 @@ export const NoteEditor = forwardRef<NoteEditorHandles, NoteEditorProps>(functio
         else if (syntax.startsWith("- ")) editor.chain().focus().toggleBulletList().run();
         else if (syntax.startsWith("1. ")) editor.chain().focus().toggleOrderedList().run();
         else if (syntax.startsWith("> ")) editor.chain().focus().toggleBlockquote().run();
+        else if (syntax.startsWith("< ")) editor.chain().focus().insertToggleBlock().run();
         else if (syntax.startsWith("```")) editor.chain().focus().toggleCodeBlock().run();
         else if (syntax.startsWith("---")) editor.chain().focus().setHorizontalRule().run();
         else editor.chain().focus().insertContent(syntax).run();
@@ -884,7 +907,7 @@ export const NoteEditor = forwardRef<NoteEditorHandles, NoteEditorProps>(functio
         await handleUploadAndInsert(file);
       },
       insertChildPageNode: (pageId: string) => {
-        if (!editor) return;
+        if (!editor || editor.isDestroyed) return;
         editor
           .chain()
           .focus()
@@ -900,7 +923,7 @@ export const NoteEditor = forwardRef<NoteEditorHandles, NoteEditorProps>(functio
           .run();
       },
       insertChildPageLink: (noteId: string) => {
-        if (!editor) return;
+        if (!editor || editor.isDestroyed) return;
         editor
           .chain()
           .focus()
@@ -916,7 +939,7 @@ export const NoteEditor = forwardRef<NoteEditorHandles, NoteEditorProps>(functio
           .run();
       },
       insertBookmarkNode: (url: string) => {
-        if (!editor) return;
+        if (!editor || editor.isDestroyed) return;
         editor
           .chain()
           .focus()
@@ -932,26 +955,29 @@ export const NoteEditor = forwardRef<NoteEditorHandles, NoteEditorProps>(functio
           .run();
       },
       insertToggleBlock: () => {
-        if (!editor) return;
+        if (!editor || editor.isDestroyed) return;
         editor.chain().focus().insertToggleBlock().run();
       },
       undo: () => {
-        editor?.commands.undo();
+        if (!editor || editor.isDestroyed) return;
+        editor.commands.undo();
       },
       redo: () => {
-        editor?.commands.redo();
+        if (!editor || editor.isDestroyed) return;
+        editor.commands.redo();
       },
-      canUndo: () => editor?.can().undo() ?? false,
-      canRedo: () => editor?.can().redo() ?? false,
+      canUndo: () => (!editor || editor.isDestroyed ? false : (editor.can().undo() ?? false)),
+      canRedo: () => (!editor || editor.isDestroyed ? false : (editor.can().redo() ?? false)),
       focus: () => {
-        editor?.commands.focus();
+        if (!editor || editor.isDestroyed) return;
+        editor.commands.focus();
       },
     }),
     [editor, handleUploadAndInsert]
   );
 
   const handleSlashSelect = (cmd: SlashCommand) => {
-    if (!editor) return;
+    if (!editor || editor.isDestroyed) return;
     setSlashActive(false);
     setSlashCoords(null);
     const { from } = editor.state.selection;
@@ -972,7 +998,7 @@ export const NoteEditor = forwardRef<NoteEditorHandles, NoteEditorProps>(functio
   };
 
   const handleUrlPasteSelect = (option: UrlPasteOption) => {
-    if (!editor || !urlPasteState) return;
+    if (!editor || editor.isDestroyed || !urlPasteState) return;
     const { url, hasSelection, from, to } = urlPasteState;
     setUrlPasteState(null);
 
@@ -1211,28 +1237,59 @@ export const NoteEditor = forwardRef<NoteEditorHandles, NoteEditorProps>(functio
         }
 
         /* タスクリスト（チェックボックス） */
-        .arca-tiptap-prose ul[data-type="taskList"] {
-          list-style: none;
-          padding-left: 0.2rem;
+        .arca-tiptap-prose ul[data-type="taskList"],
+        .arca-tiptap-prose ul.arca-tiptap-task-list {
+          list-style: none !important;
+          padding-left: 0.2rem !important;
+          margin: 0.5rem 0 !important;
         }
-        .arca-tiptap-prose li[data-type="taskItem"] {
-          display: flex;
-          align-items: flex-start;
-          gap: 0.6rem;
-          margin-bottom: 0.4rem;
+        .arca-tiptap-prose li[data-type="taskItem"],
+        .arca-tiptap-prose li.arca-tiptap-task-item {
+          display: flex !important;
+          flex-direction: row !important;
+          align-items: flex-start !important;
+          gap: 0.55rem !important;
+          margin-bottom: 0.35rem !important;
+          list-style: none !important;
         }
-        .arca-tiptap-prose li[data-type="taskItem"] > label {
-          margin-top: 0.3rem;
-          user-select: none;
+        .arca-tiptap-prose li[data-type="taskItem"] > label,
+        .arca-tiptap-prose li.arca-tiptap-task-item > label {
+          flex: 0 0 auto !important;
+          display: inline-flex !important;
+          align-items: center !important;
+          margin-top: 0.25rem !important;
+          user-select: none !important;
+          line-height: 1 !important;
         }
-        .arca-tiptap-prose li[data-type="taskItem"] > label input[type="checkbox"] {
+        .arca-tiptap-prose li[data-type="taskItem"] > label input[type="checkbox"],
+        .arca-tiptap-prose li.arca-tiptap-task-item > label input[type="checkbox"] {
           cursor: pointer;
           accent-color: var(--accent-gold);
           width: 15px;
           height: 15px;
           border-radius: 4px;
+          margin: 0 !important;
+          vertical-align: middle;
         }
-        .arca-tiptap-prose li[data-type="taskItem"][data-checked="true"] > div {
+        .arca-tiptap-prose li[data-type="taskItem"] > div,
+        .arca-tiptap-prose li.arca-tiptap-task-item > div {
+          flex: 1 1 auto !important;
+          min-width: 0 !important;
+          margin: 0 !important;
+          padding: 0 !important;
+        }
+        /* ★★★ 重要: チェックリスト内の段落マージンを排除して改行状態を解消 ★★★ */
+        .arca-tiptap-prose li[data-type="taskItem"] > div > p,
+        .arca-tiptap-prose li[data-type="taskItem"] p,
+        .arca-tiptap-prose li.arca-tiptap-task-item > div > p,
+        .arca-tiptap-prose li.arca-tiptap-task-item p {
+          margin: 0 !important;
+          padding: 0 !important;
+          line-height: 1.6 !important;
+          display: block !important;
+        }
+        .arca-tiptap-prose li[data-type="taskItem"][data-checked="true"] > div,
+        .arca-tiptap-prose li.arca-tiptap-task-item[data-checked="true"] > div {
           text-decoration: line-through;
           color: var(--text-muted);
         }

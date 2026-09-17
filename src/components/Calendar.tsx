@@ -1655,9 +1655,6 @@ export default function Calendar() {
           <h1 style={{ fontSize: "1.75rem", fontWeight: 750, color: C.charcoal, margin: 0, letterSpacing: "-0.03em" }}>
             カレンダー
           </h1>
-          <p style={{ fontSize: "0.78rem", color: C.charcoalLight, margin: "0.3rem 0 0", letterSpacing: "0.01em" }}>
-            予定・タスク・PM作業の統合ビュー
-          </p>
         </div>
 
         <SyncBadge

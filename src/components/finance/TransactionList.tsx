@@ -251,10 +251,10 @@ export function TransactionList({
                       transition: "background 0.15s ease",
                     }}
                   >
-                    {/* 親決済行 */}
+                    {/* 親決済行: 一覧カード表面は極めてシンプルに表示 */}
                     <div
                       onClick={() => toggleExpand(tx.id)}
-                      className="flex flex-col gap-1.5 sm:flex-row sm:items-center sm:justify-between sm:gap-3"
+                      className="flex items-center justify-between gap-2 sm:gap-3"
                       style={{
                         padding: "0.85rem 1.05rem",
                         cursor: "pointer",
@@ -268,270 +268,85 @@ export function TransactionList({
                         (e.currentTarget as HTMLDivElement).style.background = "transparent";
                       }}
                     >
-                      {/* モバイル上段 / デスクトップ左側: 店舗名 & 金額 (モバイル) */}
-                      <div className="flex items-center justify-between sm:justify-start gap-2 min-w-0 sm:flex-1">
-                        {/* デスクトップ用カテゴリバッジ */}
+                      {/* 左側: 店舗・支出名 */}
+                      <div className="flex items-center min-w-0 flex-1">
                         <span
-                          className="hidden sm:inline-block shrink-0"
                           style={{
-                            fontSize: "0.68rem",
+                            fontSize: "0.9rem",
+                            fontWeight: 650,
+                            color: C.charcoal,
+                            overflow: "hidden",
+                            textOverflow: "ellipsis",
+                            whiteSpace: "nowrap",
+                          }}
+                        >
+                          {tx.title || "支出"}
+                        </span>
+                      </div>
+
+                      {/* 右側: カテゴリ ＆ 金額 ＆ 展開シェブロン（固定幅で縦列を完全整列） */}
+                      <div className="flex items-center gap-2.5 sm:gap-4 shrink-0">
+                        {/* カテゴリバッジ（中央揃えで囲みからはみ出さず、縦列を整列） */}
+                        <span
+                          className="shrink-0"
+                          style={{
+                            display: "inline-flex",
+                            alignItems: "center",
+                            justifyContent: "center",
+                            fontSize: "0.65rem",
                             fontWeight: 700,
+                            letterSpacing: "-0.01em",
                             color: visual.color,
                             background: visual.bgColor,
                             border: `1px solid ${visual.borderColor}`,
-                            padding: "0.2rem 0.5rem",
+                            padding: "0.18rem 0.35rem",
                             borderRadius: "6px",
                             whiteSpace: "nowrap",
+                            width: "100px",
+                            textAlign: "center",
+                            boxSizing: "border-box",
+                            overflow: "hidden",
                           }}
                         >
                           {tx.category}
                         </span>
 
-                        {/* 店舗名 ＆ 品目数（デスクトップ） */}
-                        <div className="flex items-baseline gap-1.5 min-w-0 flex-1 mr-1 sm:mr-2">
-                          <span
-                            style={{
-                              fontSize: "0.9rem",
-                              fontWeight: 650,
-                              color: C.charcoal,
-                              overflow: "hidden",
-                              textOverflow: "ellipsis",
-                              whiteSpace: "nowrap",
-                            }}
-                          >
-                            {tx.title || "支出"}
-                          </span>
-
-                          {hasItems && (
-                            <span
-                              className="hidden sm:inline-block shrink-0"
-                              style={{
-                                fontSize: "0.68rem",
-                                color: C.charcoalLight,
-                                background: "rgba(0, 0, 0, 0.04)",
-                                padding: "0.1rem 0.35rem",
-                                borderRadius: "4px",
-                                whiteSpace: "nowrap",
-                              }}
-                            >
-                              {tx.items.length}品
-                            </span>
-                          )}
-                        </div>
-
-                        {/* モバイル上段右側: 金額 ＆ 展開シェブロン */}
-                        <div className="flex sm:hidden items-center gap-1.5 shrink-0">
-                          <span
-                            style={{
-                              fontSize: "0.96rem",
-                              fontWeight: 750,
-                              color: C.charcoal,
-                              letterSpacing: "-0.01em",
-                            }}
-                          >
-                            {formatCurrency(tx.totalAmount)}
-                          </span>
-                          <svg
-                            width="13"
-                            height="13"
-                            viewBox="0 0 24 24"
-                            fill="none"
-                            stroke="currentColor"
-                            strokeWidth="2"
-                            style={{
-                              color: C.charcoalLight,
-                              transform: isExpanded ? "rotate(180deg)" : "rotate(0deg)",
-                              transition: "transform 0.2s ease",
-                            }}
-                          >
-                            <polyline points="6 9 12 15 18 9" />
-                          </svg>
-                        </div>
-                      </div>
-
-                      {/* モバイル下段 / デスクトップ中央＋右側 */}
-                      <div className="flex items-center justify-between sm:justify-end gap-2 shrink-0">
-                        {/* モバイル用メタデータ: 日付 ＋ カテゴリ ＋ 支払方法 */}
-                        <div className="flex sm:hidden items-center gap-1.5 min-w-0 overflow-hidden">
-                          {tx.date && (
-                            <span style={{ fontSize: "0.68rem", color: "#555", flexShrink: 0 }}>
-                              {tx.date.substring(5).replace("-", "/")}
-                            </span>
-                          )}
-                          <span
-                            style={{
-                              fontSize: "0.65rem",
-                              fontWeight: 700,
-                              color: visual.color,
-                              background: visual.bgColor,
-                              border: `1px solid ${visual.borderColor}`,
-                              padding: "0.1rem 0.35rem",
-                              borderRadius: "5px",
-                              whiteSpace: "nowrap",
-                              flexShrink: 0,
-                            }}
-                          >
-                            {tx.category}
-                          </span>
-                          <span
-                            style={{
-                              fontSize: "0.65rem",
-                              color: "#4A4A4A",
-                              background: "rgba(0, 0, 0, 0.04)",
-                              padding: "0.1rem 0.35rem",
-                              borderRadius: "5px",
-                              whiteSpace: "nowrap",
-                              flexShrink: 0,
-                            }}
-                          >
-                            {tx.paymentMethod}
-                          </span>
-                        </div>
-
-                        {/* デスクトップ用支払方法 */}
+                        {/* 金額（右揃え固定幅で縦位置が完璧に揃う） */}
                         <span
-                          className="hidden sm:inline"
                           style={{
-                            fontSize: "0.7rem",
-                            color: C.charcoalMid,
-                            background: "rgba(0, 0, 0, 0.03)",
-                            padding: "0.18rem 0.45rem",
-                            borderRadius: "6px",
+                            fontSize: "0.95rem",
+                            fontWeight: 750,
+                            color: C.charcoal,
+                            letterSpacing: "-0.01em",
+                            minWidth: "85px",
+                            textAlign: "right",
+                            whiteSpace: "nowrap",
                           }}
                         >
-                          {tx.paymentMethod}
+                          {formatCurrency(tx.totalAmount)}
                         </span>
 
-                        {/* バッジ群（モバイル下段右側 / デスクトップ中央） */}
-                        <div className="flex items-center gap-1.5 shrink-0">
-                          {hasItems && (
-                            <span
-                              className="inline-block sm:hidden shrink-0"
-                              style={{
-                                fontSize: "0.65rem",
-                                color: "#4A4A4A",
-                                background: "rgba(0, 0, 0, 0.05)",
-                                padding: "0.1rem 0.32rem",
-                                borderRadius: "4px",
-                                whiteSpace: "nowrap",
-                              }}
-                            >
-                              {tx.items.length}品
-                            </span>
-                          )}
-
-                          {/* メール速報バッジ */}
-                          {(tx.source === "email_notice" || tx.emailMessageId) && (
-                            <span
-                              data-testid="email-notice-badge"
-                              style={{
-                                display: "inline-flex",
-                                alignItems: "center",
-                                gap: "0.2rem",
-                                fontSize: "0.66rem",
-                                fontWeight: 650,
-                                color: "#856404",
-                                background: "rgba(255, 193, 7, 0.15)",
-                                padding: "0.14rem 0.4rem",
-                                borderRadius: "9999px",
-                              }}
-                              title="Gmail利用速報メールより取得"
-                            >
-                              <span>速報</span>
-                            </span>
-                          )}
-
-                          {tx.isReconciled ? (
-                            <span
-                              style={{
-                                display: "inline-flex",
-                                alignItems: "center",
-                                gap: "0.2rem",
-                                fontSize: "0.66rem",
-                                fontWeight: 650,
-                                color: "#2E7D32",
-                                background: "rgba(46, 125, 50, 0.10)",
-                                padding: "0.14rem 0.4rem",
-                                borderRadius: "9999px",
-                              }}
-                              title="クレジットカード明細CSVと確認済み"
-                            >
-                              <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3">
-                                <polyline points="20 6 9 17 4 12" />
-                              </svg>
-                              <span>確認済</span>
-                            </span>
-                          ) : (
-                            <>
-                              <span
-                                style={{
-                                  fontSize: "0.66rem",
-                                  fontWeight: 550,
-                                  color: "#555",
-                                  background: "rgba(0, 0, 0, 0.04)",
-                                  padding: "0.14rem 0.4rem",
-                                  borderRadius: "9999px",
-                                }}
-                                title="クレジットカード明細未確認"
-                              >
-                                未確認
-                              </span>
-                              {mergeCandidate && (
-                                <span
-                                  data-testid="merge-candidate-badge"
-                                  style={{
-                                    display: "inline-flex",
-                                    alignItems: "center",
-                                    fontSize: "0.66rem",
-                                    fontWeight: 650,
-                                    color: "#B45309",
-                                    background: "rgba(245, 158, 11, 0.12)",
-                                    border: "1px solid rgba(245, 158, 11, 0.28)",
-                                    padding: "0.12rem 0.4rem",
-                                    borderRadius: "9999px",
-                                  }}
-                                  title={`同額の未確認決済「${mergeCandidate.title}」と結合可能`}
-                                >
-                                  <span>確認候補あり</span>
-                                </span>
-                              )}
-                            </>
-                          )}
-                        </div>
-
-                        {/* デスクトップ用右側: 金額 ＆ 展開シェブロン */}
-                        <div className="hidden sm:flex items-center gap-2 shrink-0">
-                          <span
-                            style={{
-                              fontSize: "0.95rem",
-                              fontWeight: 750,
-                              color: C.charcoal,
-                              letterSpacing: "-0.01em",
-                            }}
-                          >
-                            {formatCurrency(tx.totalAmount)}
-                          </span>
-
-                          <svg
-                            width="14"
-                            height="14"
-                            viewBox="0 0 24 24"
-                            fill="none"
-                            stroke="currentColor"
-                            strokeWidth="2"
-                            style={{
-                              color: C.charcoalLight,
-                              transform: isExpanded ? "rotate(180deg)" : "rotate(0deg)",
-                              transition: "transform 0.2s ease",
-                            }}
-                          >
-                            <polyline points="6 9 12 15 18 9" />
-                          </svg>
-                        </div>
+                        {/* 展開シェブロン */}
+                        <svg
+                          width="14"
+                          height="14"
+                          viewBox="0 0 24 24"
+                          fill="none"
+                          stroke="currentColor"
+                          strokeWidth="2"
+                          style={{
+                            color: C.charcoalLight,
+                            transform: isExpanded ? "rotate(180deg)" : "rotate(0deg)",
+                            transition: "transform 0.2s ease",
+                            flexShrink: 0,
+                          }}
+                        >
+                          <polyline points="6 9 12 15 18 9" />
+                        </svg>
                       </div>
                     </div>
 
-                    {/* アコーディオン展開ビュー: 品目内訳 ＆ メモ ＆ アクション */}
+                    {/* アコーディオン展開ビュー: 入力ステータス ＆ 品目内訳 ＆ メモ ＆ アクション */}
                     {isExpanded && (
                       <div
                         style={{
@@ -544,6 +359,206 @@ export function TransactionList({
                           animation: "arca-fade-in 0.15s ease-out",
                         }}
                       >
+                        {/* ── 3大入力インジケーター ＆ 支払方法 ── */}
+                        <div
+                          style={{
+                            display: "flex",
+                            flexWrap: "wrap",
+                            alignItems: "center",
+                            justifyContent: "space-between",
+                            gap: "0.5rem",
+                            paddingBottom: "0.6rem",
+                            borderBottom: "1px solid var(--border-subtle)",
+                          }}
+                        >
+                          {/* 支払方法 ＆ 取引日 */}
+                          <div
+                            style={{
+                              display: "flex",
+                              alignItems: "center",
+                              gap: "0.45rem",
+                              fontSize: "0.74rem",
+                              color: C.charcoalMid,
+                            }}
+                          >
+                            <span style={{ fontWeight: 650 }}>支払方法:</span>
+                            <span
+                              style={{
+                                background: "rgba(0, 0, 0, 0.05)",
+                                padding: "0.15rem 0.45rem",
+                                borderRadius: "5px",
+                                fontWeight: 650,
+                                color: C.charcoal,
+                              }}
+                            >
+                              {tx.paymentMethod || "未設定"}
+                            </span>
+                            {tx.date && (
+                              <span style={{ color: C.charcoalLight, fontSize: "0.72rem" }}>
+                                ({tx.date})
+                              </span>
+                            )}
+                          </div>
+
+                          {/* 3大入力インジケーター群 */}
+                          <div style={{ display: "flex", alignItems: "center", gap: "0.4rem", flexWrap: "wrap" }}>
+                            {/* 1. クレジットカードCSV照合 */}
+                            {tx.matchedCsvRowId || tx.isReconciled ? (
+                              <span
+                                style={{
+                                  display: "inline-flex",
+                                  alignItems: "center",
+                                  gap: "0.25rem",
+                                  fontSize: "0.68rem",
+                                  fontWeight: 650,
+                                  color: "#2E7D32",
+                                  background: "rgba(46, 125, 50, 0.10)",
+                                  border: "1px solid rgba(46, 125, 50, 0.25)",
+                                  padding: "0.18rem 0.48rem",
+                                  borderRadius: "6px",
+                                }}
+                                title="クレジットカード明細CSVと照合済み"
+                              >
+                                <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3">
+                                  <polyline points="20 6 9 17 4 12" />
+                                </svg>
+                                <span>CSV照合済</span>
+                              </span>
+                            ) : (
+                              <span
+                                style={{
+                                  display: "inline-flex",
+                                  alignItems: "center",
+                                  gap: "0.25rem",
+                                  fontSize: "0.68rem",
+                                  fontWeight: 550,
+                                  color: C.charcoalLight,
+                                  background: "rgba(0, 0, 0, 0.04)",
+                                  border: "1px solid var(--border-subtle)",
+                                  padding: "0.18rem 0.48rem",
+                                  borderRadius: "6px",
+                                }}
+                                title="クレジットカード明細CSV未照合"
+                              >
+                                <span>CSV未照合</span>
+                              </span>
+                            )}
+
+                            {/* 2. 速報メール確認 */}
+                            {tx.emailMessageId || tx.source === "email_notice" ? (
+                              <span
+                                data-testid="email-notice-badge"
+                                style={{
+                                  display: "inline-flex",
+                                  alignItems: "center",
+                                  gap: "0.25rem",
+                                  fontSize: "0.68rem",
+                                  fontWeight: 650,
+                                  color: "#856404",
+                                  background: "rgba(255, 193, 7, 0.15)",
+                                  border: "1px solid rgba(255, 193, 7, 0.35)",
+                                  padding: "0.18rem 0.48rem",
+                                  borderRadius: "6px",
+                                }}
+                                title="Gmail利用速報メールより連携"
+                              >
+                                <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                                  <path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z" />
+                                  <polyline points="22,6 12,13 2,6" />
+                                </svg>
+                                <span>速報メール連携済</span>
+                              </span>
+                            ) : (
+                              <span
+                                style={{
+                                  display: "inline-flex",
+                                  alignItems: "center",
+                                  gap: "0.25rem",
+                                  fontSize: "0.68rem",
+                                  fontWeight: 550,
+                                  color: C.charcoalLight,
+                                  background: "rgba(0, 0, 0, 0.04)",
+                                  border: "1px solid var(--border-subtle)",
+                                  padding: "0.18rem 0.48rem",
+                                  borderRadius: "6px",
+                                }}
+                                title="Gmail利用速報メール未連携"
+                              >
+                                <span>速報メール未連携</span>
+                              </span>
+                            )}
+
+                            {/* 3. レシート詳細情報登録 */}
+                            {hasItems || tx.source === "ocr" ? (
+                              <span
+                                style={{
+                                  display: "inline-flex",
+                                  alignItems: "center",
+                                  gap: "0.25rem",
+                                  fontSize: "0.68rem",
+                                  fontWeight: 650,
+                                  color: "#6A1B9A",
+                                  background: "rgba(106, 27, 154, 0.10)",
+                                  border: "1px solid rgba(106, 27, 154, 0.25)",
+                                  padding: "0.18rem 0.48rem",
+                                  borderRadius: "6px",
+                                }}
+                                title="レシートOCRまたは品目詳細が登録されています"
+                              >
+                                <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                                  <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
+                                  <polyline points="14 2 14 8 20 8" />
+                                  <line x1="16" y1="13" x2="8" y2="13" />
+                                  <line x1="16" y1="17" x2="8" y2="17" />
+                                  <polyline points="10 9 9 9 8 9" />
+                                </svg>
+                                <span>{hasItems ? `レシート品目 (${tx.items.length}件)` : "レシート登録済"}</span>
+                              </span>
+                            ) : (
+                              <span
+                                style={{
+                                  display: "inline-flex",
+                                  alignItems: "center",
+                                  gap: "0.25rem",
+                                  fontSize: "0.68rem",
+                                  fontWeight: 550,
+                                  color: C.charcoalLight,
+                                  background: "rgba(0, 0, 0, 0.04)",
+                                  border: "1px solid var(--border-subtle)",
+                                  padding: "0.18rem 0.48rem",
+                                  borderRadius: "6px",
+                                }}
+                                title="レシート品目詳細未登録"
+                              >
+                                <span>レシート未登録</span>
+                              </span>
+                            )}
+                          </div>
+                        </div>
+
+                        {/* 結合候補案内バナー（存在時） */}
+                        {mergeCandidate && (
+                          <div
+                            data-testid="merge-candidate-badge"
+                            style={{
+                              display: "flex",
+                              alignItems: "center",
+                              justifyContent: "space-between",
+                              padding: "0.45rem 0.75rem",
+                              borderRadius: "8px",
+                              background: "rgba(245, 158, 11, 0.10)",
+                              border: "1px solid rgba(245, 158, 11, 0.3)",
+                              color: "#B45309",
+                              fontSize: "0.74rem",
+                              fontWeight: 650,
+                            }}
+                          >
+                            <span>同日同額の結合候補が見つかりました（{mergeCandidate.title}）</span>
+                            <span style={{ fontSize: "0.7rem", fontWeight: 700, textDecoration: "underline" }}>
+                              結合可能
+                            </span>
+                          </div>
+                        )}
                         {/* 品目リスト */}
                         {hasItems ? (
                           <div style={{ display: "flex", flexDirection: "column", gap: "0.35rem" }}>
@@ -639,7 +654,7 @@ export function TransactionList({
                               cursor: "pointer",
                             }}
                           >
-                            {tx.isReconciled ? "確認を解除" : "確認済みにする"}
+                            {tx.isReconciled ? "CSV照合を解除" : "CSV照合済みにする"}
                           </button>
 
                           {mergeCandidate && !tx.isReconciled && (onOpenMergeModal || onMerge) && (() => {
@@ -665,7 +680,7 @@ export function TransactionList({
                               const candMethod = mergeCandidate.paymentMethod || "カード決済";
                               subText = `${mergeCandidate.title} (${candMethod})`;
                             } else {
-                              const candMethod = mergeCandidate.paymentMethod || "未確認";
+                              const candMethod = mergeCandidate.paymentMethod || "未設定";
                               subText = `${mergeCandidate.title} (${candMethod})`;
                             }
 

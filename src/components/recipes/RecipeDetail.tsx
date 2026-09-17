@@ -12,6 +12,7 @@
  */
 
 import React, { useState, useEffect, useMemo } from "react";
+import { createPortal } from "react-dom";
 import {
   ArrowLeft,
   Star,
@@ -21,6 +22,7 @@ import {
   Check,
   Lightbulb,
   ExternalLink,
+  X,
 } from "lucide-react";
 import type { Recipe } from "../../types/recipe";
 import {
@@ -159,6 +161,9 @@ export function RecipeDetail({
 
   // トースト通知
   const [toastMessage, setToastMessage] = useState<string | null>(null);
+
+  // 画像拡大プレビュー（ライトボックス）
+  const [previewImageUrl, setPreviewImageUrl] = useState<string | null>(null);
 
   // スクロール監視
   useEffect(() => {
@@ -317,11 +322,15 @@ export function RecipeDetail({
           
           {/* 【完成写真】 */}
           {recipe.imageUrl && (
-            <div className="order-1 lg:order-none w-full rounded-2xl overflow-hidden shadow-sm bg-[var(--color-ivory-tint)]">
+            <div
+              onClick={() => setPreviewImageUrl(recipe.imageUrl!)}
+              className="order-1 lg:order-none w-full rounded-2xl overflow-hidden shadow-sm bg-[var(--color-ivory-tint)] cursor-pointer group relative"
+              title="タップして拡大表示"
+            >
               <img
                 src={recipe.imageUrl}
                 alt={recipe.title}
-                className="w-full h-auto max-h-[360px] object-cover block"
+                className="w-full h-auto max-h-[360px] object-cover block group-hover:scale-[1.01] transition-transform duration-200"
               />
             </div>
           )}
@@ -538,11 +547,15 @@ export function RecipeDetail({
                         {renderFormattedStepText(step.text)}
                       </div>
                       {step.imageUrl && (
-                        <div className="max-w-xs rounded-xl overflow-hidden mt-1 shadow-sm">
+                        <div
+                          className="max-w-xs rounded-xl overflow-hidden mt-1 shadow-sm cursor-pointer group relative border border-black/5 dark:border-white/5"
+                          onClick={() => setPreviewImageUrl(step.imageUrl!)}
+                          title="クリックして拡大表示"
+                        >
                           <img
                             src={step.imageUrl}
                             alt={`Step ${index + 1}`}
-                            className="w-full h-auto block"
+                            className="w-full h-auto block transition-transform duration-200 group-hover:scale-[1.02]"
                           />
                         </div>
                       )}
@@ -581,6 +594,37 @@ export function RecipeDetail({
           )}
         </div>
       )}
+
+      {/* ────── 4. 画像拡大モーダル (Lightbox) ────── */}
+      {previewImageUrl &&
+        createPortal(
+          <div
+            className="fixed inset-0 z-[2000] flex items-center justify-center bg-black/80 backdrop-blur-md p-4 animate-in fade-in duration-200"
+            onClick={() => setPreviewImageUrl(null)}
+            data-testid="recipe-image-preview-modal"
+          >
+            <div
+              className="relative max-w-4xl max-h-[90vh] flex flex-col items-center justify-center"
+              onClick={(e) => e.stopPropagation()}
+            >
+              <button
+                type="button"
+                onClick={() => setPreviewImageUrl(null)}
+                className="absolute -top-12 right-0 sm:-right-10 text-white/80 hover:text-white bg-black/40 hover:bg-black/60 rounded-full p-2 backdrop-blur-sm transition-colors cursor-pointer"
+                title="閉じる"
+                aria-label="閉じる"
+              >
+                <X className="w-6 h-6" />
+              </button>
+              <img
+                src={previewImageUrl}
+                alt="拡大表示プレビュー"
+                className="max-w-full max-h-[85vh] object-contain rounded-xl shadow-2xl ring-1 ring-white/10"
+              />
+            </div>
+          </div>,
+          document.body
+        )}
     </div>
   );
 }

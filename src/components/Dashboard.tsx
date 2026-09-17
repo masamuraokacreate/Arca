@@ -49,6 +49,7 @@ import {
   createGoogleCalendarEvent,
 } from "../services/googleCalendarSync";
 import { ShiftOverrideModal } from "./calendar/ShiftOverrideModal";
+import { ShiftGoogleAdjustModal } from "./calendar/ShiftGoogleAdjustModal";
 import { ShiftBadge } from "./calendar/ShiftBadge";
 import { AddEventModal } from "./dashboard/AddEventModal";
 import { CycleBoard } from "./dashboard/CycleBoard";
@@ -69,9 +70,11 @@ export type Module = "dashboard" | "tasks" | "lists" | "calendar" | "notes" | "r
 export interface DashboardProps {
   onNavigate?: (module: Module) => void;
   onSelectNote?: (noteId: string) => void;
+  /** レシピIDを渡してレシピ詳細に直接遷移するコールバック */
+  onSelectRecipe?: (recipeId: string) => void;
 }
 
-export default function Dashboard({ onNavigate, onSelectNote }: DashboardProps = {}) {
+export default function Dashboard({ onNavigate, onSelectNote, onSelectRecipe }: DashboardProps = {}) {
   const today = todayStr();
   const [cycleAnchorDate, setCycleAnchorDate] = useState<string>(today);
   const [selectedDate, setSelectedDate] = useState<string>(today);
@@ -89,6 +92,7 @@ export default function Dashboard({ onNavigate, onSelectNote }: DashboardProps =
 
   // モーダルステート
   const [showShiftOverrideModal, setShowShiftOverrideModal] = useState(false);
+  const [showShiftGoogleModal, setShowShiftGoogleModal] = useState(false);
   const [showAddEventModal, setShowAddEventModal] = useState(false);
 
   // 手動同期ハンドラ
@@ -191,12 +195,16 @@ export default function Dashboard({ onNavigate, onSelectNote }: DashboardProps =
     return getCycleDateRangeLabel(cycleRange);
   }, [cycleRange]);
 
-  // サイクル切り替えハンドラ (6日単位)
+  // サイクル切り替えハンドラ (6日単位) — スライド方向もセット
+  const [slideDirection, setSlideDirection] = useState<"left" | "right" | null>(null);
+
   const handlePrevCycle = useCallback(() => {
+    setSlideDirection("right"); // 前へ: 右からスライドイン
     setCycleAnchorDate((prev) => getAdjacentCycleAnchor(prev, -1));
   }, []);
 
   const handleNextCycle = useCallback(() => {
+    setSlideDirection("left"); // 次へ: 左からスライドイン
     setCycleAnchorDate((prev) => getAdjacentCycleAnchor(prev, 1));
   }, []);
 
@@ -295,9 +303,9 @@ export default function Dashboard({ onNavigate, onSelectNote }: DashboardProps =
   );
 
   return (
-    <div className="w-full max-w-[1140px] mx-auto px-4 sm:px-8 lg:px-12 py-8 min-h-screen box-border flex flex-col overflow-x-hidden">
+    <div className="w-full max-w-[1440px] mx-auto px-3 sm:px-6 lg:px-8 py-5 sm:py-6 min-h-screen box-border flex flex-col overflow-x-hidden">
       {/* ─── ヘッダー ＆ サイクルナビゲーション（英字キッカー完全撤廃） ─── */}
-      <div className="flex items-center justify-between mb-7 px-1 flex-wrap gap-3">
+      <div className="flex items-center justify-between mb-4 sm:mb-5 px-1 flex-wrap gap-3">
         <div className="flex items-center gap-3.5 flex-wrap">
           <h1 className="text-2xl sm:text-3xl font-extrabold text-stone-800 dark:text-stone-100 m-0 tracking-tight">
             ダッシュボード
@@ -313,12 +321,12 @@ export default function Dashboard({ onNavigate, onSelectNote }: DashboardProps =
         {/* 中央〜右側: サイクル切り替え ＆ シフト調整ボタン */}
         <div className="flex items-center gap-2.5 sm:gap-4 flex-wrap">
           {/* サイクル切り替えボタン（左側に独立配置） */}
-          <div className="flex items-center gap-0.5 bg-white dark:bg-stone-900 rounded-xl p-1 shadow-xs border-none">
+          <div className="flex items-center gap-0.5 bg-white dark:bg-[var(--bg-card-solid)] rounded-xl p-1 shadow-xs border-none">
             <button
               type="button"
               aria-label="前のサイクル"
               onClick={handlePrevCycle}
-              className="appearance-none p-1.5 text-stone-500 hover:text-stone-800 dark:text-stone-400 dark:hover:text-stone-100 hover:bg-stone-100 dark:hover:bg-stone-800 cursor-pointer bg-transparent border-none rounded-lg transition-colors"
+              className="appearance-none p-1.5 text-stone-500 hover:text-stone-800 dark:text-stone-400 dark:hover:text-stone-100 hover:bg-stone-100 dark:hover:bg-white/10 cursor-pointer bg-transparent border-none rounded-lg transition-colors"
             >
               <ChevronLeft size={18} strokeWidth={2.5} />
             </button>
@@ -326,7 +334,7 @@ export default function Dashboard({ onNavigate, onSelectNote }: DashboardProps =
               type="button"
               aria-label="次のサイクル"
               onClick={handleNextCycle}
-              className="appearance-none p-1.5 text-stone-500 hover:text-stone-800 dark:text-stone-400 dark:hover:text-stone-100 hover:bg-stone-100 dark:hover:bg-stone-800 cursor-pointer bg-transparent border-none rounded-lg transition-colors"
+              className="appearance-none p-1.5 text-stone-500 hover:text-stone-800 dark:text-stone-400 dark:hover:text-stone-100 hover:bg-stone-100 dark:hover:bg-white/10 cursor-pointer bg-transparent border-none rounded-lg transition-colors"
             >
               <ChevronRight size={18} strokeWidth={2.5} />
             </button>
@@ -340,15 +348,27 @@ export default function Dashboard({ onNavigate, onSelectNote }: DashboardProps =
           {/* シフト調整ボタン */}
           <button
             type="button"
-            onClick={() => setShowShiftOverrideModal(true)}
-            className="appearance-none text-xs sm:text-sm font-semibold px-3 py-2 rounded-xl bg-white dark:bg-stone-900 text-stone-600 dark:text-stone-300 hover:text-amber-800 dark:hover:text-amber-300 hover:bg-amber-500/10 shadow-xs cursor-pointer border-none transition-colors"
+            onClick={() => setShowShiftGoogleModal(true)}
+            className="appearance-none text-xs sm:text-sm font-semibold px-3 py-2 rounded-xl bg-white dark:bg-[var(--bg-card-solid)] text-stone-600 dark:text-stone-300 hover:text-amber-800 dark:hover:text-amber-300 hover:bg-amber-500/10 shadow-xs cursor-pointer border-none transition-colors"
           >
             シフト調整
           </button>
         </div>
       </div>
 
-      {/* 出勤ステータス確認 & 手動調整モーダル */}
+      {/* Google カレンダー連動シフト調整モーダル */}
+      <ShiftGoogleAdjustModal
+        isOpen={showShiftGoogleModal}
+        today={today}
+        events={events}
+        pmSettings={pmSettings}
+        accessToken={accessToken}
+        isGoogleSignedIn={isSignedIn}
+        onGoogleSignIn={signIn}
+        onClose={() => setShowShiftGoogleModal(false)}
+      />
+
+      {/* 出勤ステータス確認 & 手動調整モーダル（ShiftBadgeクリック時） */}
       <ShiftOverrideModal
         isOpen={showShiftOverrideModal}
         targetDate={today}
@@ -380,6 +400,7 @@ export default function Dashboard({ onNavigate, onSelectNote }: DashboardProps =
         tasks={tasks}
         onToggleTask={toggleTask}
         onAddTask={handleAddTask}
+        slideDirection={slideDirection}
         onAddEvent={(date) => {
           setSelectedDate(date);
           setShowAddEventModal(true);
@@ -394,6 +415,7 @@ export default function Dashboard({ onNavigate, onSelectNote }: DashboardProps =
         currentShift={currentShift}
         onNavigate={onNavigate}
         onSelectNote={onSelectNote}
+        onSelectRecipe={onSelectRecipe}
       />
     </div>
   );

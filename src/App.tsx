@@ -24,33 +24,18 @@ function NetworkStatusBadge({ isOnline }: { isOnline: boolean }) {
   if (isOnline) {
     return (
       <div
-        style={{
-          display: "flex",
-          alignItems: "center",
-          gap: "0.35rem",
-          padding: "0.2rem 0.55rem",
-          borderRadius: "9999px",
-          background: "rgba(107, 142, 111, 0.12)",
-          color: "#466B4A",
-          fontSize: "0.68rem",
-          fontWeight: 600,
-          letterSpacing: "0.02em",
-          userSelect: "none",
-          transition: "all 0.2s ease",
-          flexShrink: 0,
-        }}
+        className="flex items-center justify-center w-5 h-5 rounded-full bg-emerald-500/10 dark:bg-emerald-400/15 shrink-0"
         title="クラウドとリアルタイム同期中"
       >
         <span
           style={{
-            width: "5px",
-            height: "5px",
+            width: "6px",
+            height: "6px",
             borderRadius: "50%",
             backgroundColor: "#5A8B5F",
             display: "inline-block",
           }}
         />
-        <span className="hidden sm:inline">クラウド同期中</span>
       </div>
     );
   }
@@ -666,6 +651,7 @@ function App() {
   const [activeModule, setActiveModule] = useState<Module>("dashboard");
   const [tasksTab, setTasksTab] = useState<string>("default");
   const [selectedNoteId, setSelectedNoteId] = useState<string | null>(null);
+  const [selectedRecipeId, setSelectedRecipeId] = useState<string | null>(null);
   const [isBackupModalOpen, setIsBackupModalOpen] = useState(false);
   const [isThemeModalOpen, setIsThemeModalOpen] = useState(false);
   const [isMobile, setIsMobile] = useState(typeof window !== "undefined" ? window.innerWidth < 640 : false);
@@ -776,11 +762,18 @@ function App() {
     }
     if (module !== "recipes") {
       setIsRecipeDetailActive(false);
+      setSelectedRecipeId(null);
     }
     if (module === "tasks") {
       setTasksTab(tab || "default");
     }
     setActiveModule(module);
+  }, []);
+
+  // ダッシュボードのレシピカードからレシピ詳細に直接遷移
+  const handleSelectRecipe = useCallback((recipeId: string) => {
+    setSelectedRecipeId(recipeId);
+    setActiveModule("recipes");
   }, []);
 
   const handleSelectNote = useCallback((noteId: string) => {
@@ -840,6 +833,7 @@ function App() {
                 }
               }}
               onSelectNote={handleSelectNote}
+              onSelectRecipe={handleSelectRecipe}
             />
           )}
           {activeModule === "tasks" && <Tasks initialTab={tasksTab} />}
@@ -854,6 +848,7 @@ function App() {
             <Recipes
               onNavigateToLists={() => handleNavigate("tasks", "lists")}
               onDetailViewChange={setIsRecipeDetailActive}
+              initialRecipeId={selectedRecipeId}
             />
           )}
           {activeModule === "finance" && <Finance />}

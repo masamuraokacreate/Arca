@@ -604,6 +604,17 @@ export const DocumentTreeSidebar: React.FC<DocumentTreeSidebarProps> = ({
           </div>
         )}
 
+        {/* ── ノート一覧セクション見出し ── */}
+        {tree.length > 0 && (
+          <div className="flex items-center gap-1.5 px-2 py-1 text-[10px] font-semibold text-charcoal-light uppercase tracking-wider mb-1">
+            <FileText size={11} className="text-[#B58D3D]" />
+            <span>ノート一覧</span>
+            <span className="text-[10px] font-normal px-1.5 py-0.2 rounded-full bg-black/5 dark:bg-white/10 ml-auto">
+              {notes.filter((n) => !n.isDeleted && !n.parentId).length}
+            </span>
+          </div>
+        )}
+
         {tree.length === 0 ? (
           <div className="flex flex-col items-center justify-center h-48 px-4 text-center">
             <FileText className="w-8 h-8 text-charcoal-xlight mb-2 stroke-[1.5]" />

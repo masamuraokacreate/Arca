@@ -3,8 +3,9 @@
  * Note改修・改良（SVGアイコン選択、保存ステータス単独バッジ、ヘッダー統合、子ページインライン化）のテスト
  */
 
+import React from "react";
 import { describe, it, expect, vi } from "vitest";
-import { render, screen } from "@testing-library/react";
+import { render, screen, act } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { NoteIcon, NoteIconPickerModal } from "../components/notes/NoteIconPickerModal";
 import { NoteToolbar } from "../components/notes/NoteToolbar";
@@ -430,12 +431,9 @@ describe("NoteEnhancements: URLペースト選択 & バックスラッシュ過�
     expect(screen.queryByTestId("url-paste-menu")).toBeNull();
   });
 
-  it("NoteToolbar: Undo/Redoボタンはツールバーに表示されず、トグル挿入ボタンが表示されクリック可能", async () => {
-    const onInsertToggle = vi.fn();
-
+  it("NoteToolbar: Undo/Redoおよびトグル挿入ボタンはツールバーに表示されないこと", () => {
     render(
       <NoteToolbar
-        onInsertToggle={onInsertToggle}
         onExtract={vi.fn()}
         isExtracting={false}
         canExtract={true}
@@ -449,15 +447,13 @@ describe("NoteEnhancements: URLペースト選択 & バックスラッシュ過�
       />
     );
 
-    // Undo / Redo ボタンはツールバーから削除されていること
+    // Undo / Redo ボタンはツールバーに表示されないこと
     expect(screen.queryByTitle("元に戻す (Ctrl+Z)")).toBeNull();
     expect(screen.queryByTitle("やり直す (Ctrl+Y / Ctrl+Shift+Z)")).toBeNull();
 
-    // トグル挿入ボタンが表示され、クリックでコールバックが呼ばれること
-    const toggleBtn = screen.getByTitle("折りたたみトグルブロックを挿入");
-    expect(toggleBtn).toBeInTheDocument();
-    await userEvent.click(toggleBtn);
-    expect(onInsertToggle).toHaveBeenCalled();
+    // トグル挿入ボタンもツールバーから削除されていること
+    expect(screen.queryByTitle("折りたたみトグルブロックを挿入")).toBeNull();
+    expect(screen.queryByText("トグル")).toBeNull();
   });
 
   it("BookmarkComponent: Webブックマークカードがドメイン名、URL、削除ボタン付きで描画される", async () => {
@@ -719,5 +715,176 @@ describe("NoteEnhancements: パンくずPages削除、最近使用したペー�
     await userEvent.click(unpinButtons[0]);
     expect(onTogglePin).toHaveBeenCalledWith("note-pinned", false);
   });
+
+  it("MarkdownGuideModal: /toggle と トグル（折りたたみ）が掲載され、クリックで < 構文が挿入される", async () => {
+    const { MarkdownGuideModal } = await import("../components/notes/MarkdownGuideModal");
+    const onInsert = vi.fn();
+
+    render(<MarkdownGuideModal isOpen={true} onClose={vi.fn()} onInsert={onInsert} />);
+
+    // スラッシュコマンドおよびトグル項目の存在確認
+    expect(screen.getByText("/toggle")).toBeInTheDocument();
+    expect(screen.getByText("トグル（折りたたみ）")).toBeInTheDocument();
+
+    // トグルカードをクリックすると onInsert("< ") が呼ばれる
+    const toggleItem = screen.getByText("トグル（折りたたみ）").closest("div[role='button']");
+    expect(toggleItem).not.toBeNull();
+    if (toggleItem) {
+      await userEvent.click(toggleItem);
+      expect(onInsert).toHaveBeenCalledWith("< ");
+    }
+  });
+
+  it("NoteEditor: insertSyntax('< ') を呼び出すとトグルブロックがエディタに挿入される", async () => {
+    const { NoteEditor } = await import("../components/notes/NoteEditor");
+    const ref = React.createRef<any>();
+
+    render(<NoteEditor ref={ref} content="" onChange={vi.fn()} />);
+
+    act(() => {
+      ref.current?.insertSyntax("< ");
+    });
+
+    // トグルブロック（タイトル「トグル」）が表示されること
+    expect(await screen.findByText("トグル")).toBeInTheDocument();
+    expect(screen.getByTitle("折りたたむ")).toBeInTheDocument();
+  });
+
+  describe("Notes: モバイル・デスクトップ最適化＆ナビゲーション順序", () => {
+    it("NoteToolbar: 左端の並び順が sidebarToggleSlot → onBack → leftSlot であること", () => {
+      const onBack = vi.fn();
+      render(
+        <NoteToolbar
+          sidebarToggleSlot={<button data-testid="test-sidebar-toggle">Sidebar</button>}
+          onBack={onBack}
+          leftSlot={<span data-testid="test-breadcrumb">Breadcrumb</span>}
+          onExtract={vi.fn()}
+          isExtracting={false}
+          canExtract={true}
+          onDownloadMarkdown={vi.fn()}
+          onOpenGuide={vi.fn()}
+          isFullWidth={false}
+          onToggleFullWidth={vi.fn()}
+          showToc={false}
+          onToggleToc={vi.fn()}
+          onDelete={vi.fn()}
+        />
+      );
+
+      const toggle = screen.getByTestId("test-sidebar-toggle");
+      const back = screen.getByTitle("一覧に戻る");
+      const breadcrumb = screen.getByTestId("test-breadcrumb");
+
+      // DOM順序の検証: toggle が back より前、back が breadcrumb より前
+      expect(toggle.compareDocumentPosition(back) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+      expect(back.compareDocumentPosition(breadcrumb) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    });
+
+    it("NoteToolbar: 編集タブに短縮ラベル（抽出・画像・ピン留め・移動・ガイド）が存在し、パンくずヘッダー右端に赤文字のごみ箱ボタンが存在すること", () => {
+      render(
+        <NoteToolbar
+          onExtract={vi.fn()}
+          isExtracting={false}
+          canExtract={true}
+          onInsertImage={vi.fn()}
+          onTogglePin={vi.fn()}
+          isPinned={false}
+          onMoveNote={vi.fn()}
+          onOpenGuide={vi.fn()}
+          onDownloadMarkdown={vi.fn()}
+          isFullWidth={false}
+          onToggleFullWidth={vi.fn()}
+          showToc={false}
+          onToggleToc={vi.fn()}
+          onDelete={vi.fn()}
+        />
+      );
+
+      // モバイル短縮ラベルの検証
+      expect(screen.getByText("抽出")).toHaveClass("arca-btn-label-mobile");
+      expect(screen.getAllByText("画像").some((el) => el.classList.contains("arca-btn-label-mobile"))).toBe(true);
+      expect(screen.getAllByText("ピン留め").some((el) => el.classList.contains("arca-btn-label-mobile"))).toBe(true);
+      expect(screen.getAllByText("移動").some((el) => el.classList.contains("arca-btn-label-mobile"))).toBe(true);
+      expect(screen.getAllByText("ガイド").some((el) => el.classList.contains("arca-btn-label-mobile"))).toBe(true);
+
+      // ごみ箱ボタンが赤文字（text-red-500）であり、パンくずヘッダー右端に配置されていること
+      const trashBtn = screen.getByTitle("このノートを削除");
+      expect(trashBtn).toHaveClass("text-red-500");
+      expect(screen.getByText("ごみ箱")).toHaveClass("arca-btn-label-mobile");
+      expect(trashBtn).toContainElement(screen.getByText("ごみ箱"));
+
+      // デスクトップ用ラベルの検証
+      expect(screen.getByText("✦ Aether 抽出")).toHaveClass("arca-btn-label-desktop");
+      expect(screen.getByText("エクスポート")).toHaveClass("arca-btn-label-desktop");
+      expect(screen.getByText("削除")).toHaveClass("arca-btn-label-desktop");
+    });
+
+    it("DocumentTreeSidebar: 「ピン留め」と「ノート一覧」の見出しが表示されること", () => {
+      const mockNotes: any[] = [
+        {
+          id: "note-1",
+          title: "ピン留めされたノート",
+          content: "内容",
+          pinned: true,
+          isDeleted: false,
+          createdAt: Date.now(),
+          updatedAt: Date.now(),
+        },
+        {
+          id: "note-2",
+          title: "通常のルートノート",
+          content: "内容",
+          pinned: false,
+          isDeleted: false,
+          createdAt: Date.now(),
+          updatedAt: Date.now(),
+        },
+      ];
+
+      render(
+        <DocumentTreeSidebar
+          notes={mockNotes}
+          activeNoteId="note-1"
+          onSelectNote={vi.fn()}
+          onCreateChildNote={vi.fn()}
+          onCreateRootNote={vi.fn()}
+          onMoveNote={vi.fn()}
+          onDeleteNote={vi.fn()}
+        />
+      );
+
+      expect(screen.getByText("ピン留め")).toBeInTheDocument();
+      expect(screen.getByText("ノート一覧")).toBeInTheDocument();
+    });
+
+    it("NoteDashboard: グリッド/リスト表示切替ボタンがダークモード用クラス（dark:bg-stone-800, dark:bg-white/[0.08]）を持つこと", async () => {
+      const { NoteDashboard } = await import("../components/Notes");
+      render(
+        <NoteDashboard
+          notes={[]}
+          allNotes={[]}
+          onSelectNote={vi.fn()}
+          onNewNote={vi.fn()}
+          onDeleteNote={vi.fn()}
+          onDownloadNote={vi.fn()}
+          onTriggerImport={vi.fn()}
+          onOpenTrash={vi.fn()}
+        />
+      );
+
+      const gridBtn = screen.getByLabelText("グリッド表示");
+      const listBtn = screen.getByLabelText("リスト表示");
+
+      expect(gridBtn).toBeInTheDocument();
+      expect(listBtn).toBeInTheDocument();
+
+      // アクティブなボタンが dark:bg-stone-800 を持つこと
+      expect(gridBtn).toHaveClass("dark:bg-stone-800");
+      // コンテナが dark:bg-white/[0.08] を持つこと
+      const container = gridBtn.parentElement;
+      expect(container?.className).toContain("dark:bg-white/[0.08]");
+    });
+  });
 });
+
 

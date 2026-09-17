@@ -252,19 +252,6 @@ export function RecipeCard({
                 +{recipe.tags.length - 3}
               </span>
             )}
-
-            {recipe.ingredients && recipe.ingredients.length > 0 && (
-              <span
-                style={{
-                  fontSize: "0.65rem",
-                  color: C.charcoalLight,
-                  marginLeft: recipe.tags && recipe.tags.length > 0 ? "0.25rem" : 0,
-                  whiteSpace: "nowrap",
-                }}
-              >
-                材料 {recipe.ingredients.length}品
-              </span>
-            )}
           </div>
 
           {/* 下部: 更新日 ＆ 「…」メニュー */}

@@ -31,6 +31,7 @@ const GUIDE_CATEGORIES: GuideCategory[] = [
     items: [
       { id: "slash-page", name: "/page", syntax: "/page", example: "/page [Enter]", description: "子ページを作成しNotion風インラインリンクを挿入" },
       { id: "slash-todo", name: "/todo", syntax: "- [ ] ", example: "/todo [Enter]", description: "チェックボックス付きタスクリストを作成" },
+      { id: "slash-toggle", name: "/toggle", syntax: "< ", example: "/toggle [Enter]", description: "クリックで開閉できる折りたたみトグルブロックを作成" },
       { id: "slash-image", name: "/image", syntax: "", example: "/image [Enter]", description: "画像ファイル選択ダイアログを開いてアップロード" },
       { id: "slash-h1", name: "/h1", syntax: "# ", example: "/h1 [Enter]", description: "行を大見出し（H1）へ瞬時にフォーマット" },
       { id: "slash-h2", name: "/h2", syntax: "## ", example: "/h2 [Enter]", description: "行を中見出し（H2）へ瞬時にフォーマット" },
@@ -69,6 +70,7 @@ const GUIDE_CATEGORIES: GuideCategory[] = [
     title: "構造化 & 引用",
     items: [
       { id: "quote", name: "引用", syntax: "> ", example: "> 思考を妨げない空間", description: "引用文・メモ" },
+      { id: "toggle", name: "トグル（折りたたみ）", syntax: "< ", example: "< タイトル [Space]", description: "クリックで開閉できるブロック（行頭で「< 」と入力）" },
       { id: "link", name: "リンク", syntax: "[リンク名](https://example.com)", example: "[Arca](https://example.com)", description: "Webリンク" },
       { id: "code-inline", name: "インラインコード", syntax: "`コード`", example: "`const a = 1;`", description: "文中のコード・キー" },
       { id: "code-block", name: "コードブロック", syntax: "```ts\n// ここにコード\n```", example: "```ts\nconsole.log('Arca');\n```", description: "複数行のプログラム" },
@@ -324,7 +326,15 @@ export function MarkdownGuideModal({
                     return (
                       <div
                         key={item.id}
+                        role={onInsert ? "button" : undefined}
+                        tabIndex={onInsert ? 0 : undefined}
                         onClick={() => handleItemClick(item)}
+                        onKeyDown={(e) => {
+                          if (onInsert && (e.key === "Enter" || e.key === " ")) {
+                            e.preventDefault();
+                            handleItemClick(item);
+                          }
+                        }}
                         style={{
                           background: isInserted ? C.goldFaint : C.white,
                           borderRadius: "12px",

@@ -9,7 +9,6 @@ import {
   calculateMonthlySummary,
   CATEGORY_VISUALS,
   formatCurrency,
-  formatMonthLabel,
 } from "../../utils/financeSummary";
 import { C } from "../../lib/designSystem";
 
@@ -43,12 +42,6 @@ export function FinanceAnalytics({ transactions, selectedMonth }: FinanceAnalyti
       .slice(0, 5);
   }, [transactions, selectedMonth]);
 
-  // 日別支出の最大値（バーグラフのスケーリング用）
-  const maxDailyAmount = useMemo(() => {
-    const values = Object.values(summary.dailyExpenses);
-    return Math.max(1, ...values);
-  }, [summary.dailyExpenses]);
-
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: "1.8rem" }}>
       {/* ── KPI 概要カード群 ── */}
@@ -76,9 +69,6 @@ export function FinanceAnalytics({ transactions, selectedMonth }: FinanceAnalyti
           <div style={{ fontSize: "1.6rem", fontWeight: 800, color: C.charcoal, letterSpacing: "-0.03em" }}>
             {formatCurrency(summary.totalExpense)}
           </div>
-          <div style={{ fontSize: "0.72rem", color: C.charcoalLight, marginTop: "0.25rem" }}>
-            {formatMonthLabel(selectedMonth)}の実績
-          </div>
         </div>
 
         {/* 1日あたり平均支出 */}
@@ -98,9 +88,6 @@ export function FinanceAnalytics({ transactions, selectedMonth }: FinanceAnalyti
           <div style={{ fontSize: "1.6rem", fontWeight: 800, color: C.goldDark, letterSpacing: "-0.03em" }}>
             {formatCurrency(summary.dailyAverage)}
           </div>
-          <div style={{ fontSize: "0.72rem", color: C.charcoalLight, marginTop: "0.25rem" }}>
-            日割ペース指標
-          </div>
         </div>
 
         {/* 取引件数 */}
@@ -119,9 +106,6 @@ export function FinanceAnalytics({ transactions, selectedMonth }: FinanceAnalyti
           </div>
           <div style={{ fontSize: "1.6rem", fontWeight: 800, color: C.charcoal, letterSpacing: "-0.03em" }}>
             {summary.transactionCount} <span style={{ fontSize: "0.9rem", fontWeight: 600 }}>件</span>
-          </div>
-          <div style={{ fontSize: "0.72rem", color: C.charcoalLight, marginTop: "0.25rem" }}>
-            当月の記録回数
           </div>
         </div>
 
@@ -157,7 +141,7 @@ export function FinanceAnalytics({ transactions, selectedMonth }: FinanceAnalyti
         </div>
       </div>
 
-      {/* ── カテゴリ別支出比率 ── */}
+      {/* ── カテゴリ別支出内訳 ＆ 円グラフ ── */}
       <div
         className="arca-card"
         style={{
@@ -168,133 +152,7 @@ export function FinanceAnalytics({ transactions, selectedMonth }: FinanceAnalyti
           border: "1px solid var(--border-subtle)",
         }}
       >
-        <h3
-          style={{
-            fontSize: "1rem",
-            fontWeight: 700,
-            color: C.charcoal,
-            margin: "0 0 1rem",
-            letterSpacing: "-0.01em",
-          }}
-        >
-          カテゴリ別支出内訳
-        </h3>
-
-        {/* マルチセグメント比率バー */}
-        {sortedCategories.length > 0 && (
-          <div
-            style={{
-              display: "flex",
-              height: "14px",
-              borderRadius: "9999px",
-              overflow: "hidden",
-              background: "var(--bg-nav-track)",
-              marginBottom: "1.4rem",
-            }}
-          >
-            {sortedCategories.map(({ category, percentage }) => {
-              const visual = CATEGORY_VISUALS[category];
-              return (
-                <div
-                  key={category}
-                  style={{
-                    width: `${percentage}%`,
-                    background: visual ? visual.color : "#999",
-                    transition: "width 0.3s ease",
-                  }}
-                  title={`${category}: ${percentage}%`}
-                />
-              );
-            })}
-          </div>
-        )}
-
-        {/* カテゴリ一覧リスト */}
-        {sortedCategories.length === 0 ? (
-          <div style={{ textAlign: "center", color: C.charcoalLight, fontSize: "0.8rem", padding: "1.5rem 0" }}>
-            当月の支出データがまだありません
-          </div>
-        ) : (
-          <div style={{ display: "flex", flexDirection: "column", gap: "0.75rem" }}>
-            {sortedCategories.map(({ category, amount, percentage }, rank) => {
-              const visual = CATEGORY_VISUALS[category];
-              return (
-                <div
-                  key={category}
-                  style={{
-                    display: "flex",
-                    alignItems: "center",
-                    gap: "0.8rem",
-                    padding: "0.4rem 0",
-                  }}
-                >
-                  <span style={{ fontSize: "0.74rem", fontWeight: 700, color: C.charcoalLight, width: "16px" }}>
-                    {rank + 1}
-                  </span>
-
-                  <span
-                    style={{
-                      fontSize: "0.74rem",
-                      fontWeight: 700,
-                      color: visual.color,
-                      background: visual.bgColor,
-                      border: `1px solid ${visual.borderColor}`,
-                      padding: "0.2rem 0.6rem",
-                      borderRadius: "6px",
-                      width: "68px",
-                      textAlign: "center",
-                      flexShrink: 0,
-                    }}
-                  >
-                    {category}
-                  </span>
-
-                  <div style={{ flex: 1, display: "flex", alignItems: "center", gap: "0.6rem" }}>
-                    <div
-                      style={{
-                        flex: 1,
-                        height: "8px",
-                        borderRadius: "9999px",
-                        background: "var(--bg-nav-track)",
-                        overflow: "hidden",
-                      }}
-                    >
-                      <div
-                        style={{
-                          width: `${percentage}%`,
-                          height: "100%",
-                          background: visual.color,
-                          borderRadius: "9999px",
-                        }}
-                      />
-                    </div>
-                    <span style={{ fontSize: "0.74rem", color: C.charcoalLight, width: "42px", textAlign: "right" }}>
-                      {percentage}%
-                    </span>
-                  </div>
-
-                  <span style={{ fontSize: "0.88rem", fontWeight: 750, color: C.charcoal, minWidth: "80px", textAlign: "right" }}>
-                    {formatCurrency(amount)}
-                  </span>
-                </div>
-              );
-            })}
-          </div>
-        )}
-      </div>
-
-      {/* ── 日別支出推移バーチャート ── */}
-      <div
-        className="arca-card"
-        style={{
-          background: "var(--bg-card-solid)",
-          borderRadius: C.radiusCard,
-          boxShadow: C.cardShadow,
-          padding: "1.5rem",
-          border: "1px solid var(--border-subtle)",
-        }}
-      >
-        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: "1.2rem" }}>
+        <div style={{ marginBottom: "1.2rem" }}>
           <h3
             style={{
               fontSize: "1rem",
@@ -304,76 +162,197 @@ export function FinanceAnalytics({ transactions, selectedMonth }: FinanceAnalyti
               letterSpacing: "-0.01em",
             }}
           >
-            日別支出推移
+            カテゴリ別支出内訳
           </h3>
-          <span style={{ fontSize: "0.72rem", color: C.charcoalLight }}>
-            ピーク日: {summary.maxExpense.amount > 0 ? `${summary.maxExpense.date.slice(8)}日 (${formatCurrency(summary.maxExpense.amount)})` : "なし"}
-          </span>
         </div>
 
-        {/* 1〜31日のバーチャート */}
-        <div
-          style={{
-            display: "flex",
-            alignItems: "flex-end",
-            gap: "3px",
-            height: "160px",
-            paddingTop: "20px",
-            paddingBottom: "24px",
-            boxSizing: "border-box",
-            overflowX: "auto",
-          }}
-          className="no-scrollbar"
-        >
-          {Object.entries(summary.dailyExpenses).map(([dayStr, amount]) => {
-            const dayNum = parseInt(dayStr, 10);
-            const heightPct = maxDailyAmount > 0 ? (amount / maxDailyAmount) * 100 : 0;
-            const isPeak = amount > 0 && amount === summary.maxExpense.amount;
-
-            return (
-              <div
-                key={dayStr}
-                style={{
-                  flex: "1 1 0",
-                  minWidth: "12px",
-                  height: "100%",
-                  display: "flex",
-                  flexDirection: "column",
-                  alignItems: "center",
-                  justifyContent: "flex-end",
-                  position: "relative",
-                  cursor: amount > 0 ? "pointer" : "default",
-                }}
-                title={`${dayNum}日: ${formatCurrency(amount)}`}
-              >
-                {/* バー */}
+        {sortedCategories.length === 0 ? (
+          <div style={{ textAlign: "center", color: C.charcoalLight, fontSize: "0.8rem", padding: "2.5rem 0" }}>
+            当月の支出データがまだありません
+          </div>
+        ) : (
+          <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-center">
+            {/* 左側: カテゴリ一覧リスト（中央寄せ＆余白最適化） */}
+            <div className="lg:col-span-7 flex justify-center w-full">
+              <div style={{ width: "100%", maxWidth: "340px", display: "flex", flexDirection: "column", gap: "0.25rem" }}>
+                {/* リスト見出し */}
                 <div
                   style={{
-                    width: "100%",
-                    maxWidth: "16px",
-                    height: `${Math.max(amount > 0 ? 6 : 2, heightPct)}%`,
-                    background: isPeak ? C.gold : amount > 0 ? "rgba(197, 160, 89, 0.45)" : "var(--bg-nav-track)",
-                    borderRadius: "4px 4px 0 0",
-                    transition: "height 0.3s ease, background 0.15s ease",
-                  }}
-                />
-
-                {/* 日付ラベル (5日おきまたは主要日) */}
-                <span
-                  style={{
-                    position: "absolute",
-                    bottom: "-20px",
-                    fontSize: "0.62rem",
-                    color: isPeak ? C.goldDark : dayNum % 5 === 0 || dayNum === 1 ? C.charcoalLight : "transparent",
-                    fontWeight: isPeak ? 700 : 500,
+                    display: "grid",
+                    gridTemplateColumns: "1fr auto auto",
+                    alignItems: "center",
+                    columnGap: "1.2rem",
+                    paddingBottom: "0.4rem",
+                    borderBottom: "1px solid var(--border-subtle)",
+                    fontSize: "0.72rem",
+                    fontWeight: 650,
+                    color: C.charcoalLight,
                   }}
                 >
-                  {dayNum}
-                </span>
+                  <span>カテゴリ</span>
+                  <span style={{ minWidth: "40px", textAlign: "right" }}>割合</span>
+                  <span style={{ minWidth: "75px", textAlign: "right" }}>金額</span>
+                </div>
+
+                {/* 各カテゴリ行 */}
+                {sortedCategories.map(({ category, amount, percentage }, idx) => {
+                  const visual = CATEGORY_VISUALS[category] || CATEGORY_VISUALS["その他"];
+                  return (
+                    <div
+                      key={category}
+                      style={{
+                        display: "grid",
+                        gridTemplateColumns: "1fr auto auto",
+                        alignItems: "center",
+                        columnGap: "1.2rem",
+                        padding: "0.45rem 0",
+                        borderBottom:
+                          idx < sortedCategories.length - 1
+                            ? "1px solid rgba(0, 0, 0, 0.03)"
+                            : "none",
+                      }}
+                    >
+                      {/* カテゴリ名（カラードット ＋ 囲みなしテキスト ＋ 改行なし） */}
+                      <div style={{ display: "flex", alignItems: "center", gap: "0.5rem", minWidth: 0 }}>
+                        <span
+                          style={{
+                            width: "8px",
+                            height: "8px",
+                            borderRadius: "9999px",
+                            background: visual.color,
+                            flexShrink: 0,
+                          }}
+                        />
+                        <span
+                          style={{
+                            fontSize: "0.82rem",
+                            fontWeight: 600,
+                            color: C.charcoal,
+                            whiteSpace: "nowrap",
+                          }}
+                        >
+                          {category}
+                        </span>
+                      </div>
+
+                      {/* パーセント */}
+                      <span
+                        style={{
+                          fontSize: "0.76rem",
+                          fontWeight: 600,
+                          color: C.charcoalLight,
+                          minWidth: "40px",
+                          textAlign: "right",
+                          whiteSpace: "nowrap",
+                        }}
+                      >
+                        {percentage}%
+                      </span>
+
+                      {/* 金額 */}
+                      <span
+                        style={{
+                          fontSize: "0.88rem",
+                          fontWeight: 750,
+                          color: C.charcoal,
+                          minWidth: "75px",
+                          textAlign: "right",
+                          whiteSpace: "nowrap",
+                        }}
+                      >
+                        {formatCurrency(amount)}
+                      </span>
+                    </div>
+                  );
+                })}
               </div>
-            );
-          })}
-        </div>
+            </div>
+
+            {/* 右側: SVG 円グラフ（ドーナツチャート） */}
+            <div className="lg:col-span-5 flex flex-col items-center justify-center p-2">
+              <div style={{ position: "relative", width: "210px", height: "210px" }}>
+                <svg
+                  width="210"
+                  height="210"
+                  viewBox="0 0 200 200"
+                  style={{ transform: "rotate(-90deg)", overflow: "visible" }}
+                >
+                  {/* 背景トラック */}
+                  <circle
+                    cx="100"
+                    cy="100"
+                    r="70"
+                    fill="none"
+                    stroke="var(--bg-nav-track)"
+                    strokeWidth="24"
+                  />
+                  {/* 各カテゴリセグメント */}
+                  {(() => {
+                    const circumference = 2 * Math.PI * 70;
+                    let accumulatedOffset = 0;
+                    return sortedCategories.map(({ category, amount, percentage }) => {
+                      const visual = CATEGORY_VISUALS[category] || CATEGORY_VISUALS["その他"];
+                      const strokeLength = (percentage / 100) * circumference;
+                      const currentOffset = accumulatedOffset;
+                      accumulatedOffset += strokeLength;
+
+                      return (
+                        <circle
+                          key={category}
+                          cx="100"
+                          cy="100"
+                          r="70"
+                          fill="none"
+                          stroke={visual.color}
+                          strokeWidth="24"
+                          strokeDasharray={`${Math.max(0, strokeLength - 1.5)} ${circumference}`}
+                          strokeDashoffset={-currentOffset}
+                          style={{
+                            transition: "stroke-dasharray 0.4s ease, stroke-dashoffset 0.4s ease",
+                          }}
+                        >
+                          <title>{`${category}: ${formatCurrency(amount)} (${percentage}%)`}</title>
+                        </circle>
+                      );
+                    });
+                  })()}
+                </svg>
+
+                {/* ドーナツ中央のテキスト情報 */}
+                <div
+                  style={{
+                    position: "absolute",
+                    top: 0,
+                    left: 0,
+                    right: 0,
+                    bottom: 0,
+                    display: "flex",
+                    flexDirection: "column",
+                    alignItems: "center",
+                    justifyContent: "center",
+                    pointerEvents: "none",
+                    textAlign: "center",
+                  }}
+                >
+                  <span style={{ fontSize: "0.7rem", fontWeight: 650, color: C.charcoalLight }}>
+                    当月支出合計
+                  </span>
+                  <span
+                    style={{
+                      fontSize: "1.15rem",
+                      fontWeight: 800,
+                      color: C.charcoal,
+                      letterSpacing: "-0.02em",
+                      marginTop: "0.15rem",
+                    }}
+                  >
+                    {formatCurrency(summary.totalExpense)}
+                  </span>
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
       </div>
 
       {/* ── 高額支出ランキング (Top 5) ── */}

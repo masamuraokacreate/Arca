@@ -6,11 +6,12 @@
  *  - 4勤2休の6日間（出勤1〜4日目、休日1〜2日目）を横並びで俯瞰
  *  - 選択日（今日）が flex-[2] に約2倍横幅展開し、他日は flex-1 で要約表示
  *  - モバイル: overflow-x-auto snap-x no-scrollbar による横スワイプスナップ
+ *  - サイクル切り替え時は左右スライドアニメーション（> 左, < 右）
  *  - 天気情報を完全排除し、生活リズムと行動の連動に特化
  *  - 絵文字完全排除（Lucide React SVGアイコンのみ）
  */
 
-import React, { useEffect, useRef, useCallback } from "react";
+import React, { useEffect, useRef, useCallback, useState } from "react";
 import type { FourTwoCycleRange } from "../../services/pmCycleService";
 import type { CalendarEvent, TaskItem } from "../../types";
 import { CycleDayCard } from "./CycleDayCard";
@@ -25,6 +26,8 @@ export interface CycleBoardProps {
   onToggleTask: (id: string, current: boolean) => void;
   onAddTask: (title: string, listId?: string, dueDate?: string) => Promise<void> | void;
   onAddEvent: (date: string) => void;
+  /** サイクル切り替え方向（"left"=次, "right"=前） */
+  slideDirection?: "left" | "right" | null;
 }
 
 export const CycleBoard: React.FC<CycleBoardProps> = ({
@@ -37,8 +40,22 @@ export const CycleBoard: React.FC<CycleBoardProps> = ({
   onToggleTask,
   onAddTask,
   onAddEvent,
+  slideDirection,
 }) => {
   const containerRef = useRef<HTMLDivElement>(null);
+  // アニメーションキー: cycleRange が変わるたびにインクリメント
+  const [animKey, setAnimKey] = useState(0);
+  // 前回のcycleRangeを追跡
+  const prevCycleKeyRef = useRef<string>("");
+
+  // cycleRange が変わったらアニメーションキーを更新
+  useEffect(() => {
+    const newKey = cycleRange.days.map((d) => d.date).join(",");
+    if (prevCycleKeyRef.current && prevCycleKeyRef.current !== newKey) {
+      setAnimKey((k) => k + 1);
+    }
+    prevCycleKeyRef.current = newKey;
+  }, [cycleRange]);
 
   // iPhone / モバイル表示時に「今日」（または選択日）カードをコンテナの中央（センター）へスクロール
   const scrollToCenter = useCallback((smooth = true) => {
@@ -89,14 +106,41 @@ export const CycleBoard: React.FC<CycleBoardProps> = ({
     };
   }, [scrollToCenter]);
 
+  // スライドアニメーション用 CSS
+  const slideStyle: React.CSSProperties = {};
+  const animClass = slideDirection === "left"
+    ? "cycle-board-slide-left"
+    : slideDirection === "right"
+    ? "cycle-board-slide-right"
+    : "";
+
   return (
-    <div className="w-full mb-8">
+    <div className="w-full mb-5 sm:mb-6">
+      {/* スライドアニメーション用スタイル */}
+      <style>{`
+        @keyframes cycleBoardSlideFromRight {
+          from { transform: translateX(6%); opacity: 0; }
+          to   { transform: translateX(0);  opacity: 1; }
+        }
+        @keyframes cycleBoardSlideFromLeft {
+          from { transform: translateX(-6%); opacity: 0; }
+          to   { transform: translateX(0);   opacity: 1; }
+        }
+        .cycle-board-slide-left {
+          animation: cycleBoardSlideFromRight 0.32s cubic-bezier(0.16, 1, 0.3, 1) both;
+        }
+        .cycle-board-slide-right {
+          animation: cycleBoardSlideFromLeft 0.32s cubic-bezier(0.16, 1, 0.3, 1) both;
+        }
+      `}</style>
+
       {/* ─── 4勤2休 6日間アコーディオンコンテナ ─── */}
       <div
         ref={containerRef}
+        key={animKey}
         data-testid="cycle-board-container"
-        className="w-full flex gap-4 h-[330px] overflow-x-auto sm:overflow-hidden snap-x snap-mandatory no-scrollbar py-1 px-6 sm:px-0.5"
-        style={{ scrollPadding: "0 1.5rem" }}
+        className={`w-full flex gap-3.5 sm:gap-4 h-[360px] overflow-x-auto sm:overflow-hidden snap-x snap-mandatory no-scrollbar py-1 px-4 sm:px-0.5 ${animClass}`}
+        style={{ ...slideStyle, scrollPadding: "0 1.5rem" }}
       >
         {cycleRange.days.map((day) => {
           const isSelected = day.date === selectedDate;

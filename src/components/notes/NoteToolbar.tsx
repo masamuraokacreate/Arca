@@ -14,6 +14,7 @@
  * - ノート削除
  */
 
+import { ChevronLeft } from "lucide-react";
 import { C } from "../../lib/designSystem";
 
 // アイコン定義
@@ -110,12 +111,6 @@ const CodeIcon = () => (
   </svg>
 );
 
-const ToggleIcon = () => (
-  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0 }}>
-    <polyline points="9 18 15 12 9 6" />
-  </svg>
-);
-
 const PinIcon = ({ isPinned }: { isPinned?: boolean }) => (
   <svg width="14" height="14" viewBox="0 0 24 24" fill={isPinned ? "currentColor" : "none"} stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0 }}>
     <line x1="12" y1="17" x2="12" y2="22" />
@@ -124,11 +119,13 @@ const PinIcon = ({ isPinned }: { isPinned?: boolean }) => (
 );
 
 export interface NoteToolbarProps {
+  sidebarToggleSlot?: React.ReactNode;
   leftSlot?: React.ReactNode;
+  title?: string;
+  saveStatus?: "idle" | "saving" | "saved";
   onBack?: () => void;
   onMoveNote?: () => void;
   onInsertImage?: () => void;
-  onInsertToggle?: () => void;
   isPinned?: boolean;
   onTogglePin?: () => void;
   onChangeIcon?: () => void;
@@ -152,11 +149,13 @@ export interface NoteToolbarProps {
 }
 
 export function NoteToolbar({
+  sidebarToggleSlot,
   leftSlot,
-  onBack: _onBack,
+  title: _title,
+  saveStatus,
+  onBack,
   onMoveNote,
   onInsertImage,
-  onInsertToggle,
   isPinned = false,
   onTogglePin,
   onChangeIcon: _onChangeIcon,
@@ -179,22 +178,85 @@ export function NoteToolbar({
   onToggleSourceMode,
 }: NoteToolbarProps) {
   return (
-    <header className="arca-toolbar">
-      {/* ── 左側: パンくずリスト / サイドバー展開スロット ── */}
-      {leftSlot && (
-        <div className="flex items-center min-w-0 flex-1 overflow-x-auto no-scrollbar mr-2 py-0.5">
-          {leftSlot}
+    <header className="sticky top-0 z-50 w-full bg-[var(--bg-surface-glass)] backdrop-blur-xl -webkit-backdrop-blur-xl border-b border-black/[0.06] dark:border-white/[0.08] flex flex-col">
+      {/* ── 1. 上部ヘッダー（ナビゲーション ＆ タイトル・ステータス ＆ 目次） ── */}
+      <div className="flex items-center justify-between px-2 sm:px-4 h-11 w-full gap-2 border-b border-black/[0.03] dark:border-white/[0.04]">
+        {/* 左端: タブのアイコン（サイドバー展開） ＆ 戻るボタン ＆ パンくずスロット */}
+        <div className="flex items-center gap-1 min-w-0 flex-1">
+          {sidebarToggleSlot && (
+            <div className="shrink-0 flex items-center">
+              {sidebarToggleSlot}
+            </div>
+          )}
+          {onBack && (
+            <button
+              type="button"
+              onClick={onBack}
+              aria-label="一覧に戻る"
+              title="一覧に戻る"
+              className="w-11 h-11 -ml-1 sm:ml-0 rounded-xl flex items-center justify-center text-charcoal-light hover:text-charcoal hover:bg-black/5 dark:hover:bg-white/5 active:scale-95 transition-all cursor-pointer border-none bg-transparent shrink-0"
+            >
+              <ChevronLeft className="w-5 h-5 text-[#B58D3D]" />
+            </button>
+          )}
+          {leftSlot && (
+            <div className="flex items-center min-w-0 flex-1 overflow-x-auto no-scrollbar py-0.5">
+              {leftSlot}
+            </div>
+          )}
         </div>
-      )}
 
-      {/* ── 右側: コントロール群 ── */}
-      <div style={{ display: "flex", alignItems: "center", gap: "0.35rem", flexShrink: 0, marginLeft: leftSlot ? "auto" : "auto" }}>
+        {/* 中央: 控えめな保存ステータス（保存中・保存済みのアニメーション通知のみ） */}
+        <div className="flex items-center justify-center min-w-0 px-2 select-none">
+          {saveStatus && saveStatus !== "idle" && (
+            <span className="text-[11px] font-medium text-charcoal-light flex items-center gap-1.5 shrink-0 animate-pulse">
+              <span className="w-1.5 h-1.5 rounded-full bg-[#B58D3D]" />
+              {saveStatus === "saving" ? "保存中…" : "保存済み"}
+            </span>
+          )}
+        </div>
+
+        {/* 右端: 目次アクション ＆ ごみ箱（赤文字） */}
+        <div className="flex items-center gap-1 shrink-0">
+          {/* 目次はPC・タブレットのみ表示（スマホでは非表示） */}
+          <button
+            type="button"
+            onClick={onToggleToc}
+            className={`w-9 h-9 rounded-lg !hidden sm:!flex items-center justify-center transition-colors cursor-pointer border-none ${
+              showToc
+                ? "bg-amber-500/15 text-[#B58D3D]"
+                : "text-charcoal-light hover:text-charcoal hover:bg-black/5 dark:hover:bg-white/5 bg-transparent"
+            }`}
+            title={showToc ? "目次を非表示" : "目次を表示"}
+            aria-label="目次"
+          >
+            <TocIcon />
+          </button>
+          {/* ごみ箱ボタン（パンくず右端に赤文字で配置） */}
+          <button
+            type="button"
+            onClick={onDelete}
+            className="h-9 px-2 rounded-lg flex items-center gap-1 text-red-500 hover:text-red-600 hover:bg-red-500/10 active:scale-95 transition-all cursor-pointer border-none bg-transparent text-xs font-medium shrink-0"
+            title="このノートを削除"
+            aria-label="削除"
+          >
+            <TrashIcon />
+            <span className="arca-btn-label-desktop">削除</span>
+            <span className="arca-btn-label-mobile">ごみ箱</span>
+          </button>
+        </div>
+      </div>
+
+      {/* ── 2. 書式・挿入ツールバー（PCでは文字表示、狭い画面やスマホではアイコン化） ── */}
+      <div className="flex flex-row items-center gap-1 sm:gap-1.5 overflow-x-auto no-scrollbar py-1.5 px-3 bg-[var(--bg-surface-glass)]/60">
         {/* ✦ Aether 抽出ボタン */}
         <button
+          type="button"
           onClick={onExtract}
           disabled={isExtracting || !canExtract}
-          className="arca-tb-btn"
+          className="arca-tb-btn shrink-0 h-9 min-w-[36px] min-h-[36px] px-2 sm:px-2.5 flex items-center justify-center"
           title="ノートから買い物リスト・タスクを抽出"
+          aria-label="Aether 抽出"
           style={{
             color: C.goldDark,
             background: C.goldFaint,
@@ -222,101 +284,106 @@ export function NoteToolbar({
           ) : (
             <SparklesIcon />
           )}
-          <span className="arca-btn-label-desktop">✦ Aether 抽出</span>
-          <span className="arca-btn-label-mobile">✦ 抽出</span>
+          <span className="arca-btn-label-desktop ml-1">✦ Aether 抽出</span>
+          <span className="arca-btn-label-mobile ml-1">抽出</span>
         </button>
 
-        {/* 画像挿入（🖼）ボタン（常時利用可能） */}
+        {/* 画像挿入ボタン */}
         {onInsertImage && (
           <button
+            type="button"
             onClick={onInsertImage}
-            className="arca-tb-btn"
+            className="arca-tb-btn shrink-0 h-9 min-w-[36px] min-h-[36px] px-2 sm:px-2.5 flex items-center justify-center"
             title="画像を挿入（貼り付け・ファイル選択）"
+            aria-label="画像を挿入"
           >
             <ImageIcon />
-            <span className="arca-btn-label-desktop">画像</span>
-          </button>
-        )}
-
-        {/* トグル（折りたたみブロック）挿入ボタン */}
-        {onInsertToggle && (
-          <button
-            onClick={onInsertToggle}
-            className="arca-tb-btn"
-            title="折りたたみトグルブロックを挿入"
-          >
-            <ToggleIcon />
-            <span className="arca-btn-label-desktop">トグル</span>
+            <span className="arca-btn-label-desktop ml-1">画像</span>
+            <span className="arca-btn-label-mobile ml-1">画像</span>
           </button>
         )}
 
         {/* ピン留めボタン */}
         {onTogglePin && (
           <button
+            type="button"
             onClick={onTogglePin}
-            className={`arca-tb-btn ${isPinned ? "active" : ""}`}
+            className={`arca-tb-btn shrink-0 h-9 min-w-[36px] min-h-[36px] px-2 sm:px-2.5 flex items-center justify-center ${isPinned ? "active" : ""}`}
             title={isPinned ? "ピン留めを解除" : "ピン留め"}
+            aria-label="ピン留め"
             style={{
               color: isPinned ? C.goldDark : undefined,
               background: isPinned ? C.goldFaint : undefined,
             }}
           >
             <PinIcon isPinned={isPinned} />
-            <span className="arca-btn-label-desktop">{isPinned ? "ピン解除" : "ピン留め"}</span>
+            <span className="arca-btn-label-desktop ml-1">{isPinned ? "ピン解除" : "ピン留め"}</span>
+            <span className="arca-btn-label-mobile ml-1">{isPinned ? "ピン解除" : "ピン留め"}</span>
           </button>
         )}
 
-        {/* 親ノート移動（📁）ボタン */}
+        {/* 親ノート移動ボタン */}
         {onMoveNote && (
           <button
+            type="button"
             onClick={onMoveNote}
-            className="arca-tb-btn"
+            className="arca-tb-btn shrink-0 h-9 min-w-[36px] min-h-[36px] px-2 sm:px-2.5 flex items-center justify-center"
             title="親ノートを変更・移動する"
+            aria-label="親ノートを変更・移動"
           >
             <FolderMoveIcon />
-            <span className="arca-btn-label-desktop">移動</span>
+            <span className="arca-btn-label-desktop ml-1">移動</span>
+            <span className="arca-btn-label-mobile ml-1">移動</span>
           </button>
         )}
 
-        {/* エクスポート（↑）ボタン */}
+        {/* エクスポート（書き出し）ボタン（スマホ不要 → PCのみ表示） */}
         <button
+          type="button"
           onClick={onDownloadMarkdown}
-          className="arca-tb-btn"
+          className="arca-tb-btn arca-tb-btn-desktop-only shrink-0 h-9 min-w-[36px] min-h-[36px] px-2 sm:px-2.5 !hidden sm:!inline-flex items-center justify-center"
           title="Markdownファイル (.md) としてエクスポート"
+          aria-label="エクスポート"
         >
           <ExportIcon />
-          <span className="arca-btn-label-desktop">エクスポート</span>
-          <span className="arca-btn-label-mobile">書き出し</span>
+          <span className="arca-btn-label-desktop ml-1">エクスポート</span>
         </button>
 
-        {/* インポート（↓）ボタン */}
+        {/* インポート（読み込み）ボタン（スマホ不要 → PCのみ表示） */}
         {onImportMarkdown && (
           <button
+            type="button"
             onClick={onImportMarkdown}
-            className="arca-tb-btn"
+            className="arca-tb-btn arca-tb-btn-desktop-only shrink-0 h-9 min-w-[36px] min-h-[36px] px-2 sm:px-2.5 !hidden sm:!inline-flex items-center justify-center"
             title="Markdownファイル (.md / .txt) をインポート"
+            aria-label="インポート"
           >
             <ImportIcon />
-            <span className="arca-btn-label-desktop">インポート</span>
+            <span className="arca-btn-label-desktop ml-1">インポート</span>
           </button>
         )}
 
-        {/* 構文ガイド（?）ボタン */}
+        {/* 構文ガイドボタン */}
         <button
+          type="button"
           onClick={onOpenGuide}
-          className="arca-tb-btn"
+          className="arca-tb-btn shrink-0 h-9 min-w-[36px] min-h-[36px] px-2 sm:px-2.5 flex items-center justify-center"
           title="構文ガイドを確認"
+          aria-label="構文ガイド"
         >
           <HelpCircleIcon />
-          <span className="arca-btn-label-desktop">ガイド</span>
+          <span className="arca-btn-label-desktop ml-1">ガイド</span>
+          <span className="arca-btn-label-mobile ml-1">ガイド</span>
         </button>
 
-        {/* ソース（Markdownテキストモード）切替ボタン */}
+        {/* ソース切替（Markdownとリッチテキストの切り替え）ボタン（スマホ不要 → PCのみ表示） */}
         {onToggleSourceMode && (
           <button
+            type="button"
             onClick={onToggleSourceMode}
-            className={`arca-tb-btn ${isSourceMode ? "active" : ""}`}
+            className={`arca-tb-btn arca-tb-btn-desktop-only shrink-0 h-9 min-w-[36px] min-h-[36px] px-2 sm:px-2.5 !hidden sm:!inline-flex items-center justify-center ${isSourceMode ? "active" : ""}`}
             title={isSourceMode ? "リッチエディタ（WYSIWYG）に切り替え" : "テキストモード（生Markdown）に切り替え"}
+            aria-label={isSourceMode ? "リッチエディタに切り替え" : "テキストモードに切り替え"}
             style={{
               fontWeight: isSourceMode ? 600 : 400,
               background: isSourceMode ? C.goldFaint : undefined,
@@ -324,43 +391,22 @@ export function NoteToolbar({
             }}
           >
             <CodeIcon />
-            <span className="arca-btn-label-desktop">{isSourceMode ? "WYSIWYG" : "ソース"}</span>
-            <span className="arca-btn-label-mobile">{isSourceMode ? "リッチ" : "生文"}</span>
+            <span className="arca-btn-label-desktop ml-1">{isSourceMode ? "WYSIWYG" : "ソース"}</span>
           </button>
         )}
 
-        <div className="arca-tb-divider" />
+        <div className="arca-tb-divider arca-tb-divider-desktop-only shrink-0 !hidden sm:!block" />
 
-        {/* Full Width トグル */}
+        {/* Full Width（全画面表示）トグル（スマホ不要 → PCのみ表示） */}
         <button
+          type="button"
           onClick={onToggleFullWidth}
-          className={`arca-tb-btn ${isFullWidth ? "active" : ""}`}
+          className={`arca-tb-btn arca-tb-btn-desktop-only shrink-0 h-9 min-w-[36px] min-h-[36px] px-2 sm:px-2.5 !hidden sm:!inline-flex items-center justify-center ${isFullWidth ? "active" : ""}`}
           title={isFullWidth ? "標準幅に戻す" : "全画面で表示"}
+          aria-label={isFullWidth ? "標準幅に戻す" : "全画面で表示"}
         >
           {isFullWidth ? <ShrinkIcon /> : <ExpandIcon />}
-          <span className="arca-btn-label-desktop">{isFullWidth ? "標準幅" : "全画面"}</span>
-        </button>
-
-        {/* 目次 トグル */}
-        <button
-          onClick={onToggleToc}
-          className={`arca-tb-btn ${showToc ? "active" : ""}`}
-          title={showToc ? "目次を非表示" : "目次を表示"}
-        >
-          <TocIcon />
-          <span className="arca-btn-label-desktop">目次</span>
-        </button>
-
-        <div className="arca-tb-divider" />
-
-        {/* 削除 */}
-        <button
-          onClick={onDelete}
-          className="arca-tb-btn arca-tb-btn-delete"
-          title="このノートを削除"
-        >
-          <TrashIcon />
-          <span className="arca-btn-label-desktop">削除</span>
+          <span className="arca-btn-label-desktop ml-1">{isFullWidth ? "標準幅" : "全画面"}</span>
         </button>
       </div>
     </header>

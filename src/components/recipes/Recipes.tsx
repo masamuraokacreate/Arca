@@ -10,7 +10,8 @@
  * - 5秒間復元可能な UndoToast & 削除確認ダイアログ
  */
 
-import { useState, useEffect, useCallback, useMemo } from "react";
+import { useState, useEffect, useCallback, useMemo, useRef } from "react";
+import { Plus, Search, X } from "lucide-react";
 import type { Recipe, RecipeSortOption, RecipeViewMode } from "../../types/recipe";
 import {
   subscribeRecipes,
@@ -36,26 +37,6 @@ const PlusIcon = () => (
   </svg>
 );
 
-const GridIcon = () => (
-  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0 }}>
-    <rect x="3" y="3" width="7" height="7" rx="1.5" />
-    <rect x="14" y="3" width="7" height="7" rx="1.5" />
-    <rect x="14" y="14" width="7" height="7" rx="1.5" />
-    <rect x="3" y="14" width="7" height="7" rx="1.5" />
-  </svg>
-);
-
-const ListIcon = () => (
-  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0 }}>
-    <line x1="8" y1="6" x2="21" y2="6" />
-    <line x1="8" y1="12" x2="21" y2="12" />
-    <line x1="8" y1="18" x2="21" y2="18" />
-    <line x1="3" y1="6" x2="3.01" y2="6" />
-    <line x1="3" y1="12" x2="3.01" y2="12" />
-    <line x1="3" y1="18" x2="3.01" y2="18" />
-  </svg>
-);
-
 const StarIcon = () => (
   <svg width="13" height="13" viewBox="0 0 24 24" fill="currentColor" stroke="currentColor" strokeWidth="1" style={{ flexShrink: 0 }}>
     <polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2" />
@@ -72,12 +53,22 @@ const ChefPlaceholderIcon = () => (
 export interface RecipesProps {
   onNavigateToLists?: () => void;
   onDetailViewChange?: (isDetail: boolean) => void;
+  /** ダッシュボードのレシピカードから直接遷移するレシピID */
+  initialRecipeId?: string | null;
 }
 
-export default function Recipes({ onNavigateToLists, onDetailViewChange }: RecipesProps = {}) {
+export default function Recipes({ onNavigateToLists, onDetailViewChange, initialRecipeId }: RecipesProps = {}) {
   const [recipes, setRecipes] = useState<Recipe[]>([]);
   const [viewMode, setViewMode] = useState<RecipeViewMode>("list");
   const [selectedRecipeId, setSelectedRecipeId] = useState<string | null>(null);
+
+  // ダッシュボードから直接遷移してきた場合、指定レシピを詳細モードで開く
+  useEffect(() => {
+    if (initialRecipeId) {
+      setSelectedRecipeId(initialRecipeId);
+      setViewMode("detail");
+    }
+  }, [initialRecipeId]);
 
   // 詳細画面表示状態の親への通知（モバイルでのナビバー制御用）
   useEffect(() => {
@@ -91,8 +82,23 @@ export default function Recipes({ onNavigateToLists, onDetailViewChange }: Recip
   const [searchQuery, setSearchQuery] = useState("");
   const [selectedTag, setSelectedTag] = useState<string>("all");
   const [onlyFavorites, setOnlyFavorites] = useState(false);
-  const [layoutStyle, setLayoutStyle] = useState<"grid" | "list">("grid");
   const [sortBy, setSortBy] = useState<RecipeSortOption>("updatedDesc");
+  const [isFabMenuOpen, setIsFabMenuOpen] = useState(false);
+  const [isSearchModalOpen, setIsSearchModalOpen] = useState(false);
+  const searchInputRef = useRef<HTMLInputElement>(null);
+
+  // 画面幅によるレスポンシブ自動判定（モバイル: リスト表示、PC/iPad等: 四角のグリッドカード表示）
+  const [isDesktop, setIsDesktop] = useState<boolean>(() =>
+    typeof window !== "undefined" ? window.innerWidth >= 640 : true
+  );
+
+  useEffect(() => {
+    const media = window.matchMedia("(min-width: 640px)");
+    const updateMatch = () => setIsDesktop(media.matches);
+    updateMatch();
+    media.addEventListener("change", updateMatch);
+    return () => media.removeEventListener("change", updateMatch);
+  }, []);
 
   // 削除確認モーダル
   const [recipeToDelete, setRecipeToDelete] = useState<Recipe | null>(null);
@@ -161,21 +167,29 @@ export default function Recipes({ onNavigateToLists, onDetailViewChange }: Recip
 
   // ── ナビゲーション操作 ──
   const handleOpenDetail = useCallback((id: string) => {
+    setIsFabMenuOpen(false);
+    setIsSearchModalOpen(false);
     setSelectedRecipeId(id);
     setViewMode("detail");
   }, []);
 
   const handleOpenNew = useCallback(() => {
+    setIsFabMenuOpen(false);
+    setIsSearchModalOpen(false);
     setSelectedRecipeId(null);
     setViewMode("edit");
   }, []);
 
   const handleOpenEdit = useCallback((id: string) => {
+    setIsFabMenuOpen(false);
+    setIsSearchModalOpen(false);
     setSelectedRecipeId(id);
     setViewMode("edit");
   }, []);
 
   const handleBackToList = useCallback(() => {
+    setIsFabMenuOpen(false);
+    setIsSearchModalOpen(false);
     setViewMode("list");
     setSelectedRecipeId(null);
   }, []);
@@ -288,13 +302,10 @@ export default function Recipes({ onNavigateToLists, onDetailViewChange }: Recip
               >
                 料理レシピ
               </h1>
-              <p style={{ fontSize: "0.78rem", color: C.charcoalLight, margin: "0.3rem 0 0", letterSpacing: "0.01em" }}>
-                {filteredRecipes.length}品のレシピ
-              </p>
             </div>
 
-            {/* コントロール: 新規レシピ作成 */}
-            <div style={{ display: "flex", alignItems: "center", gap: "0.6rem" }}>
+            {/* コントロール: 新規レシピ作成（PC・iPadなど画面幅 sm 以上でのみ表示） */}
+            <div className="hidden sm:flex items-center gap-2">
               <button
                 onClick={handleOpenNew}
                 style={{
@@ -323,19 +334,18 @@ export default function Recipes({ onNavigateToLists, onDetailViewChange }: Recip
                 }}
               >
                 <PlusIcon />
-                <span>新しいレシピ</span>
+                <span>新しく作成</span>
               </button>
             </div>
           </div>
 
-          {/* ── 検索・フィルター・ソート ── */}
+          {/* ── 検索・フィルター・ソート（PC・iPadなど画面幅 sm 以上でのみ常時表示） ── */}
           <div
+            className="hidden sm:flex flex-col"
             style={{
               maxWidth: "1280px",
               marginInline: "auto",
               marginBottom: "2.2rem",
-              display: "flex",
-              flexDirection: "column",
               gap: "1rem",
             }}
           >
@@ -350,32 +360,60 @@ export default function Recipes({ onNavigateToLists, onDetailViewChange }: Recip
                     transform: "translateY(-50%)",
                     display: "flex",
                     alignItems: "center",
-                    color: C.charcoalXLight,
+                    color: C.charcoalLight,
+                    pointerEvents: "none",
                   }}
                 >
-                  <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                    <circle cx="11" cy="11" r="8"></circle>
-                    <line x1="21" y1="21" x2="16.65" y2="16.65"></line>
-                  </svg>
+                  <Search size={15} />
                 </span>
                 <input
+                  ref={searchInputRef}
                   type="text"
                   placeholder="料理名・材料・知見を検索..."
                   value={searchQuery}
                   onChange={(e) => setSearchQuery(e.target.value)}
                   style={{
                     width: "100%",
-                    background: C.white,
-                    border: "none",
+                    background: "var(--bg-card-solid)",
+                    border: "1px solid var(--border-subtle)",
                     borderRadius: "10px",
-                    padding: "0.6rem 0.6rem 0.6rem 2.2rem",
+                    padding: searchQuery ? "0.6rem 2.4rem 0.6rem 2.2rem" : "0.6rem 0.85rem 0.6rem 2.2rem",
                     fontSize: "0.85rem",
                     color: C.charcoal,
-                    boxShadow: "0 1px 4px rgba(0,0,0,0.03)",
+                    boxShadow: "0 1px 3px rgba(0,0,0,0.03)",
                     outline: "none",
                     boxSizing: "border-box",
                   }}
                 />
+                {/* 検索クリアボタン */}
+                {searchQuery && (
+                  <button
+                    onClick={() => {
+                      setSearchQuery("");
+                      searchInputRef.current?.focus();
+                    }}
+                    style={{
+                      position: "absolute",
+                      right: "0.5rem",
+                      top: "50%",
+                      transform: "translateY(-50%)",
+                      background: "transparent",
+                      border: "none",
+                      padding: "0.25rem",
+                      cursor: "pointer",
+                      color: C.charcoalLight,
+                      display: "flex",
+                      alignItems: "center",
+                      justifyContent: "center",
+                    }}
+                    title="検索をクリア"
+                  >
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                      <line x1="18" y1="6" x2="6" y2="18" />
+                      <line x1="6" y1="6" x2="18" y2="18" />
+                    </svg>
+                  </button>
+                )}
               </div>
 
               {/* お気に入りフィルター */}
@@ -385,15 +423,15 @@ export default function Recipes({ onNavigateToLists, onDetailViewChange }: Recip
                   display: "flex",
                   alignItems: "center",
                   gap: "0.35rem",
-                  background: onlyFavorites ? C.goldFaint2 : C.white,
-                  border: onlyFavorites ? `1px solid ${C.gold}` : "1px solid rgba(0,0,0,0.04)",
+                  background: onlyFavorites ? C.goldFaint2 : "var(--bg-card-solid)",
+                  border: onlyFavorites ? `1px solid ${C.gold}` : "1px solid var(--border-subtle)",
                   color: onlyFavorites ? C.goldDark : C.charcoalMid,
                   padding: "0.55rem 0.85rem",
                   borderRadius: "10px",
                   fontSize: "0.8rem",
                   fontWeight: onlyFavorites ? 650 : 500,
                   cursor: "pointer",
-                  boxShadow: "0 1px 4px rgba(0,0,0,0.03)",
+                  boxShadow: "0 1px 3px rgba(0,0,0,0.03)",
                   transition: "all 0.15s ease",
                 }}
               >
@@ -408,14 +446,14 @@ export default function Recipes({ onNavigateToLists, onDetailViewChange }: Recip
                 aria-label="並び順"
                 style={{
                   appearance: "none",
-                  background: C.white,
-                  border: "none",
+                  background: "var(--bg-card-solid)",
+                  border: "1px solid var(--border-subtle)",
                   borderRadius: "10px",
                   padding: "0.58rem 2rem 0.58rem 0.85rem",
                   fontSize: "0.8rem",
                   color: C.charcoalMid,
                   cursor: "pointer",
-                  boxShadow: "0 1px 4px rgba(0,0,0,0.03)",
+                  boxShadow: "0 1px 3px rgba(0,0,0,0.03)",
                   outline: "none",
                   backgroundImage:
                     "url('data:image/svg+xml;utf8,<svg fill=\"%239A9A96\" height=\"24\" viewBox=\"0 0 24 24\" width=\"24\" xmlns=\"http://www.w3.org/2000/svg\"><path d=\"M7 10l5 5 5-5z\"/></svg>')",
@@ -428,55 +466,6 @@ export default function Recipes({ onNavigateToLists, onDetailViewChange }: Recip
                 <option value="favoriteFirst">お気に入り優先</option>
                 <option value="titleAsc">料理名順 (A-Z / あ-ん)</option>
               </select>
-
-              {/* グリッド / リスト切り替え */}
-              <div
-                style={{
-                  display: "flex",
-                  background: "var(--bg-nav-track)",
-                  borderRadius: "9px",
-                  padding: "2px",
-                  gap: "1px",
-                  marginLeft: "auto",
-                }}
-              >
-                <button
-                  onClick={() => setLayoutStyle("grid")}
-                  aria-label="グリッド表示"
-                  style={{
-                    background: layoutStyle === "grid" ? "var(--bg-nav-pill)" : "transparent",
-                    color: layoutStyle === "grid" ? "var(--text-main)" : C.charcoalLight,
-                    border: "none",
-                    borderRadius: "7px",
-                    padding: "0.4rem 0.6rem",
-                    cursor: "pointer",
-                    display: "flex",
-                    alignItems: "center",
-                    boxShadow: layoutStyle === "grid" ? "0 1px 4px rgba(0,0,0,0.12)" : "none",
-                    transition: "all 0.15s ease",
-                  }}
-                >
-                  <GridIcon />
-                </button>
-                <button
-                  onClick={() => setLayoutStyle("list")}
-                  aria-label="リスト表示"
-                  style={{
-                    background: layoutStyle === "list" ? "var(--bg-nav-pill)" : "transparent",
-                    color: layoutStyle === "list" ? "var(--text-main)" : C.charcoalLight,
-                    border: "none",
-                    borderRadius: "7px",
-                    padding: "0.4rem 0.6rem",
-                    cursor: "pointer",
-                    display: "flex",
-                    alignItems: "center",
-                    boxShadow: layoutStyle === "list" ? "0 1px 4px rgba(0,0,0,0.12)" : "none",
-                    transition: "all 0.15s ease",
-                  }}
-                >
-                  <ListIcon />
-                </button>
-              </div>
             </div>
 
             {/* タグピルフィルター */}
@@ -519,24 +508,73 @@ export default function Recipes({ onNavigateToLists, onDetailViewChange }: Recip
             </div>
           </div>
 
-          {/* ── レシピ一覧（グリッド or リスト） ── */}
+          {/* ── モバイル用：アクティブ絞り込み条件バナー（検索中やタグ選択中のみ表示） ── */}
+          {(searchQuery || selectedTag !== "all" || onlyFavorites) && (
+            <div
+              className="sm:hidden flex items-center justify-between gap-2"
+              style={{
+                maxWidth: "1280px",
+                marginInline: "auto",
+                marginBottom: "1rem",
+                padding: "0.45rem 0.85rem",
+                background: "var(--bg-card-solid)",
+                border: `1px solid ${C.goldFaint3}`,
+                borderRadius: "10px",
+                fontSize: "0.78rem",
+              }}
+            >
+              <div
+                onClick={() => setIsSearchModalOpen(true)}
+                style={{ display: "flex", alignItems: "center", gap: "0.4rem", overflow: "hidden", cursor: "pointer", flex: 1 }}
+                title="絞り込み条件を変更"
+              >
+                <Search size={13} color={C.goldDark} />
+                <span style={{ color: C.charcoalMid, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
+                  {searchQuery ? `「${searchQuery}」` : ""}
+                  {selectedTag !== "all" ? ` #${selectedTag}` : ""}
+                  {onlyFavorites ? " ★お気に入り" : ""}
+                  {" の検索結果"}
+                </span>
+              </div>
+              <button
+                onClick={() => {
+                  setSearchQuery("");
+                  setSelectedTag("all");
+                  setOnlyFavorites(false);
+                }}
+                style={{
+                  background: "transparent",
+                  border: "none",
+                  color: C.goldDark,
+                  fontSize: "0.74rem",
+                  fontWeight: 650,
+                  cursor: "pointer",
+                  whiteSpace: "nowrap",
+                  padding: "0.2rem 0.4rem",
+                }}
+              >
+                クリア
+              </button>
+            </div>
+          )}
+
+          {/* ── レシピ一覧（モバイル: リスト表示のみ / PC・iPad: 四角のグリッドカード表示のみ） ── */}
           <div
             style={{
               maxWidth: "1280px",
               marginInline: "auto",
               display: "grid",
-              gridTemplateColumns:
-                layoutStyle === "grid"
-                  ? "repeat(auto-fill, minmax(280px, 1fr))"
-                  : "1fr",
-              gap: layoutStyle === "grid" ? "1.25rem" : "0.85rem",
+              gridTemplateColumns: isDesktop
+                ? "repeat(auto-fill, minmax(280px, 1fr))"
+                : "1fr",
+              gap: isDesktop ? "1.25rem" : "0.85rem",
             }}
           >
             {filteredRecipes.map((recipe) => (
               <RecipeCard
                 key={recipe.id}
                 recipe={recipe}
-                viewMode={layoutStyle}
+                viewMode={isDesktop ? "grid" : "list"}
                 onClick={() => handleOpenDetail(recipe.id)}
                 onEdit={(e) => {
                   e.stopPropagation();
@@ -609,6 +647,431 @@ export default function Recipes({ onNavigateToLists, onDetailViewChange }: Recip
                 </button>
               </div>
             )}
+          </div>
+        </div>
+      )}
+
+      {/* ── 親指操作FAB (Floating Action Button - モバイルのみ表示) ── */}
+      {viewMode === "list" && (
+        <div
+          className="fixed sm:hidden"
+          style={{
+            bottom: "calc(1.5rem + env(safe-area-inset-bottom, 0px))",
+            right: "1.25rem",
+            zIndex: 100,
+          }}
+        >
+          <button
+            onClick={() => setIsFabMenuOpen((prev) => !prev)}
+            data-testid="recipe-fab-main-button"
+            aria-label={isFabMenuOpen ? "メニューを閉じる" : "アクションメニューを開く"}
+            style={{
+              width: "56px",
+              height: "56px",
+              borderRadius: "50%",
+              background: C.gold,
+              color: "#FFF",
+              border: "none",
+              boxShadow: "0 4px 16px rgba(197, 160, 89, 0.42)",
+              cursor: "pointer",
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+              transition: "transform 0.25s cubic-bezier(0.16, 1, 0.3, 1), background 0.2s ease",
+              transform: isFabMenuOpen ? "rotate(45deg)" : "rotate(0deg)",
+            }}
+          >
+            <Plus size={26} strokeWidth={2.6} />
+          </button>
+        </div>
+      )}
+
+      {/* ── FAB展開アクションシート（半透明オーバーレイ付き ＆ 下からフワッと浮遊） ── */}
+      {viewMode === "list" && isFabMenuOpen && (
+        <div
+          style={{
+            position: "fixed",
+            inset: 0,
+            zIndex: 99,
+            backgroundColor: "rgba(0, 0, 0, 0.38)",
+            backdropFilter: "blur(4px)",
+            WebkitBackdropFilter: "blur(4px)",
+            display: "flex",
+            flexDirection: "column",
+            justifyContent: "flex-end",
+            padding: "1rem 1.25rem calc(5.5rem + env(safe-area-inset-bottom, 0px))",
+            animation: "arca-fade-in 0.18s ease-out",
+          }}
+          onClick={() => setIsFabMenuOpen(false)}
+        >
+          <div
+            data-testid="recipe-fab-menu"
+            style={{
+              display: "flex",
+              flexDirection: "column",
+              gap: "0.65rem",
+              alignItems: "flex-end",
+              animation: "arca-slide-up 0.22s cubic-bezier(0.16, 1, 0.3, 1)",
+            }}
+            onClick={(e) => e.stopPropagation()}
+          >
+            {/* 1. 新しく作成 */}
+            <button
+              onClick={() => {
+                setIsFabMenuOpen(false);
+                handleOpenNew();
+              }}
+              style={{
+                display: "flex",
+                alignItems: "center",
+                gap: "0.6rem",
+                background: "var(--bg-card-solid)",
+                border: "1px solid var(--border-subtle)",
+                borderRadius: "9999px",
+                padding: "0.65rem 1.15rem",
+                fontSize: "0.85rem",
+                fontWeight: 650,
+                color: C.charcoal,
+                boxShadow: "0 4px 14px rgba(0, 0, 0, 0.12)",
+                cursor: "pointer",
+                animation: "arca-fab-btn-in 0.24s cubic-bezier(0.16, 1, 0.3, 1) both",
+                animationDelay: "0.04s",
+              }}
+            >
+              <div
+                style={{
+                  width: "28px",
+                  height: "28px",
+                  borderRadius: "50%",
+                  background: C.gold,
+                  color: "#FFF",
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "center",
+                }}
+              >
+                <Plus size={16} strokeWidth={2.6} />
+              </div>
+              <span>新しく作成</span>
+            </button>
+
+            {/* 2. 検索 */}
+            <button
+              onClick={() => {
+                setIsFabMenuOpen(false);
+                setIsSearchModalOpen(true);
+              }}
+              style={{
+                display: "flex",
+                alignItems: "center",
+                gap: "0.6rem",
+                background: "var(--bg-card-solid)",
+                border: "1px solid var(--border-subtle)",
+                borderRadius: "9999px",
+                padding: "0.65rem 1.15rem",
+                fontSize: "0.85rem",
+                fontWeight: 650,
+                color: C.charcoal,
+                boxShadow: "0 4px 14px rgba(0, 0, 0, 0.12)",
+                cursor: "pointer",
+                animation: "arca-fab-btn-in 0.24s cubic-bezier(0.16, 1, 0.3, 1) both",
+                animationDelay: "0s",
+              }}
+            >
+              <div
+                style={{
+                  width: "28px",
+                  height: "28px",
+                  borderRadius: "50%",
+                  background: C.goldFaint,
+                  color: C.goldDark,
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "center",
+                }}
+              >
+                <Search size={15} strokeWidth={2.2} />
+              </div>
+              <span>検索</span>
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* ── レシピ検索・絞り込みポップアップモーダル ── */}
+      {isSearchModalOpen && (
+        <div
+          data-testid="recipe-search-modal-overlay"
+          style={{
+            position: "fixed",
+            inset: 0,
+            zIndex: 1000,
+            background: "rgba(0, 0, 0, 0.45)",
+            backdropFilter: "blur(4px)",
+            WebkitBackdropFilter: "blur(4px)",
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            padding: "1rem",
+            animation: "arca-fade-in 0.15s ease-out",
+          }}
+          onClick={() => setIsSearchModalOpen(false)}
+        >
+          <div
+            className="arca-card"
+            style={{
+              background: "var(--bg-card-solid)",
+              borderRadius: "16px",
+              padding: "1.3rem 1.4rem",
+              boxShadow: "var(--shadow-modal)",
+              width: "100%",
+              maxWidth: "480px",
+              maxHeight: "85vh",
+              overflowY: "auto",
+              animation: "arca-modal-pop 0.2s cubic-bezier(0.16, 1, 0.3, 1)",
+              boxSizing: "border-box",
+            }}
+            onClick={(e) => e.stopPropagation()}
+          >
+            {/* ヘッダー */}
+            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: "1.1rem" }}>
+              <div style={{ display: "flex", alignItems: "center", gap: "0.45rem" }}>
+                <Search size={18} color={C.goldDark} />
+                <h3 style={{ fontSize: "0.95rem", fontWeight: 700, color: C.charcoal, margin: 0 }}>
+                  レシピ検索・絞り込み
+                </h3>
+              </div>
+              <button
+                onClick={() => setIsSearchModalOpen(false)}
+                style={{
+                  background: "transparent",
+                  border: "none",
+                  cursor: "pointer",
+                  color: C.charcoalLight,
+                  padding: "0.2rem",
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "center",
+                }}
+                title="閉じる"
+              >
+                <X size={18} />
+              </button>
+            </div>
+
+            <div style={{ display: "flex", flexDirection: "column", gap: "1.1rem" }}>
+              {/* キーワード検索入力欄 */}
+              <div>
+                <label style={{ fontSize: "0.75rem", fontWeight: 700, color: C.charcoalMid, display: "block", marginBottom: "0.4rem" }}>
+                  キーワード検索
+                </label>
+                <div style={{ position: "relative" }}>
+                  <span
+                    style={{
+                      position: "absolute",
+                      left: "0.8rem",
+                      top: "50%",
+                      transform: "translateY(-50%)",
+                      display: "flex",
+                      alignItems: "center",
+                      color: C.charcoalLight,
+                      pointerEvents: "none",
+                    }}
+                  >
+                    <Search size={15} />
+                  </span>
+                  <input
+                    type="text"
+                    placeholder="料理名・材料・知見を検索..."
+                    value={searchQuery}
+                    onChange={(e) => setSearchQuery(e.target.value)}
+                    autoFocus
+                    style={{
+                      width: "100%",
+                      background: "var(--bg-nav-track)",
+                      border: "1px solid var(--border-subtle)",
+                      borderRadius: "10px",
+                      padding: searchQuery ? "0.6rem 2.4rem 0.6rem 2.2rem" : "0.6rem 0.85rem 0.6rem 2.2rem",
+                      fontSize: "0.85rem",
+                      color: C.charcoal,
+                      outline: "none",
+                      boxSizing: "border-box",
+                    }}
+                  />
+                  {searchQuery && (
+                    <button
+                      onClick={() => setSearchQuery("")}
+                      style={{
+                        position: "absolute",
+                        right: "0.5rem",
+                        top: "50%",
+                        transform: "translateY(-50%)",
+                        background: "transparent",
+                        border: "none",
+                        padding: "0.25rem",
+                        cursor: "pointer",
+                        color: C.charcoalLight,
+                        display: "flex",
+                        alignItems: "center",
+                        justifyContent: "center",
+                      }}
+                      title="検索をクリア"
+                    >
+                      <X size={14} />
+                    </button>
+                  )}
+                </div>
+              </div>
+
+              {/* タグで絞り込み */}
+              <div>
+                <label style={{ fontSize: "0.75rem", fontWeight: 700, color: C.charcoalMid, display: "block", marginBottom: "0.5rem" }}>
+                  タグで絞り込み
+                </label>
+                <div style={{ display: "flex", gap: "0.4rem", flexWrap: "wrap", maxHeight: "160px", overflowY: "auto" }}>
+                  <button
+                    onClick={() => setSelectedTag("all")}
+                    style={{
+                      background: selectedTag === "all" ? C.charcoal : "var(--bg-nav-track)",
+                      color: selectedTag === "all" ? C.white : C.charcoalMid,
+                      border: "none",
+                      borderRadius: "20px",
+                      padding: "0.32rem 0.85rem",
+                      fontSize: "0.75rem",
+                      fontWeight: selectedTag === "all" ? 650 : 500,
+                      cursor: "pointer",
+                      transition: "all 0.15s ease",
+                    }}
+                  >
+                    すべて
+                  </button>
+                  {allTags.map((tag) => {
+                    const isSelected = selectedTag === tag;
+                    return (
+                      <button
+                        key={tag}
+                        onClick={() => setSelectedTag(isSelected ? "all" : tag)}
+                        style={{
+                          background: isSelected ? C.gold : "var(--bg-nav-track)",
+                          color: isSelected ? C.white : C.goldDark,
+                          border: isSelected ? "1px solid transparent" : `1px solid ${C.goldFaint3}`,
+                          borderRadius: "20px",
+                          padding: "0.3rem 0.8rem",
+                          fontSize: "0.75rem",
+                          fontWeight: isSelected ? 650 : 500,
+                          cursor: "pointer",
+                          transition: "all 0.15s ease",
+                        }}
+                      >
+                        {tag}
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+
+              {/* フィルター＆ソート */}
+              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "0.6rem" }}>
+                {/* お気に入りフィルター */}
+                <div>
+                  <label style={{ fontSize: "0.75rem", fontWeight: 700, color: C.charcoalMid, display: "block", marginBottom: "0.4rem" }}>
+                    お気に入り
+                  </label>
+                  <button
+                    onClick={() => setOnlyFavorites((f) => !f)}
+                    style={{
+                      width: "100%",
+                      display: "flex",
+                      alignItems: "center",
+                      justifyContent: "center",
+                      gap: "0.35rem",
+                      background: onlyFavorites ? C.goldFaint2 : "var(--bg-nav-track)",
+                      border: onlyFavorites ? `1px solid ${C.gold}` : "1px solid var(--border-subtle)",
+                      color: onlyFavorites ? C.goldDark : C.charcoalMid,
+                      padding: "0.52rem 0.75rem",
+                      borderRadius: "10px",
+                      fontSize: "0.8rem",
+                      fontWeight: onlyFavorites ? 650 : 500,
+                      cursor: "pointer",
+                      transition: "all 0.15s ease",
+                      boxSizing: "border-box",
+                    }}
+                  >
+                    <StarIcon />
+                    <span>お気に入りのみ</span>
+                  </button>
+                </div>
+
+                {/* 並び順 */}
+                <div>
+                  <label style={{ fontSize: "0.75rem", fontWeight: 700, color: C.charcoalMid, display: "block", marginBottom: "0.4rem" }}>
+                    並び順
+                  </label>
+                  <select
+                    value={sortBy}
+                    onChange={(e) => setSortBy(e.target.value as RecipeSortOption)}
+                    style={{
+                      width: "100%",
+                      background: "var(--bg-nav-track)",
+                      border: "1px solid var(--border-subtle)",
+                      borderRadius: "10px",
+                      padding: "0.52rem 0.75rem",
+                      fontSize: "0.8rem",
+                      color: C.charcoal,
+                      outline: "none",
+                      cursor: "pointer",
+                      boxSizing: "border-box",
+                    }}
+                  >
+                    <option value="updatedDesc">更新日が新しい順</option>
+                    <option value="createdDesc">作成日が新しい順</option>
+                    <option value="favoriteFirst">お気に入り優先</option>
+                    <option value="titleAsc">料理名順</option>
+                  </select>
+                </div>
+              </div>
+
+              {/* リセット & 検索/完了ボタン */}
+              <div style={{ display: "flex", gap: "0.6rem", marginTop: "0.4rem" }}>
+                <button
+                  onClick={() => {
+                    setSearchQuery("");
+                    setSelectedTag("all");
+                    setOnlyFavorites(false);
+                  }}
+                  style={{
+                    flex: 1,
+                    background: "transparent",
+                    border: "1px solid var(--border-subtle)",
+                    borderRadius: "10px",
+                    padding: "0.55rem",
+                    fontSize: "0.82rem",
+                    fontWeight: 650,
+                    color: C.charcoalMid,
+                    cursor: "pointer",
+                  }}
+                >
+                  リセット
+                </button>
+                <button
+                  onClick={() => setIsSearchModalOpen(false)}
+                  style={{
+                    flex: 1,
+                    background: C.gold,
+                    border: "none",
+                    borderRadius: "10px",
+                    padding: "0.55rem",
+                    fontSize: "0.82rem",
+                    fontWeight: 700,
+                    color: "#FFF",
+                    cursor: "pointer",
+                    boxShadow: "0 2px 8px rgba(197,160,89,0.3)",
+                  }}
+                >
+                  検索する ({filteredRecipes.length}件)
+                </button>
+              </div>
+            </div>
           </div>
         </div>
       )}

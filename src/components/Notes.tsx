@@ -362,6 +362,16 @@ const GLOBAL_STYLES = `
     transform: scale(0.97);
   }
 
+  /* モバイル非表示（デスクトップ専用）ボタン */
+  @media (max-width: 639px) {
+    .arca-tb-btn-desktop-only {
+      display: none !important;
+    }
+    .arca-tb-divider-desktop-only {
+      display: none !important;
+    }
+  }
+
   /* アクティブなトグルボタン */
   .arca-tb-btn.active {
     color: ${C.gold};
@@ -407,8 +417,8 @@ const GLOBAL_STYLES = `
     flex-shrink: 0;
   }
   .arca-segment-btn.active {
-    background: ${C.white};
-    color: ${C.charcoal};
+    background: var(--bg-nav-pill);
+    color: var(--text-main);
     font-weight: 600;
     box-shadow: 0 1px 3px rgba(0, 0, 0, 0.08), 0 0 1px rgba(0, 0, 0, 0.04);
   }
@@ -422,11 +432,18 @@ const GLOBAL_STYLES = `
     margin: 0 0.15rem;
   }
 
-  /* レスポンシブラベル */
+  /* レスポンシブラベル: PC（1024px以上）でデスクトップラベル表示、画面が狭まったら（1024px未満）非表示 */
   .arca-btn-label-desktop {
-    display: inline;
+    display: none;
     white-space: nowrap;
   }
+  @media (min-width: 1024px) {
+    .arca-btn-label-desktop {
+      display: inline !important;
+    }
+  }
+
+  /* モバイルラベル: スマホ（639px以下）で短縮ラベル表示、それ以上では非表示 */
   .arca-btn-label-mobile {
     display: none;
     white-space: nowrap;
@@ -493,8 +510,8 @@ const GLOBAL_STYLES = `
   .arca-notes-search-input {
     width: 100%;
     height: 42px;
-    background: ${C.white};
-    color: ${C.charcoal};
+    background: var(--bg-surface);
+    color: var(--text-main);
     border: none;
     border-radius: 12px;
     padding: 0 0.75rem 0 2.35rem;
@@ -512,8 +529,8 @@ const GLOBAL_STYLES = `
   .arca-notes-sort-select {
     height: 42px;
     appearance: none;
-    background-color: ${C.white};
-    color: ${C.charcoalMid};
+    background-color: var(--bg-surface);
+    color: var(--text-mid);
     border: none;
     border-radius: 12px;
     padding: 0 2.2rem 0 0.85rem;
@@ -721,27 +738,31 @@ export function NoteViewer({
 
   const docSpace = useDocumentSpace();
 
+  // サイドバー展開ボタンスロット（すべてのデバイスで左端に配置）
+  const sidebarToggleSlot = useMemo(() => {
+    if (!docSpace) return null;
+    const { isSidebarOpen, setIsSidebarOpen } = docSpace;
+    if (isSidebarOpen) return null;
+    return (
+      <button
+        type="button"
+        onClick={() => setIsSidebarOpen(true)}
+        aria-label="ページ一覧を開く"
+        className="w-10 h-10 rounded-xl flex items-center justify-center text-charcoal-light hover:text-charcoal hover:bg-black/5 dark:hover:bg-white/5 active:scale-95 transition-all shrink-0 cursor-pointer border-none bg-transparent -ml-1 sm:ml-0"
+        title="ページ一覧を開く"
+      >
+        <PanelLeftOpen className="w-5 h-5 text-[#B58D3D]" />
+      </button>
+    );
+  }, [docSpace]);
+
   // 統合ヘッダー用のパンくずスロット
   const breadcrumbSlot = useMemo(() => {
     if (!docSpace) return null;
-    const { isSidebarOpen, setIsSidebarOpen, breadcrumbs: spaceCrumbs, onSelectNote: spaceSelectNote } = docSpace;
+    const { breadcrumbs: spaceCrumbs, onSelectNote: spaceSelectNote } = docSpace;
     const crumbs = spaceCrumbs.filter((c): c is NoteBreadcrumb & { id: string } => Boolean(c.id));
     return (
       <div className="flex items-center gap-1 text-xs font-medium text-charcoal-light truncate">
-        {/* サイドバー展開ボタン（サイドバーが閉じているときにスマート表示） */}
-        {!isSidebarOpen && (
-          <button
-            type="button"
-            onClick={() => setIsSidebarOpen(true)}
-            aria-label="ページ一覧を開く"
-            className="h-7 px-2 mr-1 rounded-lg bg-stone-200/60 dark:bg-stone-800 text-charcoal-light hover:text-charcoal hover:bg-stone-200 transition-colors flex items-center gap-1 text-xs shrink-0 cursor-pointer border-none"
-            title="ページ一覧を開く"
-          >
-            <PanelLeftOpen className="w-3.5 h-3.5 text-[#B58D3D]" />
-            <span className="hidden sm:inline font-medium">一覧</span>
-          </button>
-        )}
-
         {crumbs.map((crumb, idx) => {
           const isLast = idx === crumbs.length - 1;
           return (
@@ -1263,13 +1284,7 @@ export function NoteViewer({
   );
 
   return (
-    <div
-      className={
-        isDocumentSpace
-          ? "arca-view-in flex flex-col w-full h-full min-h-0 flex-1 overflow-hidden"
-          : "arca-view-in min-h-screen flex flex-col items-center w-full"
-      }
-    >
+    <div className="arca-view-in flex flex-col w-full h-full min-h-screen flex-1 overflow-hidden">
       {/* 非表示の画像ファイル選択input */}
       <input
         ref={imageFileInputRef}
@@ -1281,11 +1296,13 @@ export function NoteViewer({
 
       {/* ────── ツールバー（パンくず統合 ＆ コントロール） ────── */}
       <NoteToolbar
+        sidebarToggleSlot={isDocumentSpace ? sidebarToggleSlot : undefined}
         leftSlot={isDocumentSpace ? breadcrumbSlot : undefined}
+        title={note.title}
+        saveStatus={saveStatus}
         onBack={onBack}
         onMoveNote={onMoveNote}
         onInsertImage={() => imageFileInputRef.current?.click()}
-        onInsertToggle={() => editorRef.current?.insertToggleBlock()}
         onExtract={handleExtract}
         isExtracting={isExtracting}
         canExtract={!!note.content.trim()}
@@ -1303,63 +1320,27 @@ export function NoteViewer({
         onTogglePin={onTogglePin}
       />
 
-      {/* ────── 本文コンテナ（Notion風シームレス執筆エリア / 浮遊カード） ────── */}
-      {isDocumentSpace ? (
+      {/* ────── 本文コンテナ（Notion / Apple Notes風フラット執筆エリア） ────── */}
+      <div
+        className="flex-1 w-full h-full overflow-y-auto arca-scroll relative"
+        style={{
+          WebkitOverflowScrolling: "touch",
+          overscrollBehaviorY: "contain",
+          touchAction: "pan-y",
+        }}
+      >
         <div
-          className="flex-1 w-full h-full overflow-y-auto arca-scroll relative"
+          className={`w-full mx-auto px-4 sm:px-8 py-4 transition-all duration-200 ${
+            isFullWidth ? "max-w-none" : "max-w-4xl"
+          }`}
           style={{
-            WebkitOverflowScrolling: "touch",
-            overscrollBehaviorY: "contain",
-            touchAction: "pan-y",
+            paddingBottom: "calc(6rem + env(safe-area-inset-bottom, 0px))",
           }}
         >
-          <div
-            className={`w-full mx-auto px-4 sm:px-12 py-6 transition-all duration-200 ${
-              isFullWidth ? "max-w-none" : "max-w-4xl"
-            }`}
-            style={{
-              paddingBottom: "calc(8rem + env(safe-area-inset-bottom, 0px))",
-            }}
-          >
-            <div className="w-full min-w-0">{editorBody}</div>
-          </div>
-          {showToc && renderTocSidebar}
+          <div className="w-full min-w-0">{editorBody}</div>
         </div>
-      ) : (
-        <div
-          style={{
-            width: "100%",
-            display: "flex",
-            justifyContent: "center",
-            padding: isFullWidth
-              ? "2rem clamp(1.5rem, 5vw, 4rem) calc(8rem + env(safe-area-inset-bottom, 0px))"
-              : "2rem clamp(1rem, 4vw, 3rem) calc(8rem + env(safe-area-inset-bottom, 0px))",
-            boxSizing: "border-box",
-            position: "relative",
-          }}
-        >
-          <div
-            className="arca-layout-container"
-            style={{
-              width: "100%",
-              maxWidth: isFullWidth ? "100%" : "880px",
-              minWidth: 0,
-              background: "var(--bg-surface-glass)",
-              backdropFilter: "blur(20px) saturate(180%)",
-              WebkitBackdropFilter: "blur(20px) saturate(180%)",
-              borderRadius: "22px",
-              boxShadow: "var(--shadow-modal)",
-              border: "1px solid var(--border-subtle)",
-              padding: "2.5rem clamp(1.5rem, 4vw, 3.5rem) 2.5rem",
-              boxSizing: "border-box",
-              transition: "all 0.3s ease",
-            }}
-          >
-            {editorBody}
-          </div>
-          {showToc && renderTocSidebar}
-        </div>
-      )}
+        {showToc && renderTocSidebar}
+      </div>
 
       {/* 右下に単独でフワッと現れる保存ステータス */}
       <div
@@ -2468,52 +2449,31 @@ export function NoteDashboard({
 
           {/* グリッド / リスト切り替え */}
           <div
-            style={{
-              display: "flex",
-              background: "rgba(0, 0, 0, 0.04)",
-              borderRadius: "9px",
-              padding: "2px",
-              gap: "1px",
-              flexShrink: 0,
-            }}
+            className="flex items-center p-0.5 rounded-[9px] gap-0.5 shrink-0 bg-black/[0.04] dark:bg-white/[0.08]"
           >
             <button
+              type="button"
               onClick={() => handleToggleLayoutStyle("grid")}
               aria-label="グリッド表示"
               title="グリッド表示"
-              style={{
-                background: layoutStyle === "grid" ? C.white : "transparent",
-                color: layoutStyle === "grid" ? C.charcoal : C.charcoalLight,
-                border: "none",
-                borderRadius: "7px",
-                padding: "0.4rem 0.55rem",
-                cursor: "pointer",
-                display: "flex",
-                alignItems: "center",
-                justifyContent: "center",
-                boxShadow: layoutStyle === "grid" ? "0 1px 3px rgba(0,0,0,0.06)" : "none",
-                transition: "all 0.15s ease",
-              }}
+              className={`border-none rounded-[7px] px-2 py-1.5 flex items-center justify-center cursor-pointer transition-all duration-150 ${
+                layoutStyle === "grid"
+                  ? "bg-white dark:bg-stone-800 text-charcoal dark:text-stone-100 shadow-xs"
+                  : "bg-transparent text-charcoal-light hover:text-charcoal dark:hover:text-stone-200"
+              }`}
             >
               <NotesGridIcon />
             </button>
             <button
+              type="button"
               onClick={() => handleToggleLayoutStyle("list")}
               aria-label="リスト表示"
               title="リスト表示"
-              style={{
-                background: layoutStyle === "list" ? C.white : "transparent",
-                color: layoutStyle === "list" ? C.charcoal : C.charcoalLight,
-                border: "none",
-                borderRadius: "7px",
-                padding: "0.4rem 0.55rem",
-                cursor: "pointer",
-                display: "flex",
-                alignItems: "center",
-                justifyContent: "center",
-                boxShadow: layoutStyle === "list" ? "0 1px 3px rgba(0,0,0,0.06)" : "none",
-                transition: "all 0.15s ease",
-              }}
+              className={`border-none rounded-[7px] px-2 py-1.5 flex items-center justify-center cursor-pointer transition-all duration-150 ${
+                layoutStyle === "list"
+                  ? "bg-white dark:bg-stone-800 text-charcoal dark:text-stone-100 shadow-xs"
+                  : "bg-transparent text-charcoal-light hover:text-charcoal dark:hover:text-stone-200"
+              }`}
             >
               <NotesListIcon />
             </button>
@@ -3318,6 +3278,12 @@ export default function Notes({
       ).length
     : 0;
 
+  // ノート執筆中（詳細/エディタ表示中）かどうかの判定（モバイルでの最下部Dock非表示用）
+  const isViewingNote =
+    (activeSpace === "document" && Boolean(activeDocNote)) ||
+    (activeSpace === "journal" && view.type !== "dashboard" && Boolean(activeNote)) ||
+    Boolean(editingMemo);
+
   return (
     <>
       <style>{GLOBAL_STYLES}</style>
@@ -3568,6 +3534,7 @@ export default function Notes({
         onChange={handleSpaceChange}
         counts={spaceCounts}
         variant="floating"
+        className={isViewingNote ? "hidden sm:block" : ""}
       />
 
       {/* 共通削除トースト */}

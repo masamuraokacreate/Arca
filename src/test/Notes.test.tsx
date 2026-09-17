@@ -1602,7 +1602,11 @@ describe("Notes 階層化・ハブ＆カード（Parent-Child Hub）統合テス
       render(<Notes />);
 
       // エクスプローラーホームのヘッダーとクイックアクセスが表示される
-      expect(screen.getByText("Pages ホーム")).toBeInTheDocument();
+      expect(screen.getByText("ホーム")).toBeInTheDocument();
+      expect(screen.queryByText("Pages ホーム")).not.toBeInTheDocument();
+      expect(screen.queryByText("ドキュメントのクイックアクセスと最近使用したページ一覧")).not.toBeInTheDocument();
+      expect(screen.queryByText(/全 \d+ ページ/)).not.toBeInTheDocument();
+      expect(screen.queryByText("Pages")).not.toBeInTheDocument();
       expect(screen.getByText("クイックアクセス")).toBeInTheDocument();
       expect(screen.getByText("最近使用したページ")).toBeInTheDocument();
       expect(screen.getAllByText("重要ドキュメント").length).toBeGreaterThan(0);

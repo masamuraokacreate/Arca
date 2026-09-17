@@ -11,7 +11,7 @@
  */
 
 import React, { useState } from "react";
-import { Node, mergeAttributes } from "@tiptap/core";
+import { Node, mergeAttributes, InputRule } from "@tiptap/core";
 import {
   ReactNodeViewRenderer,
   NodeViewWrapper,
@@ -210,6 +210,22 @@ export const ToggleBlockNode = Node.create({
           });
         },
     };
+  },
+
+  addInputRules() {
+    return [
+      new InputRule({
+        find: /^\s*<(?:\s+(.*))?\s$/,
+        handler: ({ range, match, chain }) => {
+          const rawTitle = match[1]?.trim();
+          const title = rawTitle || "トグル";
+          chain()
+            .deleteRange(range)
+            .insertToggleBlock({ title, isOpen: true })
+            .run();
+        },
+      }),
+    ];
   },
 
   addStorage() {

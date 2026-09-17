@@ -4,7 +4,7 @@
  */
 
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { render, screen } from "@testing-library/react";
+import { render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import type { Recipe } from "../types/recipe";
 import { RecipeCard } from "../components/recipes/RecipeCard";
@@ -89,6 +89,7 @@ describe("RecipeCard コンポーネント", () => {
     expect(screen.getByText("特製豚の生姜焼き")).toBeInTheDocument();
     expect(screen.getByText("和食")).toBeInTheDocument();
     expect(screen.getByText("2人前")).toBeInTheDocument();
+    expect(screen.queryByText(/材料 \d+品/)).not.toBeInTheDocument();
   });
 
   it("viewMode='grid' のときに縦型カード（.arca-recipe-card-grid）としてレンダリングされる", () => {
@@ -408,6 +409,7 @@ describe("Recipes メインモジュール", () => {
     render(<Recipes />);
     expect(screen.getByText("料理レシピ")).toBeInTheDocument();
     expect(screen.getByText("特製豚の生姜焼き")).toBeInTheDocument();
+    expect(screen.queryByText(/品のレシピ/)).not.toBeInTheDocument();
   });
 
   it("検索バーに一致しない文字を入力すると空状態メッセージが表示される", async () => {
@@ -418,11 +420,72 @@ describe("Recipes メインモジュール", () => {
     expect(screen.getByText("条件に一致するレシピが見つかりませんでした")).toBeInTheDocument();
   });
 
-  it("「新しいレシピ」ボタンを押すとエディタ画面に遷移する", async () => {
+  it("「新しく作成」ボタンを押すとエディタ画面に遷移する", async () => {
     render(<Recipes />);
-    const newBtn = screen.getByRole("button", { name: /新しいレシピ/ });
+    const newBtn = screen.getByRole("button", { name: /新しく作成/ });
     await userEvent.click(newBtn);
 
     expect(screen.getByPlaceholderText(/料理名を入力/)).toBeInTheDocument();
+  });
+
+  it("グリッド/リストの手動切り替えトグルボタンが撤廃されていること", () => {
+    render(<Recipes />);
+    expect(screen.queryByLabelText("グリッド表示")).not.toBeInTheDocument();
+    expect(screen.queryByLabelText("リスト表示")).not.toBeInTheDocument();
+  });
+
+  it("モバイル用FAB（＋マーク）をタップするとメニューが開き、「新しく作成」「検索」が表示される", async () => {
+    render(<Recipes />);
+    const fabBtn = screen.getByTestId("recipe-fab-main-button");
+    expect(fabBtn).toBeInTheDocument();
+
+    await userEvent.click(fabBtn);
+
+    const fabMenu = screen.getByTestId("recipe-fab-menu");
+    expect(within(fabMenu).getByText("新しく作成")).toBeInTheDocument();
+    expect(within(fabMenu).getByText("検索")).toBeInTheDocument();
+
+    // 「新しく作成」をクリックするとエディタに遷移する
+    await userEvent.click(within(fabMenu).getByText("新しく作成"));
+    expect(screen.getByPlaceholderText(/料理名を入力/)).toBeInTheDocument();
+  });
+
+  it("モバイルFABの「検索」をタップすると検索・絞り込みポップアップが出現し検索できる", async () => {
+    render(<Recipes />);
+    const fabBtn = screen.getByTestId("recipe-fab-main-button");
+    await userEvent.click(fabBtn);
+
+    const searchMenuBtn = screen.getByText("検索");
+    await userEvent.click(searchMenuBtn);
+
+    // ポップアップが出現すること
+    expect(screen.getByText("レシピ検索・絞り込み")).toBeInTheDocument();
+    expect(screen.getByText("キーワード検索")).toBeInTheDocument();
+    expect(screen.getByText("タグで絞り込み")).toBeInTheDocument();
+
+    // モーダル内の入力欄に文字を入力
+    const inputs = screen.getAllByPlaceholderText(/料理名・材料・知見を検索/);
+    const modalInput = inputs[inputs.length - 1]; // モーダル内のinput
+    await userEvent.type(modalInput, "存在しない料理名xyz");
+
+    // 検索結果件数が反映されたボタンを押して閉じる
+    const submitBtn = screen.getByRole("button", { name: /検索する \(0件\)/ });
+    await userEvent.click(submitBtn);
+
+    expect(screen.queryByText("レシピ検索・絞り込み")).not.toBeInTheDocument();
+    expect(screen.getByText("条件に一致するレシピが見つかりませんでした")).toBeInTheDocument();
+  });
+
+  it("検索バーに入力時、クリアボタンが表示されクリックで入力がリセットされる", async () => {
+    render(<Recipes />);
+    const searchInput = screen.getByPlaceholderText(/料理名・材料・知見を検索/) as HTMLInputElement;
+    await userEvent.type(searchInput, "豚肉");
+    expect(searchInput.value).toBe("豚肉");
+
+    const clearBtn = screen.getByTitle("検索をクリア");
+    expect(clearBtn).toBeInTheDocument();
+
+    await userEvent.click(clearBtn);
+    expect(searchInput.value).toBe("");
   });
 });

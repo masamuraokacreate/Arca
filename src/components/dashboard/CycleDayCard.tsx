@@ -75,7 +75,7 @@ export const CycleDayCard: React.FC<CycleDayCardProps> = ({
       <div
         data-testid={`cycle-day-card-${day.date}`}
         data-selected="true"
-        className="flex-[2] min-w-[270px] sm:min-w-[280px] h-full bg-[#FFFDFB] dark:bg-stone-800/95 rounded-2xl p-4 shadow-md ring-1 ring-amber-500/25 flex flex-col transition-all duration-300 ease-out overflow-hidden select-none border-none snap-center"
+        className="flex-[2] min-w-[270px] sm:min-w-[280px] h-full bg-[#FFFDFB] dark:bg-[var(--bg-card-solid)] rounded-2xl p-4 shadow-md ring-1 ring-amber-500/25 flex flex-col transition-all duration-300 ease-out overflow-hidden select-none border-none snap-center"
         style={{
           boxShadow: "0 4px 16px rgba(0, 0, 0, 0.04), 0 1px 3px rgba(0, 0, 0, 0.03)",
         }}
@@ -110,13 +110,13 @@ export const CycleDayCard: React.FC<CycleDayCardProps> = ({
           <div className="flex items-center gap-2 shrink-0">
             {/* シフトバッジ */}
             <span
-              className={`inline-flex items-center gap-1 text-[0.7rem] font-semibold px-2 py-0.5 rounded-full leading-tight ${
+              className={`inline-flex items-center gap-1 text-[0.7rem] font-semibold px-2 py-0.5 rounded-full leading-tight transition-colors ${
                 isWork
-                  ? "bg-amber-500/10 text-amber-800 dark:text-amber-300"
-                  : "bg-teal-500/10 text-teal-800 dark:text-teal-300"
+                  ? "bg-amber-500/10 text-amber-800 dark:bg-amber-400/25 dark:text-amber-200"
+                  : "bg-teal-500/10 text-teal-800 dark:bg-teal-400/25 dark:text-teal-200"
               }`}
             >
-              {isWork ? <Sun size={11} className="shrink-0" /> : <Moon size={11} className="shrink-0" />}
+              {isWork ? <Sun size={11} className="shrink-0 text-amber-600 dark:text-amber-300" /> : <Moon size={11} className="shrink-0 text-teal-600 dark:text-teal-300" />}
               <span>{shiftLabel}</span>
             </span>
           </div>
@@ -147,7 +147,7 @@ export const CycleDayCard: React.FC<CycleDayCardProps> = ({
             </div>
 
             {/* 予定リスト（最大2〜3件スクロール） */}
-            <div data-testid="cycle-day-events-list" className="max-h-[58px] overflow-y-auto no-scrollbar space-y-1">
+            <div data-testid="cycle-day-events-list" className="max-h-[72px] overflow-y-auto no-scrollbar space-y-1">
               {events.length === 0 ? (
                 <div className="flex items-center justify-between py-1 px-1 text-stone-400 text-[0.72rem]">
                   <span>予定なし</span>
@@ -234,7 +234,7 @@ export const CycleDayCard: React.FC<CycleDayCardProps> = ({
             </div>
 
             {/* クイックToDo入力（背景と同化しない塗り面コンテナ） */}
-            <div className="mt-2 shrink-0 bg-[#F5F2EB] dark:bg-stone-900/60 rounded-xl px-2.5 py-1.5 flex items-center gap-1.5 focus-within:bg-white dark:focus-within:bg-stone-900 focus-within:ring-1 focus-within:ring-amber-500/25 transition-all">
+            <div className="mt-2 shrink-0 bg-[#F5F2EB] dark:bg-white/[0.06] rounded-xl px-2.5 py-1.5 flex items-center gap-1.5 focus-within:bg-white dark:focus-within:bg-[var(--bg-surface)] focus-within:ring-1 focus-within:ring-amber-500/25 transition-all">
               <Plus size={13} className="text-stone-400 shrink-0" />
               <input
                 type="text"
@@ -265,7 +265,7 @@ export const CycleDayCard: React.FC<CycleDayCardProps> = ({
           onClick();
         }
       }}
-      className="flex-1 min-w-[120px] h-full bg-white dark:bg-stone-900 rounded-2xl p-3.5 shadow-xs flex flex-col justify-between cursor-pointer hover:bg-stone-50/70 dark:hover:bg-stone-800/60 transition-all duration-300 ease-out overflow-hidden select-none outline-none border-none group snap-center"
+      className="flex-1 min-w-[120px] h-full bg-white dark:bg-[var(--bg-card-solid)] rounded-2xl p-3.5 shadow-xs flex flex-col justify-between cursor-pointer hover:bg-stone-50/70 dark:hover:brightness-110 transition-all duration-300 ease-out overflow-hidden select-none outline-none border-none group snap-center"
       style={{
         boxShadow: "0 2px 10px rgba(0, 0, 0, 0.025), 0 1px 3px rgba(0, 0, 0, 0.02)",
       }}
@@ -298,13 +298,13 @@ export const CycleDayCard: React.FC<CycleDayCardProps> = ({
 
         <div className="flex items-center justify-between gap-1 mt-1">
           <span
-            className={`inline-flex items-center gap-1 text-[0.68rem] font-semibold px-1.5 py-0.5 rounded-md leading-tight ${
+            className={`inline-flex items-center gap-1 text-[0.68rem] font-semibold px-1.5 py-0.5 rounded-md leading-tight transition-colors ${
               isWork
-                ? "bg-amber-500/10 text-amber-800 dark:text-amber-300"
-                : "bg-teal-500/10 text-teal-800 dark:text-teal-300"
+                ? "bg-amber-500/10 text-amber-800 dark:bg-amber-400/25 dark:text-amber-200"
+                : "bg-teal-500/10 text-teal-800 dark:bg-teal-400/25 dark:text-teal-200"
             }`}
           >
-            {isWork ? <Sun size={10} className="shrink-0" /> : <Moon size={10} className="shrink-0" />}
+            {isWork ? <Sun size={10} className="shrink-0 text-amber-600 dark:text-amber-300" /> : <Moon size={10} className="shrink-0 text-teal-600 dark:text-teal-300" />}
             <span className="truncate">{shiftLabel}</span>
           </span>
         </div>

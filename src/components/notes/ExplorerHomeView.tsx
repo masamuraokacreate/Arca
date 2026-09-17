@@ -14,7 +14,7 @@ import {
   FileText,
   Plus,
   ChevronRight,
-  FolderTree,
+  Folder,
 } from "lucide-react";
 import type { NoteItem } from "../../types";
 import { NoteIcon } from "./NoteIconPickerModal";
@@ -70,13 +70,9 @@ export const ExplorerHomeView: React.FC<ExplorerHomeViewProps> = ({
         {/* ── 1. ウェルカム / アクションヘッダー ── */}
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-2 border-b border-black/[0.04] dark:border-white/[0.05]">
           <div>
-            <h1 className="text-xl sm:text-2xl font-bold tracking-tight text-charcoal flex items-center gap-2">
-              <FolderTree className="w-6 h-6 text-[#B58D3D]" />
-              <span>Pages ホーム</span>
+            <h1 className="text-xl sm:text-2xl font-bold tracking-tight text-charcoal">
+              ホーム
             </h1>
-            <p className="text-xs text-charcoal-light mt-1">
-              ドキュメントのクイックアクセスと最近使用したページ一覧
-            </p>
           </div>
 
           <button
@@ -157,14 +153,11 @@ export const ExplorerHomeView: React.FC<ExplorerHomeViewProps> = ({
         <div>
           <div className="flex items-center justify-between mb-3">
             <div className="flex items-center gap-1.5">
-              <FolderTree className="w-4 h-4 text-stone-400 dark:text-stone-500" />
+              <Folder className="w-4 h-4 text-stone-400 dark:text-stone-500" />
               <h2 className="text-xs font-bold uppercase tracking-wider text-charcoal-light">
                 最近使用したページ
               </h2>
             </div>
-            <span className="text-xs text-charcoal-xlight">
-              全 {recentNotes.length} ページ
-            </span>
           </div>
 
           {recentNotes.length > 0 ? (

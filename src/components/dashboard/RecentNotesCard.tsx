@@ -32,7 +32,7 @@ export const RecentNotesCard: React.FC<RecentNotesCardProps> = ({
   return (
     <div
       data-testid="recent-notes-card"
-      className="bg-white dark:bg-stone-900 rounded-2xl p-5 shadow-xs flex flex-col h-full overflow-hidden border-none transition-all"
+      className="bg-white dark:bg-[var(--bg-card-solid)] rounded-2xl p-5 shadow-xs flex flex-col h-full overflow-hidden border-none transition-all"
       style={{
         boxShadow: "0 2px 10px rgba(0, 0, 0, 0.025), 0 1px 3px rgba(0, 0, 0, 0.02)",
       }}
@@ -63,7 +63,7 @@ export const RecentNotesCard: React.FC<RecentNotesCardProps> = ({
             <button
               type="button"
               onClick={() => onNavigate?.("notes")}
-              className="appearance-none inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-[#F5F2EB] dark:bg-stone-800 text-[0.72rem] font-semibold text-amber-800 dark:text-amber-300 hover:bg-amber-500/15 transition-colors cursor-pointer border-none"
+              className="appearance-none inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-[#F5F2EB] dark:bg-white/[0.08] text-[0.72rem] font-semibold text-amber-800 dark:text-amber-300 hover:bg-amber-500/15 transition-colors cursor-pointer border-none"
             >
               <Plus size={11} strokeWidth={2.5} />
               <span>ノート作成</span>
@@ -81,7 +81,7 @@ export const RecentNotesCard: React.FC<RecentNotesCardProps> = ({
                     onNavigate("notes");
                   }
                 }}
-                className="group flex items-center gap-2 p-2 rounded-xl hover:bg-[#F9F7F4] dark:hover:bg-stone-800/50 transition-colors cursor-pointer"
+                className="group flex items-center gap-2 p-2 rounded-xl hover:bg-[#F9F7F4] dark:hover:bg-white/[0.06] transition-colors cursor-pointer"
               >
                 <span className="w-1.5 h-1.5 rounded-full bg-amber-500/60 shrink-0" />
                 <span className="text-xs font-medium text-stone-800 dark:text-stone-200 truncate flex-1">

@@ -275,7 +275,7 @@ describe("Dashboard コンポーネント", () => {
     expect(within(eventsList).queryByText("遅番(15時)")).not.toBeInTheDocument();
   });
 
-  it("献立＆買い物カードにレシピデータが表示され、「買い物リストを見る」クリックで onNavigate('lists') が呼ばれること", async () => {
+  it("レシピカードにレシピデータが表示され、「買い物リストを見る」クリックで onNavigate('lists') が呼ばれること", async () => {
     const user = userEvent.setup();
     const handleNavigate = vi.fn();
 
@@ -320,7 +320,8 @@ describe("Dashboard コンポーネント", () => {
 
     render(<Dashboard onNavigate={handleNavigate} />);
 
-    expect(screen.getByText("今サイクルの献立 ＆ 買い物")).toBeInTheDocument();
+    // カードタイトルは「レシピ」に変更された
+    expect(screen.getByText("レシピ")).toBeInTheDocument();
     expect(screen.getByText("濃厚カルボナーラ")).toBeInTheDocument();
 
     const shopBtn = screen.getByRole("button", { name: /買い物リストを見る/ });
@@ -329,7 +330,7 @@ describe("Dashboard コンポーネント", () => {
     expect(handleNavigate).toHaveBeenCalledWith("lists");
   });
 
-  it("献立が0件のとき「献立が未設定です」と「+ 献立を設定」ボタンが表示され、クリックで onNavigate('recipes') が呼ばれること", async () => {
+  it("レシピが0件のとき「レシピがありません」と「+ レシピを追加」ボタンが表示され、クリックで onNavigate('recipes') が呼ばれること", async () => {
     const user = userEvent.setup();
     const handleNavigate = vi.fn();
 
@@ -340,8 +341,8 @@ describe("Dashboard コンポーネント", () => {
 
     render(<Dashboard onNavigate={handleNavigate} />);
 
-    expect(screen.getByText("献立が未設定です")).toBeInTheDocument();
-    const setRecipeBtn = screen.getByRole("button", { name: /献立を設定/ });
+    expect(screen.getByText("レシピがありません")).toBeInTheDocument();
+    const setRecipeBtn = screen.getByRole("button", { name: /レシピを追加/ });
     expect(setRecipeBtn).toBeInTheDocument();
 
     await user.click(setRecipeBtn);
@@ -403,10 +404,11 @@ describe("Dashboard コンポーネント", () => {
     render(<Dashboard />);
 
     expect(screen.getByText("クイックメモ")).toBeInTheDocument();
-    expect(screen.getByText("保存済み")).toBeInTheDocument();
+    // 「Notesに保存」ボタンが表示されていること（空状態のため非アクティブ）
+    expect(screen.getByTestId("save-to-notes-btn")).toBeInTheDocument();
 
     const memoTextarea = screen.getByPlaceholderText(
-      "思いついたことや一時メモを記録（ローカルに自動保存されます）..."
+      "思いついたことや一時メモを記録...「Notesに保存」でノートに転記できます"
     );
     expect(memoTextarea).toBeInTheDocument();
 
@@ -414,7 +416,7 @@ describe("Dashboard コンポーネント", () => {
     expect(memoTextarea).toHaveValue("買いたいものメモ");
   });
 
-  it("シフト調整ボタンクリックで出勤ステータス確認モーダルが開くこと", async () => {
+  it("シフト調整ボタンクリックでGoogleカレンダー連動シフト調整モーダルが開くこと", async () => {
     const user = userEvent.setup();
     render(<Dashboard />);
 
@@ -422,9 +424,10 @@ describe("Dashboard コンポーネント", () => {
     expect(shiftAdjBtn).toBeInTheDocument();
 
     await user.click(shiftAdjBtn);
-    expect(screen.getByText("出勤ステータス確認")).toBeInTheDocument();
-    expect(screen.getByText("出勤日")).toBeInTheDocument();
-    expect(screen.getByText("休日（休み）")).toBeInTheDocument();
+    // 新モーダル（ShiftGoogleAdjustModal）のタイトルh2が表示されること
+    expect(screen.getByRole("heading", { name: "シフト調整" })).toBeInTheDocument();
+    expect(screen.getByText("今のサイクル")).toBeInTheDocument();
+    expect(screen.getByText("次のサイクル")).toBeInTheDocument();
   });
 
   it("無題の空ノートおよび削除済みノート（isDeleted: true）はダッシュボードに表示されないこと", () => {
@@ -470,5 +473,28 @@ describe("Dashboard コンポーネント", () => {
     expect(screen.getByText("有効なノート")).toBeInTheDocument();
     expect(screen.queryByText("削除されたノート")).not.toBeInTheDocument();
     expect(screen.queryByText("無題のノート")).not.toBeInTheDocument();
+  });
+
+  it("ダークモード用のスタイルクラス（dark:text-stone-100, dark:bg-[var(--bg-card-solid)], dark:text-teal-200 等）が正しく適用されていること", () => {
+    render(<Dashboard />);
+
+    // 「ダッシュボード」見出しが dark:text-stone-100 を持つこと
+    const heading = screen.getByRole("heading", { name: "ダッシュボード" });
+    expect(heading).toHaveClass("dark:text-stone-100");
+
+    // サイクル日付範囲表示が dark:text-stone-100 を持つこと
+    const dateRange = screen.getByText(/\d{2}\/\d{2}\([日月火水木金土]\)～\d{2}\/\d{2}\([日月火水木金土]\)/);
+    expect(dateRange).toHaveClass("dark:text-stone-100");
+
+    // 出勤/休日ステータスバッジが高明度トーン（dark:text-amber-200 または dark:text-teal-200）を持つこと
+    const shiftBadge = screen.getByTestId("dashboard-shift-badge");
+    const badgeClass = shiftBadge.getAttribute("class") || "";
+    expect(badgeClass).toMatch(/dark:text-(amber|teal)-200/);
+
+    // ダッシュボードカード（レシピ・メモ等）が他ページと統一された dark:bg-[var(--bg-card-solid)] を持つこと
+    const mealCard = screen.getByTestId("meal-shopping-card");
+    expect(mealCard).toHaveClass("dark:bg-[var(--bg-card-solid)]");
+    const memoCard = screen.getByTestId("quick-memo-card");
+    expect(memoCard).toHaveClass("dark:bg-[var(--bg-card-solid)]");
   });
 });

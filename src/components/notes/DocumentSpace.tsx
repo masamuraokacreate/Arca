@@ -17,7 +17,6 @@ import { DocumentSpaceContext } from "./DocumentSpaceContext";
 import {
   PanelLeftOpen,
   FileText,
-  FolderRoot,
   Plus,
 } from "lucide-react";
 import { getBreadcrumbs } from "../../utils/noteHierarchy";
@@ -194,47 +193,24 @@ export const DocumentSpace: React.FC<DocumentSpaceProps> = ({
 
         {/* ── 右メイン執筆エリア（Windowsエクスプローラー風アドレスバー ＆ エディタ） ── */}
         <main className="flex-1 h-full min-h-0 overflow-hidden bg-transparent relative flex flex-col min-w-0">
-          {/* ノート非選択時（Pagesホーム時）のみ、最小限のアドレスバーを表示 */}
-          {!activeNoteId && (
+          {/* ノート非選択時（ホーム時）かつサイドバーが閉じている場合のみ、一覧展開ボタンを表示 */}
+          {!activeNoteId && !isSidebarOpen && (
             <div className="w-full flex items-center justify-between px-3.5 py-2 border-b border-black/[0.04] dark:border-white/[0.05] bg-[var(--bg-card-solid)]/75 backdrop-blur-md shrink-0 select-none z-10">
               <div className="flex items-center gap-1.5 min-w-0 flex-1 overflow-x-auto no-scrollbar py-0.5">
-                {!isSidebarOpen && (
-                  <button
-                    type="button"
-                    onClick={() => setIsSidebarOpen(true)}
-                    aria-label="ページ一覧を開く"
-                    className="h-7 px-2 mr-1 rounded-lg bg-stone-200/60 dark:bg-stone-800 text-charcoal-light hover:text-charcoal hover:bg-stone-200 transition-colors flex items-center gap-1 text-xs shrink-0 cursor-pointer border-none"
-                    title="ページ一覧を開く"
-                  >
-                    <PanelLeftOpen className="w-3.5 h-3.5 text-[#B58D3D]" />
-                    <span className="hidden sm:inline font-medium">一覧</span>
-                  </button>
-                )}
-
-                <div className="flex items-center gap-1 text-xs font-medium text-charcoal-light truncate">
-                  <span className="flex items-center gap-1 text-charcoal-light px-1.5 py-0.5 rounded">
-                    <FolderRoot size={13} className="text-[#B58D3D]" />
-                    <span className="font-semibold">Pages</span>
-                  </span>
-                </div>
+                <button
+                  type="button"
+                  onClick={() => setIsSidebarOpen(true)}
+                  aria-label="ページ一覧を開く"
+                  className="h-7 px-2 mr-1 rounded-lg bg-stone-200/60 dark:bg-stone-800 text-charcoal-light hover:text-charcoal dark:text-stone-300 dark:hover:text-stone-100 hover:bg-stone-200 dark:hover:bg-stone-700 transition-colors flex items-center gap-1 text-xs shrink-0 cursor-pointer border-none"
+                  title="ページ一覧を開く"
+                >
+                  <PanelLeftOpen className="w-3.5 h-3.5 text-[#B58D3D]" />
+                  <span className="hidden sm:inline font-medium">一覧</span>
+                </button>
               </div>
             </div>
           )}
 
-        {/* モバイル時のフローティングボタン（サイドバーが閉じていてノート表示中の場合） */}
-        {isMobile && !isSidebarOpen && (
-          <div className="fixed bottom-6 left-6 z-40">
-            <button
-              type="button"
-              onClick={() => setIsSidebarOpen(true)}
-              className="w-12 h-12 rounded-full bg-[#B58D3D] text-white shadow-lg flex items-center justify-center hover:brightness-105 active:scale-95 transition-all cursor-pointer border-none"
-              title="ページ一覧"
-              aria-label="ページ一覧"
-            >
-              <PanelLeftOpen className="w-5 h-5" />
-            </button>
-          </div>
-        )}
 
         {/* ノートエディタ または 空状態プレースホルダー */}
         {children ? (

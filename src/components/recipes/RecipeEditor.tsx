@@ -13,6 +13,7 @@
  */
 
 import React, { useState, useRef } from "react";
+import { createPortal } from "react-dom";
 import type { Recipe, IngredientItem, RecipeStep } from "../../types/recipe";
 import {
   createEmptyIngredient,
@@ -83,6 +84,7 @@ const CameraIcon = () => (
     <circle cx="12" cy="13" r="3" />
   </svg>
 );
+
 
 const StarFilledIcon = () => (
   <svg width="15" height="15" viewBox="0 0 24 24" fill="currentColor" stroke="currentColor" strokeWidth="1" style={{ color: "#E0A838", flexShrink: 0 }}>
@@ -174,6 +176,128 @@ export function RecipeEditor({
     } finally {
       setIsUploadingImage(false);
       e.target.value = "";
+    }
+  };
+
+  // ── ステップごとの写真アップロード ──
+  const stepFileInputRef = useRef<HTMLInputElement>(null);
+  const [targetStepIdForUpload, setTargetStepIdForUpload] = useState<string | null>(null);
+
+  const triggerStepImageUpload = (stepId: string) => {
+    setTargetStepIdForUpload(stepId);
+    stepFileInputRef.current?.click();
+  };
+
+  const handleStepFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file || !targetStepIdForUpload) return;
+    try {
+      const compressed = await compressRecipeImage(file, 1200, 0.82);
+      setSteps((prev) =>
+        prev.map((s) => (s.id === targetStepIdForUpload ? { ...s, imageUrl: compressed } : s))
+      );
+      showToast("手順に写真を追加しました");
+    } catch (err) {
+      console.error("Step image upload failed", err);
+      showToast("画像の圧縮・読み込みに失敗しました");
+    } finally {
+      setTargetStepIdForUpload(null);
+      e.target.value = "";
+    }
+  };
+
+  const handleUpdateStepImage = (stepId: string, imgUrl?: string) => {
+    setSteps((prev) =>
+      prev.map((s) => (s.id === stepId ? { ...s, imageUrl: imgUrl } : s))
+    );
+  };
+
+  // ── クリップボード画像ペースト（Ctrl+V / Command+V）検知 ──
+  const [pasteCandidateImage, setPasteCandidateImage] = useState<string | null>(null);
+
+  const handleContainerPaste = async (e: React.ClipboardEvent) => {
+    const items = e.clipboardData?.items;
+    if (!items || items.length === 0) return;
+
+    let imageFile: File | null = null;
+    for (let i = 0; i < items.length; i++) {
+      if (items[i].type.startsWith("image/")) {
+        const file = items[i].getAsFile();
+        if (file) {
+          imageFile = file;
+          break;
+        }
+      }
+    }
+
+    if (!imageFile) return;
+
+    // 画像ペーストの場合はデフォルト（意図しないテキスト貼り付け等）を抑止して貼り付け先選択モーダルを開く
+    e.preventDefault();
+    try {
+      const compressed = await compressRecipeImage(imageFile, 1200, 0.82);
+      setPasteCandidateImage(compressed);
+    } catch (err) {
+      console.error("Paste image compression failed", err);
+      showToast("画像の圧縮・読み込みに失敗しました");
+    }
+  };
+
+  // ── 画像の貼り付け先を適用 ──
+  const handleApplyPasteTarget = (target: "cover" | { stepId: string } | "newStep") => {
+    if (!pasteCandidateImage) return;
+
+    if (target === "cover") {
+      setImageUrl(pasteCandidateImage);
+      showToast("完成写真に画像を貼り付けました");
+    } else if (target === "newStep") {
+      const newStep: RecipeStep = {
+        ...createEmptyStep(),
+        imageUrl: pasteCandidateImage,
+      };
+      setSteps((prev) => [...prev, newStep]);
+      showToast("新しい手順ステップに画像を貼り付けました");
+    } else {
+      const stepIdx = steps.findIndex((s) => s.id === target.stepId);
+      setSteps((prev) =>
+        prev.map((s) =>
+          s.id === target.stepId ? { ...s, imageUrl: pasteCandidateImage } : s
+        )
+      );
+      showToast(`ステップ ${stepIdx + 1} に画像を貼り付けました`);
+    }
+
+    setPasteCandidateImage(null);
+  };
+
+  // ── 画像ファイルのドラッグ＆ドロップ ──
+  const handleCoverDrop = async (e: React.DragEvent) => {
+    const file = e.dataTransfer.files?.[0];
+    if (!file || !file.type.startsWith("image/")) return;
+    e.preventDefault();
+    e.stopPropagation();
+    try {
+      const compressed = await compressRecipeImage(file, 1200, 0.82);
+      setImageUrl(compressed);
+      showToast("完成写真に画像を設定しました");
+    } catch (err) {
+      console.error("Cover drop failed", err);
+      showToast("画像の圧縮・読み込みに失敗しました");
+    }
+  };
+
+  const handleStepImageDrop = async (e: React.DragEvent, stepId: string, index: number) => {
+    const file = e.dataTransfer.files?.[0];
+    if (!file || !file.type.startsWith("image/")) return;
+    e.preventDefault();
+    e.stopPropagation();
+    try {
+      const compressed = await compressRecipeImage(file, 1200, 0.82);
+      handleUpdateStepImage(stepId, compressed);
+      showToast(`ステップ ${index + 1} に画像を設定しました`);
+    } catch (err) {
+      console.error("Step image drop failed", err);
+      showToast("画像の圧縮・読み込みに失敗しました");
     }
   };
 
@@ -407,7 +531,7 @@ export function RecipeEditor({
       (ing) => ing.name.trim() || ing.amount.trim()
     );
 
-    const cleanSteps = steps.filter((s) => s.text.trim());
+    const cleanSteps = steps.filter((s) => s.text.trim() || s.imageUrl);
 
     const now = Date.now();
     // Firestore は undefined 値を拒否するため、オプショナル項目は空文字列に正規化する
@@ -448,7 +572,9 @@ export function RecipeEditor({
 
   return (
     <div
+      data-testid="recipe-editor-container"
       className="arca-view-in"
+      onPaste={handleContainerPaste}
       style={{
         minHeight: "100vh",
         display: "flex",
@@ -573,6 +699,11 @@ export function RecipeEditor({
 
             {imageUrl ? (
               <div
+                onDragOver={(e) => {
+                  e.preventDefault();
+                  e.dataTransfer.dropEffect = "copy";
+                }}
+                onDrop={handleCoverDrop}
                 style={{
                   position: "relative",
                   width: "100%",
@@ -635,6 +766,11 @@ export function RecipeEditor({
             ) : (
               <div
                 onClick={() => fileInputRef.current?.click()}
+                onDragOver={(e) => {
+                  e.preventDefault();
+                  e.dataTransfer.dropEffect = "copy";
+                }}
+                onDrop={handleCoverDrop}
                 style={{
                   width: "100%",
                   height: "140px",
@@ -673,10 +809,10 @@ export function RecipeEditor({
                   <CameraIcon />
                 </div>
                 <span style={{ fontSize: "0.84rem", fontWeight: 600, color: C.charcoalMid }}>
-                  {isUploadingImage ? "画像を圧縮中..." : "完成写真を追加（タップで選択）"}
+                  {isUploadingImage ? "画像を圧縮中..." : "完成写真を追加（タップで選択 / ドラッグ＆ドロップ）"}
                 </span>
                 <span style={{ fontSize: "0.72rem", color: C.charcoalLight }}>
-                  JPEG / PNG / WebP（自動で高画質＆軽量圧縮されます）
+                  JPEG / PNG / WebP（ペーストまたはファイル選択で設定可能）
                 </span>
               </div>
             )}
@@ -1061,6 +1197,15 @@ export function RecipeEditor({
               </button>
             </div>
 
+            <input
+              ref={stepFileInputRef}
+              type="file"
+              accept="image/*"
+              onChange={handleStepFileChange}
+              style={{ display: "none" }}
+              data-testid="recipe-step-image-input"
+            />
+
             <div style={{ display: "flex", flexDirection: "column", gap: "0.8rem" }}>
               {steps.map((step, index) => {
                 const isDragging = draggedStepIndex === index;
@@ -1071,8 +1216,21 @@ export function RecipeEditor({
                     key={step.id}
                     draggable
                     onDragStart={(e) => handleStepDragStart(e, index)}
-                    onDragOver={(e) => handleStepDragOver(e, index)}
-                    onDrop={(e) => handleStepDrop(e, index)}
+                    onDragOver={(e) => {
+                      if (e.dataTransfer.types.includes("Files")) {
+                        e.preventDefault();
+                        e.dataTransfer.dropEffect = "copy";
+                      } else {
+                        handleStepDragOver(e, index);
+                      }
+                    }}
+                    onDrop={(e) => {
+                      if (e.dataTransfer.files && e.dataTransfer.files.length > 0) {
+                        handleStepImageDrop(e, step.id, index);
+                      } else {
+                        handleStepDrop(e, index);
+                      }
+                    }}
                     onDragEnd={handleStepDragEnd}
                     style={{
                       display: "flex",
@@ -1124,27 +1282,134 @@ export function RecipeEditor({
                       </span>
                     </div>
 
-                    {/* 手順テキスト入力（Ctrl+B / Ctrl+U 対応） */}
-                    <textarea
-                      value={step.text}
-                      onChange={(e) => handleUpdateStep(step.id, e.target.value)}
-                      onKeyDown={(e) => handleStepKeyDown(e, step.id, step.text)}
-                      placeholder={`ステップ ${index + 1} の手順を入力（Ctrl+Bで太字、Ctrl+Uで下線）...`}
-                      rows={2}
-                      style={{
-                        flex: 1,
-                        padding: "0.65rem 0.85rem",
-                        borderRadius: "10px",
-                        border: "1px solid var(--border-subtle)",
-                        background: C.white,
-                        fontSize: "0.92rem",
-                        lineHeight: 1.6,
-                        color: C.charcoal,
-                        outline: "none",
-                        resize: "vertical",
-                        fontFamily: "inherit",
-                      }}
-                    />
+                    {/* 手順テキスト入力 ＆ ステップ写真エリア */}
+                    <div style={{ flex: 1, display: "flex", flexDirection: "column", gap: "0.5rem", minWidth: 0 }}>
+                      <textarea
+                        value={step.text}
+                        onChange={(e) => handleUpdateStep(step.id, e.target.value)}
+                        onKeyDown={(e) => handleStepKeyDown(e, step.id, step.text)}
+                        placeholder={`ステップ ${index + 1} の手順を入力（Ctrl+Bで太字、Ctrl+Uで下線）...`}
+                        rows={2}
+                        style={{
+                          width: "100%",
+                          boxSizing: "border-box",
+                          padding: "0.65rem 0.85rem",
+                          borderRadius: "10px",
+                          border: "1px solid var(--border-subtle)",
+                          background: C.white,
+                          fontSize: "0.92rem",
+                          lineHeight: 1.6,
+                          color: C.charcoal,
+                          outline: "none",
+                          resize: "vertical",
+                          fontFamily: "inherit",
+                        }}
+                      />
+
+                      {/* ステップ写真のプレビューまたは追加ボタン */}
+                      {step.imageUrl ? (
+                        <div
+                          style={{
+                            position: "relative",
+                            display: "inline-flex",
+                            alignItems: "flex-start",
+                            maxWidth: "240px",
+                            borderRadius: "12px",
+                            overflow: "hidden",
+                            border: "1px solid var(--border-subtle)",
+                            background: "rgba(0,0,0,0.02)",
+                            boxShadow: "0 2px 8px rgba(0,0,0,0.04)",
+                          }}
+                        >
+                          <img
+                            src={step.imageUrl}
+                            alt={`Step ${index + 1} photo`}
+                            style={{
+                              width: "100%",
+                              maxHeight: "150px",
+                              objectFit: "cover",
+                              display: "block",
+                            }}
+                          />
+                          <div
+                            style={{
+                              position: "absolute",
+                              bottom: "0.4rem",
+                              right: "0.4rem",
+                              display: "flex",
+                              gap: "0.3rem",
+                            }}
+                          >
+                            <button
+                              type="button"
+                              onClick={() => triggerStepImageUpload(step.id)}
+                              style={{
+                                background: "rgba(44, 44, 46, 0.75)",
+                                backdropFilter: "blur(6px)",
+                                color: "#fff",
+                                border: "none",
+                                borderRadius: "6px",
+                                padding: "0.25rem 0.55rem",
+                                fontSize: "0.7rem",
+                                fontWeight: 600,
+                                cursor: "pointer",
+                              }}
+                            >
+                              変更
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => handleUpdateStepImage(step.id, undefined)}
+                              style={{
+                                background: "rgba(192, 97, 74, 0.85)",
+                                backdropFilter: "blur(6px)",
+                                color: "#fff",
+                                border: "none",
+                                borderRadius: "6px",
+                                padding: "0.25rem 0.55rem",
+                                fontSize: "0.7rem",
+                                fontWeight: 600,
+                                cursor: "pointer",
+                              }}
+                            >
+                              削除
+                            </button>
+                          </div>
+                        </div>
+                      ) : (
+                        <div>
+                          <button
+                            type="button"
+                            onClick={() => triggerStepImageUpload(step.id)}
+                            title="このステップに写真を追加"
+                            style={{
+                              display: "inline-flex",
+                              alignItems: "center",
+                              gap: "0.35rem",
+                              background: "transparent",
+                              border: "1px dashed var(--border-subtle)",
+                              borderRadius: "8px",
+                              padding: "0.28rem 0.65rem",
+                              fontSize: "0.74rem",
+                              color: C.charcoalLight,
+                              cursor: "pointer",
+                              transition: "all 0.15s ease",
+                            }}
+                            onMouseEnter={(e) => {
+                              e.currentTarget.style.borderColor = C.gold;
+                              e.currentTarget.style.color = C.goldDark;
+                            }}
+                            onMouseLeave={(e) => {
+                              e.currentTarget.style.borderColor = "var(--border-subtle)";
+                              e.currentTarget.style.color = C.charcoalLight;
+                            }}
+                          >
+                            <CameraIcon />
+                            <span>写真を追加</span>
+                          </button>
+                        </div>
+                      )}
+                    </div>
 
                     {/* 削除ボタン */}
                     <button
@@ -1464,6 +1729,358 @@ export function RecipeEditor({
           </div>
         </div>
       )}
+
+      {/* ─── クリップボード画像 貼り付け先選択モーダル ─── */}
+      {pasteCandidateImage &&
+        createPortal(
+          <div
+            className="arca-modal-overlay"
+            data-testid="paste-target-modal"
+            style={{
+              position: "fixed",
+              inset: 0,
+              zIndex: 2000,
+              background: "rgba(0, 0, 0, 0.45)",
+              backdropFilter: "blur(10px)",
+              WebkitBackdropFilter: "blur(10px)",
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+              padding: "1rem",
+              boxSizing: "border-box",
+            }}
+            onClick={() => setPasteCandidateImage(null)}
+          >
+            <div
+              className="arca-card"
+              style={{
+                width: "100%",
+                maxWidth: "460px",
+                background: "var(--bg-card-solid)",
+                borderRadius: "24px",
+                border: "1px solid var(--border-subtle)",
+                boxShadow: "var(--shadow-modal)",
+                display: "flex",
+                flexDirection: "column",
+                overflow: "hidden",
+                animation: "arca-modal-pop 0.22s cubic-bezier(0.16, 1, 0.3, 1)",
+              }}
+              onClick={(e) => e.stopPropagation()}
+            >
+              {/* モーダルヘッダー */}
+              <div
+                style={{
+                  padding: "1.4rem 1.6rem 1rem",
+                  borderBottom: "1px solid var(--border-subtle)",
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "space-between",
+                }}
+              >
+                <div>
+                  <h3
+                    style={{
+                      margin: 0,
+                      fontSize: "1.05rem",
+                      fontWeight: 750,
+                      color: C.charcoal,
+                      letterSpacing: "-0.01em",
+                    }}
+                  >
+                    画像の貼り付け先を選択
+                  </h3>
+                  <p
+                    style={{
+                      margin: "0.25rem 0 0",
+                      fontSize: "0.76rem",
+                      color: C.charcoalLight,
+                    }}
+                  >
+                    この画像をどの箇所に貼り付けますか？
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setPasteCandidateImage(null)}
+                  style={{
+                    background: "none",
+                    border: "none",
+                    padding: "0.4rem",
+                    cursor: "pointer",
+                    color: C.charcoalLight,
+                    borderRadius: "8px",
+                  }}
+                  aria-label="閉じる"
+                >
+                  ✕
+                </button>
+              </div>
+
+              {/* 貼り付け候補画像のプレビュー */}
+              <div
+                style={{
+                  padding: "0.8rem 1.6rem",
+                  background: "rgba(0, 0, 0, 0.02)",
+                  display: "flex",
+                  justifyContent: "center",
+                  alignItems: "center",
+                  borderBottom: "1px solid var(--border-subtle)",
+                }}
+              >
+                <img
+                  src={pasteCandidateImage}
+                  alt="Paste preview"
+                  data-testid="paste-image-preview"
+                  style={{
+                    maxHeight: "130px",
+                    maxWidth: "100%",
+                    borderRadius: "12px",
+                    objectFit: "contain",
+                    boxShadow: "0 2px 8px rgba(0,0,0,0.08)",
+                  }}
+                />
+              </div>
+
+              {/* 選択肢リスト（スクロール可能） */}
+              <div
+                style={{
+                  padding: "0.8rem 1.2rem",
+                  maxHeight: "300px",
+                  overflowY: "auto",
+                  display: "flex",
+                  flexDirection: "column",
+                  gap: "0.45rem",
+                }}
+              >
+                {/* 1. 完成写真 */}
+                <button
+                  type="button"
+                  onClick={() => handleApplyPasteTarget("cover")}
+                  data-testid="paste-target-cover"
+                  style={{
+                    display: "flex",
+                    alignItems: "center",
+                    gap: "0.85rem",
+                    padding: "0.75rem 0.9rem",
+                    borderRadius: "14px",
+                    border: "1px solid var(--border-subtle)",
+                    background: C.white,
+                    cursor: "pointer",
+                    textAlign: "left",
+                    transition: "all 0.15s ease",
+                  }}
+                  onMouseEnter={(e) => {
+                    e.currentTarget.style.borderColor = C.gold;
+                    e.currentTarget.style.background = C.goldFaint;
+                  }}
+                  onMouseLeave={(e) => {
+                    e.currentTarget.style.borderColor = "var(--border-subtle)";
+                    e.currentTarget.style.background = C.white;
+                  }}
+                >
+                  <div
+                    style={{
+                      width: "34px",
+                      height: "34px",
+                      borderRadius: "10px",
+                      background: C.goldFaint,
+                      color: C.goldDark,
+                      display: "flex",
+                      alignItems: "center",
+                      justifyContent: "center",
+                      flexShrink: 0,
+                    }}
+                  >
+                    <CameraIcon />
+                  </div>
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <div style={{ fontSize: "0.85rem", fontWeight: 700, color: C.charcoal }}>
+                      完成写真（メイン画像）
+                    </div>
+                    <div style={{ fontSize: "0.72rem", color: C.charcoalLight, marginTop: "1px" }}>
+                      {imageUrl ? "現在の完成写真を置き換えます" : "料理のメイン写真として設定します"}
+                    </div>
+                  </div>
+                  {imageUrl && (
+                    <span
+                      style={{
+                        fontSize: "0.68rem",
+                        padding: "0.15rem 0.45rem",
+                        borderRadius: "6px",
+                        background: C.goldFaint2,
+                        color: C.goldDark,
+                        fontWeight: 600,
+                        flexShrink: 0,
+                      }}
+                    >
+                      置換
+                    </span>
+                  )}
+                </button>
+
+                {/* 2. 各手順（ステップ） */}
+                {steps.map((step, idx) => (
+                  <button
+                    key={step.id}
+                    type="button"
+                    onClick={() => handleApplyPasteTarget({ stepId: step.id })}
+                    data-testid={`paste-target-step-${idx}`}
+                    style={{
+                      display: "flex",
+                      alignItems: "center",
+                      gap: "0.85rem",
+                      padding: "0.75rem 0.9rem",
+                      borderRadius: "14px",
+                      border: "1px solid var(--border-subtle)",
+                      background: C.white,
+                      cursor: "pointer",
+                      textAlign: "left",
+                      transition: "all 0.15s ease",
+                    }}
+                    onMouseEnter={(e) => {
+                      e.currentTarget.style.borderColor = C.gold;
+                      e.currentTarget.style.background = C.goldFaint;
+                    }}
+                    onMouseLeave={(e) => {
+                      e.currentTarget.style.borderColor = "var(--border-subtle)";
+                      e.currentTarget.style.background = C.white;
+                    }}
+                  >
+                    <div
+                      style={{
+                        width: "34px",
+                        height: "34px",
+                        borderRadius: "10px",
+                        background: C.gold,
+                        color: "#fff",
+                        fontSize: "0.85rem",
+                        fontWeight: 700,
+                        display: "flex",
+                        alignItems: "center",
+                        justifyContent: "center",
+                        flexShrink: 0,
+                      }}
+                    >
+                      {idx + 1}
+                    </div>
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      <div style={{ fontSize: "0.85rem", fontWeight: 700, color: C.charcoal }}>
+                        ステップ {idx + 1}
+                      </div>
+                      <div
+                        style={{
+                          fontSize: "0.72rem",
+                          color: C.charcoalLight,
+                          marginTop: "1px",
+                          overflow: "hidden",
+                          textOverflow: "ellipsis",
+                          whiteSpace: "nowrap",
+                        }}
+                      >
+                        {step.text.trim() || "（手順テキスト未入力）"}
+                      </div>
+                    </div>
+                    {step.imageUrl && (
+                      <span
+                        style={{
+                          fontSize: "0.68rem",
+                          padding: "0.15rem 0.45rem",
+                          borderRadius: "6px",
+                          background: C.goldFaint2,
+                          color: C.goldDark,
+                          fontWeight: 600,
+                          flexShrink: 0,
+                        }}
+                      >
+                        写真あり
+                      </span>
+                    )}
+                  </button>
+                ))}
+
+                {/* 3. 新しいステップを追加して設定 */}
+                <button
+                  type="button"
+                  onClick={() => handleApplyPasteTarget("newStep")}
+                  data-testid="paste-target-new-step"
+                  style={{
+                    display: "flex",
+                    alignItems: "center",
+                    gap: "0.85rem",
+                    padding: "0.75rem 0.9rem",
+                    borderRadius: "14px",
+                    border: "1.5px dashed var(--border-subtle)",
+                    background: "rgba(0,0,0,0.01)",
+                    cursor: "pointer",
+                    textAlign: "left",
+                    transition: "all 0.15s ease",
+                  }}
+                  onMouseEnter={(e) => {
+                    e.currentTarget.style.borderColor = C.gold;
+                    e.currentTarget.style.background = C.goldFaint;
+                  }}
+                  onMouseLeave={(e) => {
+                    e.currentTarget.style.borderColor = "var(--border-subtle)";
+                    e.currentTarget.style.background = "rgba(0,0,0,0.01)";
+                  }}
+                >
+                  <div
+                    style={{
+                      width: "34px",
+                      height: "34px",
+                      borderRadius: "10px",
+                      background: C.goldFaint2,
+                      color: C.goldDark,
+                      display: "flex",
+                      alignItems: "center",
+                      justifyContent: "center",
+                      flexShrink: 0,
+                    }}
+                  >
+                    <PlusIcon />
+                  </div>
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <div style={{ fontSize: "0.85rem", fontWeight: 700, color: C.goldDark }}>
+                      ＋ 新しいステップを追加して設定
+                    </div>
+                    <div style={{ fontSize: "0.72rem", color: C.charcoalLight, marginTop: "1px" }}>
+                      新しい手順を作成し、そこに写真を登録します
+                    </div>
+                  </div>
+                </button>
+              </div>
+
+              {/* モーダルフッター */}
+              <div
+                style={{
+                  padding: "0.8rem 1.6rem 1.2rem",
+                  borderTop: "1px solid var(--border-subtle)",
+                  display: "flex",
+                  justifyContent: "flex-end",
+                }}
+              >
+                <button
+                  type="button"
+                  data-testid="paste-modal-cancel"
+                  onClick={() => setPasteCandidateImage(null)}
+                  style={{
+                    background: "rgba(0, 0, 0, 0.05)",
+                    border: "none",
+                    borderRadius: "10px",
+                    padding: "0.55rem 1.2rem",
+                    fontSize: "0.82rem",
+                    fontWeight: 600,
+                    color: C.charcoalMid,
+                    cursor: "pointer",
+                  }}
+                >
+                  キャンセル
+                </button>
+              </div>
+            </div>
+          </div>,
+          document.body
+        )}
 
       {/* ─── ピル型トースト通知 ─── */}
       {toastMessage && (

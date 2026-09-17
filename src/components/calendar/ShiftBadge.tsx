@@ -11,7 +11,6 @@
 import React from "react";
 import { Sun, Moon } from "lucide-react";
 import type { ShiftInfo } from "../../types/shift";
-import { C } from "../../lib/designSystem";
 
 export interface ShiftBadgeProps {
   shift: ShiftInfo;
@@ -76,20 +75,17 @@ export function ShiftBadge({
       type="button"
       onClick={onClick}
       data-testid={testId}
-      className={className}
       title={shift.isOverridden ? "手動設定中（クリックで変更・自動判定に戻す）" : "Googleカレンダー連動中（クリックで手動調整）"}
+      className={`inline-flex items-center border-none font-semibold tracking-[0.02em] select-none ${
+        isWork
+          ? "bg-amber-500/10 text-amber-800 dark:bg-amber-400/25 dark:text-amber-200"
+          : "bg-teal-500/10 text-teal-800 dark:bg-teal-400/25 dark:text-teal-200"
+      } ${className || ""}`}
       style={{
-        display: "inline-flex",
-        alignItems: "center",
         gap: isSmall ? "0.3rem" : "0.4rem",
         padding: isSmall ? "0.2rem 0.6rem" : "0.3rem 0.8rem",
         borderRadius: "9999px",
-        background: isWork ? C.goldFaint : "rgba(82, 121, 111, 0.12)",
-        color: isWork ? C.goldDark : C.sage,
-        border: "none",
         fontSize: isSmall ? "0.72rem" : "0.8rem",
-        fontWeight: 600,
-        letterSpacing: "0.02em",
         cursor: onClick ? "pointer" : "default",
         boxShadow: "0 1px 3px rgba(0, 0, 0, 0.04)",
         transition: "all 0.18s cubic-bezier(0.16, 1, 0.3, 1)",

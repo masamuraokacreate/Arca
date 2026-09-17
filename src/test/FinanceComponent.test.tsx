@@ -92,7 +92,7 @@ describe("Finance コンポーネント", () => {
     const analyticsTabBtn = screen.getByText("分析・グラフ");
     fireEvent.click(analyticsTabBtn);
     expect(screen.getByText("カテゴリ別支出内訳")).toBeInTheDocument();
-    expect(screen.getByText("日別支出推移")).toBeInTheDocument();
+    expect(screen.getByText("割合")).toBeInTheDocument();
 
     // 「クレカ明細確認」タブをクリック
     const reconcileTabBtn = screen.getByText(/クレカ明細確認/);
@@ -209,6 +209,10 @@ describe("Finance コンポーネント", () => {
   it("カード別フィルターに照合済みバッジ（✓）が表示され、安心インジケータバナーが表示される", async () => {
     render(<Finance />);
 
+    // 詳細絞り込みポップアップを開く
+    const filterBtn = screen.getByTitle("詳細絞り込み");
+    fireEvent.click(filterBtn);
+
     // 照合済み Oliveカード のバッジ（✓）が表示されている
     const oliveBadge = screen.getByTestId("reconcile-badge-Oliveカード");
     expect(oliveBadge).toHaveTextContent("✓");
@@ -225,6 +229,10 @@ describe("Finance コンポーネント", () => {
     const toggleSpy = vi.spyOn(csvReconcileService, "toggleMonthlyCardReconcile").mockResolvedValue(undefined as any);
 
     render(<Finance />);
+
+    // 詳細絞り込みポップアップを開く
+    const filterBtn = screen.getByTitle("詳細絞り込み");
+    fireEvent.click(filterBtn);
 
     // Oliveカードのバッジをクリック
     const oliveBadge = screen.getByTestId("reconcile-badge-Oliveカード");
@@ -321,13 +329,13 @@ describe("Finance コンポーネント", () => {
 
     render(<Finance />);
 
-    // 「確認候補あり」バッジが表示されていることを確認
-    const badges = screen.getAllByTestId("merge-candidate-badge");
-    expect(badges.length).toBeGreaterThanOrEqual(1);
-    expect(badges[0]).toHaveTextContent("確認候補あり");
-
     // レシート側取引カードをクリックして展開
     fireEvent.click(screen.getByText("ヤオコー MARKETPLACE"));
+
+    // プルダウン展開部に「結合候補」案内が表示されていることを確認
+    const badges = screen.getAllByTestId("merge-candidate-badge");
+    expect(badges.length).toBeGreaterThanOrEqual(1);
+    expect(badges[0]).toHaveTextContent("同日同額の結合候補が見つかりました");
 
     // レシート側カードに「速報メールと結合」ボタンが表示されることを確認
     const mergeButtons = screen.getAllByTestId("merge-button");
@@ -404,13 +412,13 @@ describe("Finance コンポーネント", () => {
 
     render(<Finance />);
 
-    // 「確認候補あり」バッジが表示されていることを確認
-    const badges = screen.getAllByTestId("merge-candidate-badge");
-    expect(badges.length).toBeGreaterThanOrEqual(1);
-    expect(badges[0]).toHaveTextContent("確認候補あり");
-
     // 手動取引カードをクリックして展開
     fireEvent.click(screen.getByText("お昼ごはん"));
+
+    // プルダウン展開部に「結合候補」案内が表示されていることを確認
+    const badges = screen.getAllByTestId("merge-candidate-badge");
+    expect(badges.length).toBeGreaterThanOrEqual(1);
+    expect(badges[0]).toHaveTextContent("同日同額の結合候補が見つかりました");
 
     // 結合ボタンが表示され、相手先の「ファミリーマート（買物）」が表示されていること
     const mergeButtons = screen.getAllByTestId("merge-button");
@@ -523,5 +531,44 @@ describe("Finance コンポーネント", () => {
     for (const select of itemSelects) {
       expect(select.value).toBe("日用品・消耗品");
     }
+  });
+
+  it("アコーディオンを展開すると3大入力インジケーター（CSV照合、速報メール、レシート品目）および支払方法が表示される", async () => {
+    render(<Finance />);
+
+    // 一覧カード表面には「Oliveカード」や「速報」「確認済」等のバッジは表示されていない
+    expect(screen.queryByText("CSV照合済")).not.toBeInTheDocument();
+
+    // カードをクリックしてアコーディオンを展開
+    fireEvent.click(screen.getByText("イオンモール"));
+
+    // 展開エリアに支払方法および3大入力インジケーターが表示される
+    const paymentMethodLabel = screen.getByText("支払方法:");
+    expect(paymentMethodLabel.parentElement).toHaveTextContent("Oliveカード");
+    expect(screen.getByText("CSV照合済")).toBeInTheDocument();
+    expect(screen.getByText("速報メール未連携")).toBeInTheDocument();
+    expect(screen.getByText("レシート品目 (2件)")).toBeInTheDocument();
+  });
+
+  it("検索バーからカード名（Oliveカード）やカテゴリ（日用品）で即座に絞り込める", async () => {
+    const user = userEvent.setup();
+    render(<Finance />);
+
+    const searchInput = screen.getByPlaceholderText("カード・店名・分類・品目で検索...");
+    expect(searchInput).toBeInTheDocument();
+
+    // カード名「Olive」で検索
+    await user.type(searchInput, "Olive");
+    expect(screen.getByText("イオンモール")).toBeInTheDocument();
+    expect(screen.queryByText("マツモトキヨシ")).not.toBeInTheDocument();
+
+    // 検索語句をクリア
+    await user.clear(searchInput);
+    expect(screen.getByText("マツモトキヨシ")).toBeInTheDocument();
+
+    // カテゴリ名「日用品」で検索
+    await user.type(searchInput, "日用品");
+    expect(screen.queryByText("イオンモール")).not.toBeInTheDocument();
+    expect(screen.getByText("マツモトキヨシ")).toBeInTheDocument();
   });
 });

@@ -12,6 +12,7 @@ import {
   mergeExpenseTransactions,
   cleanupDuplicateExpenses,
   buildGmailCardNoticeQuery,
+  buildGmailCardNoticeQueryForMonth,
 } from "../services/gmailFinanceService";
 import * as financeStorage from "../lib/financeStorage";
 import type { ExpenseTransaction } from "../types/finance";
@@ -26,6 +27,16 @@ describe("gmailFinanceService", () => {
       expect(buildGmailCardNoticeQuery()).toContain("newer_than:30d");
       expect(buildGmailCardNoticeQuery(60)).toContain("newer_than:60d");
       expect(buildGmailCardNoticeQuery(14)).toContain("newer_than:14d");
+    });
+
+    it("buildGmailCardNoticeQueryForMonth が指定年月や今月の月初以降（after:）を含むクエリを生成する", () => {
+      const q = buildGmailCardNoticeQueryForMonth("2026-09");
+      expect(q).toContain("after:2026/08/31");
+      expect(q).toContain("vpass.ne.jp");
+      expect(q).toContain("ご利用速報");
+
+      const qCurrent = buildGmailCardNoticeQueryForMonth();
+      expect(qCurrent).toContain("after:");
     });
 
     it("decodeBase64Url が base64url 文字列を正しく UTF-8 デコードする", () => {

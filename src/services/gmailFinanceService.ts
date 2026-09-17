@@ -32,7 +32,7 @@ import {
 } from "../utils/csvReconcile";
 
 /**
- * Gmail カード利用速報検索クエリ生成ヘルパー
+ * Gmail カード利用速報検索クエリ生成ヘルパー (指定日数)
  * @param days 検索対象日数（デフォルト: 30日）
  */
 export function buildGmailCardNoticeQuery(days: number = 30): string {
@@ -45,8 +45,41 @@ export function buildGmailCardNoticeQuery(days: number = 30): string {
   );
 }
 
-/** 検索対象クエリ (デフォルト: 直近30日以内) */
-export const GMAIL_CARD_NOTICE_QUERY = buildGmailCardNoticeQuery(30);
+/**
+ * 対象月（デフォルト: 今月）の利用速報メール検索クエリ生成ヘルパー
+ * 今月1日以降のメールをすべて対象にする (after:YYYY/MM/DD)
+ * @param targetMonth 対象年月 "YYYY-MM"（省略時は今月）
+ */
+export function buildGmailCardNoticeQueryForMonth(targetMonth?: string): string {
+  let ym = targetMonth;
+  if (!ym) {
+    const now = new Date();
+    const jstYear = now.getFullYear();
+    const jstMonth = String(now.getMonth() + 1).padStart(2, "0");
+    ym = `${jstYear}-${jstMonth}`;
+  }
+
+  const [yearStr, monthStr] = ym.split("-");
+  const year = parseInt(yearStr, 10);
+  const month = parseInt(monthStr, 10);
+
+  // 日本時間（JST = UTC+9）の月初のメールを取りこぼさないよう、UTCタイムゾーン差を考慮して前月最終日を指定
+  const firstDay = new Date(year, month - 1, 1);
+  const prevDay = new Date(firstDay);
+  prevDay.setDate(prevDay.getDate() - 1);
+  const afterStr = `${prevDay.getFullYear()}/${String(prevDay.getMonth() + 1).padStart(2, "0")}/${String(prevDay.getDate()).padStart(2, "0")}`;
+
+  return (
+    '((from:(vpass.ne.jp OR smbc-card.com) ("カードご利用のお知らせ" OR "ご利用のお知らせ")) OR ' +
+    '(from:(dcard.docomo.ne.jp OR docomo.ne.jp) "ご利用速報") OR ' +
+    '(from:(aeon.co.jp) "カードご利用確認") OR ' +
+    '(from:(viewsnet.jp) "ご利用のお知らせ")) ' +
+    `after:${afterStr}`
+  );
+}
+
+/** 検索対象クエリ (デフォルト: 今月分すべて) */
+export const GMAIL_CARD_NOTICE_QUERY = buildGmailCardNoticeQueryForMonth();
 
 /**
  * Base64URL デコード関数 (UTF-8 対応)
@@ -450,21 +483,30 @@ export function parseCardNoticeEmail(
   };
 }
 
+export interface FetchCardNoticeOptions {
+  days?: number;
+  /** 対象年月 "YYYY-MM" (省略時は今月) */
+  targetMonth?: string;
+  /** 対象月に厳密にフィルタリングするか (デフォルト: targetMonth指定時または月検索時 true) */
+  filterByMonth?: boolean;
+}
+
 /**
  * Gmail から利用速報メールを取得・解析し、Finance取引に反映する
  *
- * 重複判定（冪等性）の唯一の基準: emailMessageId の完全一致
- * - 同日・同額スキップ等の過剰判定は完全に撤廃し、異なるメールであれば正当な別決済として正常に取り込む
- * - Firestore に存在するレコード（isDeleted: true 含む）と照合し、同一 emailMessageId の二重インポートを防止
+ * 【今月分すべて取得】
+ * - デフォルトで今月（または指定年月）のメールをすべて対象にする
+ * - nextPageToken による全ページ取得に対応し、上限（最大500件）まで漏れなく取得
+ * - 重複判定（冪等性）の唯一の基準: emailMessageId の完全一致
  *
  * @param token 有効な Google アクセストークン
  * @param existingTransactions ローカルの既存取引一覧
- * @param days 検索対象日数（デフォルト: 30日）
+ * @param optionsOrDays 検索対象日数、またはオプション（targetMonth, days等）
  */
 export async function fetchAndProcessCardNoticeEmails(
   token: string,
   existingTransactions: ExpenseTransaction[],
-  days: number = 30
+  optionsOrDays?: number | FetchCardNoticeOptions
 ): Promise<{
   createdCount: number;
   linkedCount: number;
@@ -475,25 +517,47 @@ export async function fetchAndProcessCardNoticeEmails(
     throw new Error("有効なGoogleアクセストークンがありません。");
   }
 
-  // 1. メッセージID一覧を検索 (指定日数、デフォルト30日)
-  const query = buildGmailCardNoticeQuery(days);
-  const listUrl = `https://gmail.googleapis.com/gmail/v1/users/me/messages?q=${encodeURIComponent(
-    query
-  )}&maxResults=50`;
+  // オプション解析
+  const isDaysNumber = typeof optionsOrDays === "number";
+  const options: FetchCardNoticeOptions = isDaysNumber
+    ? { days: optionsOrDays }
+    : optionsOrDays || {};
 
-  const listRes = await fetch(listUrl, {
-    headers: { Authorization: `Bearer ${token}` },
-  });
+  const targetMonth = options.targetMonth;
+  const query = options.days
+    ? buildGmailCardNoticeQuery(options.days)
+    : buildGmailCardNoticeQueryForMonth(targetMonth);
 
-  if (!listRes.ok) {
-    if (listRes.status === 401 || listRes.status === 403) {
-      throw new Error("Gmailの読み取り権限が未認可または期限切れです。再認証してください。");
+  // 1. メッセージID一覧を検索（今月分すべてを取得するため nextPageToken を辿る）
+  const messages: Array<{ id: string; threadId: string }> = [];
+  let pageToken: string | undefined = undefined;
+  let pageCount = 0;
+  const maxPages = 5; // 最大500件まで安全取得
+
+  do {
+    const listUrl = `https://gmail.googleapis.com/gmail/v1/users/me/messages?q=${encodeURIComponent(
+      query
+    )}&maxResults=100${pageToken ? `&pageToken=${encodeURIComponent(pageToken)}` : ""}`;
+
+    const listRes = await fetch(listUrl, {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+
+    if (!listRes.ok) {
+      if (listRes.status === 401 || listRes.status === 403) {
+        throw new Error("Gmailの読み取り権限が未認可または期限切れです。再認証してください。");
+      }
+      throw new Error(`Gmail APIエラー: ${listRes.status} ${listRes.statusText}`);
     }
-    throw new Error(`Gmail APIエラー: ${listRes.status} ${listRes.statusText}`);
-  }
 
-  const listData = await listRes.json();
-  const messages: Array<{ id: string; threadId: string }> = listData.messages || [];
+    const listData = await listRes.json();
+    if (listData.messages && Array.isArray(listData.messages)) {
+      messages.push(...listData.messages);
+    }
+
+    pageToken = listData.nextPageToken;
+    pageCount++;
+  } while (pageToken && pageCount < maxPages);
 
   if (messages.length === 0) {
     return { createdCount: 0, linkedCount: 0, skippedCount: 0, totalFound: 0 };

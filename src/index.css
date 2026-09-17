@@ -1,5 +1,8 @@
 @import "tailwindcss";
 
+/* Tailwind CSS v4 クラスベースダークモード用バリアント定義 */
+@custom-variant dark (&:where(.dark, .dark *));
+
 @theme {
   --color-bg-base: var(--bg-base);
   --color-base-ivory: var(--bg-base-tint);
@@ -67,18 +70,18 @@
 .dark,
 [data-theme="dark"] {
   --bg-base: #0D0E12;
-  --bg-base-tint: #14161F;
-  --bg-grad: linear-gradient(155deg, #0D0E12 0%, #13151D 50%, #171924 100%);
-  --bg-surface: #16181F;
-  --bg-surface-glass: rgba(22, 24, 31, 0.88);
-  --bg-card: rgba(26, 29, 38, 0.72);
-  --bg-card-hover: rgba(32, 35, 46, 0.88);
-  --bg-card-solid: #191B24;
-  --bg-nav-track: rgba(255, 255, 255, 0.08);
-  --bg-nav-pill: rgba(255, 255, 255, 0.20);
+  --bg-base-tint: #1B202E;
+  --bg-grad: linear-gradient(155deg, #0D0E12 0%, #191E2C 50%, #202638 100%);
+  --bg-surface: #222738;
+  --bg-surface-glass: rgba(34, 39, 56, 0.88);
+  --bg-card: rgba(42, 48, 68, 0.78);
+  --bg-card-hover: rgba(50, 58, 82, 0.92);
+  --bg-card-solid: #272C3D;
+  --bg-nav-track: rgba(255, 255, 255, 0.10);
+  --bg-nav-pill: rgba(255, 255, 255, 0.24);
 
-  --color-ivory-tint: #1C1E29;
-  --color-ivory-tint2: #242735;
+  --color-ivory-tint: #2A3043;
+  --color-ivory-tint2: #333B52;
 
   --text-main: #FFFFFF;
   --text-mid: #B0B0B8;
@@ -92,7 +95,7 @@
   --accent-gold-faint3: rgba(212, 175, 55, 0.32);
   --accent-gold-glow: rgba(212, 175, 55, 0.30);
 
-  --border-subtle: rgba(255, 255, 255, 0.07);
+  --border-subtle: rgba(255, 255, 255, 0.08);
   --shadow-card: 0 4px 24px rgba(0, 0, 0, 0.40), 0 1px 3px rgba(0, 0, 0, 0.25);
   --shadow-card-hover: 0 8px 36px rgba(0, 0, 0, 0.55), 0 2px 8px rgba(0, 0, 0, 0.35);
   --shadow-modal: 0 16px 56px rgba(0, 0, 0, 0.65), 0 4px 20px rgba(0, 0, 0, 0.4);
@@ -139,18 +142,18 @@
 /* ── 4. Midnight Sage (Forest Dark) ── */
 [data-theme="sage"] {
   --bg-base: #101715;
-  --bg-base-tint: #17211E;
-  --bg-grad: linear-gradient(155deg, #101715 0%, #15201C 50%, #1A2823 100%);
-  --bg-surface: #182420;
-  --bg-surface-glass: rgba(24, 36, 32, 0.88);
-  --bg-card: rgba(28, 42, 37, 0.72);
-  --bg-card-hover: rgba(34, 52, 46, 0.88);
-  --bg-card-solid: #1C2B26;
-  --bg-nav-track: rgba(255, 255, 255, 0.08);
-  --bg-nav-pill: rgba(255, 255, 255, 0.20);
+  --bg-base-tint: #1E2D29;
+  --bg-grad: linear-gradient(155deg, #101715 0%, #1C2D27 50%, #243932 100%);
+  --bg-surface: #243731;
+  --bg-surface-glass: rgba(36, 55, 49, 0.88);
+  --bg-card: rgba(42, 64, 57, 0.78);
+  --bg-card-hover: rgba(50, 76, 68, 0.92);
+  --bg-card-solid: #2B4039;
+  --bg-nav-track: rgba(255, 255, 255, 0.10);
+  --bg-nav-pill: rgba(255, 255, 255, 0.24);
 
-  --color-ivory-tint: #1C2925;
-  --color-ivory-tint2: #243530;
+  --color-ivory-tint: #2B4039;
+  --color-ivory-tint2: #344E45;
 
   --text-main: #FFFFFF;
   --text-mid: #AFC2BC;
@@ -290,6 +293,48 @@
 }
 
 /* ── アニメーション ── */
+@keyframes arca-fade-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+@keyframes arca-modal-pop {
+  from {
+    opacity: 0;
+    transform: scale(0.95) translateY(8px);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1) translateY(0);
+  }
+}
+
+@keyframes arca-slide-up {
+  from {
+    opacity: 0;
+    transform: translateY(20px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes arca-fab-btn-in {
+  from {
+    opacity: 0;
+    transform: translateY(24px) scale(0.92);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
 @keyframes arca-module-in {
   from {
     opacity: 0;
@@ -428,6 +473,16 @@
   transform: scale(0.97);
 }
 
+/* モバイル非表示（デスクトップ専用）ボタン */
+@media (max-width: 639px) {
+  .arca-tb-btn-desktop-only {
+    display: none !important;
+  }
+  .arca-tb-divider-desktop-only {
+    display: none !important;
+  }
+}
+
 /* 削除ボタン（Apple HIG Destructive Action） */
 .arca-tb-btn-delete {
   color: #c0614a !important;
@@ -489,11 +544,18 @@
   margin: 0 0.15rem;
 }
 
-/* レスポンシブラベル */
+/* レスポンシブラベル: PC（1024px以上）でデスクトップラベル表示、画面が狭まったら（1024px未満）非表示 */
 .arca-btn-label-desktop {
-  display: inline;
+  display: none;
   white-space: nowrap;
 }
+@media (min-width: 1024px) {
+  .arca-btn-label-desktop {
+    display: inline !important;
+  }
+}
+
+/* モバイルラベル: スマホ（639px以下）で短縮ラベル表示、それ以上では非表示 */
 .arca-btn-label-mobile {
   display: none;
   white-space: nowrap;

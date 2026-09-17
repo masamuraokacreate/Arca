@@ -959,6 +959,31 @@ export function MarkdownViewer({
 
   return (
     <div className="arca-prose">
+      {/* タスクリスト（チェックリスト）用スタイル */}
+      <style>{`
+        .arca-prose ul.contains-task-list {
+          list-style: none !important;
+          padding-left: 0.2rem !important;
+        }
+        .arca-prose li.task-list-item {
+          display: flex !important;
+          flex-direction: row !important;
+          align-items: flex-start !important;
+          gap: 0.55rem !important;
+          margin-bottom: 0.4rem !important;
+          list-style: none !important;
+        }
+        .arca-prose li.task-list-item > input[type="checkbox"] {
+          margin-top: 0.22rem !important;
+          flex-shrink: 0 !important;
+        }
+        .arca-prose li.task-list-item p {
+          margin: 0 !important;
+          padding: 0 !important;
+          line-height: 1.6 !important;
+          display: inline !important;
+        }
+      `}</style>
       {sections.map((sec, idx) => {
         if (sec.type === "toggle") {
           return (
