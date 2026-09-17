@@ -11,14 +11,14 @@
  */
 
 import React, { useState, useEffect, useMemo } from "react";
-import type { NoteItem, NoteSpaceType, NoteBreadcrumb } from "../../types";
+import type { NoteItem, NoteSpaceType } from "../../types";
 import { DocumentTreeSidebar } from "./DocumentTreeSidebar";
+import { DocumentSpaceContext } from "./DocumentSpaceContext";
 import {
   PanelLeftOpen,
   FileText,
-  Plus,
-  ChevronRight,
   FolderRoot,
+  Plus,
 } from "lucide-react";
 import { getBreadcrumbs } from "../../utils/noteHierarchy";
 
@@ -32,6 +32,11 @@ interface DocumentSpaceProps {
   onRenameNote?: (id: string, newTitle: string) => void;
   onDeleteNote?: (note: NoteItem) => void;
   onOpenMoveModal?: (note: NoteItem) => void;
+  onUpdateNoteIcon?: (id: string, icon: string | null) => void;
+  onReorderNotes?: (orderedIds: string[], parentId: string | null) => void;
+  onTogglePin?: (id: string, currentPinned: boolean) => void;
+  onOpenTrash?: () => void;
+  deletedCount?: number;
   children: React.ReactNode;
   activeSpace?: NoteSpaceType;
   onSpaceChange?: (space: NoteSpaceType) => void;
@@ -52,6 +57,11 @@ export const DocumentSpace: React.FC<DocumentSpaceProps> = ({
   onRenameNote,
   onDeleteNote,
   onOpenMoveModal,
+  onUpdateNoteIcon,
+  onReorderNotes,
+  onTogglePin,
+  onOpenTrash,
+  deletedCount = 0,
   children,
   activeSpace,
   onSpaceChange,
@@ -96,48 +106,27 @@ export const DocumentSpace: React.FC<DocumentSpaceProps> = ({
     return getBreadcrumbs(notes, activeNoteId);
   }, [notes, activeNoteId]);
 
+  const contextValue = useMemo(
+    () => ({
+      isSidebarOpen,
+      setIsSidebarOpen,
+      breadcrumbs,
+      onSelectNote: handleSelectNote,
+      activeNoteId,
+    }),
+    [isSidebarOpen, breadcrumbs, activeNoteId]
+  );
+
   return (
-    <div className="flex flex-row w-full h-[calc(100dvh-94px-env(safe-area-inset-top,0px))] md:h-[calc(100dvh-52px-env(safe-area-inset-top,0px))] overflow-hidden relative">
-      {/* ── デスクトップ サイドバー ── */}
-      <div
-        className={`hidden md:block transition-all duration-300 ease-in-out shrink-0 overflow-hidden ${
-          isSidebarOpen ? "w-64 lg:w-72 opacity-100" : "w-0 opacity-0 pointer-events-none"
-        }`}
-      >
-        <div className="w-64 lg:w-72 h-full">
-          <DocumentTreeSidebar
-            notes={notes}
-            activeNoteId={activeNoteId}
-            onSelectNote={handleSelectNote}
-            onCreateRootNote={onCreateRootNote}
-            onCreateChildNote={onCreateChildNote}
-            onMoveNote={onMoveNote}
-            onRenameNote={onRenameNote}
-            onDeleteNote={onDeleteNote}
-            onOpenMoveModal={onOpenMoveModal}
-            onCloseSidebar={() => setIsSidebarOpen(false)}
-            activeSpace={activeSpace}
-            onSpaceChange={onSpaceChange}
-            spaceCounts={spaceCounts}
-          />
-        </div>
-      </div>
-
-      {/* ── モバイル ドロワー（オーバーレイ） ── */}
-      {isMobile && isSidebarOpen && (
+    <DocumentSpaceContext.Provider value={contextValue}>
+      <div className="flex flex-row w-full h-[calc(100dvh-94px-env(safe-area-inset-top,0px))] md:h-[calc(100dvh-52px-env(safe-area-inset-top,0px))] overflow-hidden relative">
+        {/* ── デスクトップ サイドバー ── */}
         <div
-          className="fixed inset-0 z-50 flex md:hidden"
-          role="dialog"
-          aria-modal="true"
+          className={`hidden md:block transition-all duration-300 ease-in-out shrink-0 overflow-hidden ${
+            isSidebarOpen ? "w-64 lg:w-72 opacity-100" : "w-0 opacity-0 pointer-events-none"
+          }`}
         >
-          {/* 背景ディマー */}
-          <div
-            className="fixed inset-0 bg-black/25 backdrop-blur-sm transition-opacity"
-            onClick={() => setIsSidebarOpen(false)}
-          />
-
-          {/* ドロワーパネル */}
-          <div className="relative w-4/5 max-w-xs h-full bg-[var(--bg-card-solid)] shadow-2xl z-10 flex flex-col">
+          <div className="w-64 lg:w-72 h-full">
             <DocumentTreeSidebar
               notes={notes}
               activeNoteId={activeNoteId}
@@ -148,6 +137,11 @@ export const DocumentSpace: React.FC<DocumentSpaceProps> = ({
               onRenameNote={onRenameNote}
               onDeleteNote={onDeleteNote}
               onOpenMoveModal={onOpenMoveModal}
+              onUpdateNoteIcon={onUpdateNoteIcon}
+              onReorderNotes={onReorderNotes}
+              onTogglePin={onTogglePin}
+              onOpenTrash={onOpenTrash}
+              deletedCount={deletedCount}
               onCloseSidebar={() => setIsSidebarOpen(false)}
               activeSpace={activeSpace}
               onSpaceChange={onSpaceChange}
@@ -155,79 +149,77 @@ export const DocumentSpace: React.FC<DocumentSpaceProps> = ({
             />
           </div>
         </div>
-      )}
 
-      {/* ── 右メイン執筆エリア（Windowsエクスプローラー風アドレスバー ＆ エディタ） ── */}
-      <main className="flex-1 h-full min-h-0 overflow-hidden bg-transparent relative flex flex-col min-w-0">
-        {/* ── Windowsエクスプローラー風 パンくずアドレスバー ── */}
-        <div className="w-full flex items-center justify-between px-3.5 py-2 border-b border-black/[0.04] dark:border-white/[0.05] bg-[var(--bg-card-solid)]/75 backdrop-blur-md shrink-0 select-none z-10">
-          <div className="flex items-center gap-1.5 min-w-0 flex-1 overflow-x-auto no-scrollbar py-0.5">
-            {/* サイドバー開くボタン（サイドバーが閉じている時にスマート表示） */}
-            {!isSidebarOpen && (
-              <button
-                type="button"
-                onClick={() => setIsSidebarOpen(true)}
-                aria-label="ページ一覧を開く"
-                className="h-7 px-2 mr-1 rounded-lg bg-stone-200/60 dark:bg-stone-800 text-charcoal-light hover:text-charcoal hover:bg-stone-200 transition-colors flex items-center gap-1 text-xs shrink-0 cursor-pointer border-none"
-                title="ページ一覧を開く"
-              >
-                <PanelLeftOpen className="w-3.5 h-3.5 text-[#B58D3D]" />
-                <span className="hidden sm:inline font-medium">一覧</span>
-              </button>
-            )}
+        {/* ── モバイル ドロワー（オーバーレイ） ── */}
+        {isMobile && isSidebarOpen && (
+          <div
+            className="fixed inset-0 z-50 flex md:hidden"
+            role="dialog"
+            aria-modal="true"
+          >
+            {/* 背景ディマー */}
+            <div
+              className="fixed inset-0 bg-black/25 backdrop-blur-sm transition-opacity"
+              onClick={() => setIsSidebarOpen(false)}
+            />
 
-            {/* パンくずリスト */}
-            <div className="flex items-center gap-1 text-xs font-medium text-charcoal-light truncate">
-              <button
-                type="button"
-                onClick={() => onSelectNote("")}
-                className="flex items-center gap-1 text-charcoal-light hover:text-charcoal hover:bg-black/5 dark:hover:bg-white/5 px-1.5 py-0.5 rounded transition-colors cursor-pointer border-none bg-transparent shrink-0"
-                title="Pages ホーム"
-              >
-                <FolderRoot size={13} className="text-[#B58D3D]" />
-                <span className="font-semibold">Pages</span>
-              </button>
-
-              {breadcrumbs
-                .filter((c): c is NoteBreadcrumb & { id: string } => Boolean(c.id))
-                .map((crumb, idx, arr) => {
-                  const isLast = idx === arr.length - 1;
-                  return (
-                    <React.Fragment key={crumb.id}>
-                      <ChevronRight size={12} className="text-charcoal-xlight shrink-0" />
-                      <button
-                        type="button"
-                        onClick={() => onSelectNote(crumb.id)}
-                        className={`truncate max-w-[130px] sm:max-w-[200px] px-1.5 py-0.5 rounded hover:bg-black/5 dark:hover:bg-white/5 transition-colors cursor-pointer border-none bg-transparent ${
-                          isLast
-                            ? "font-semibold text-charcoal dark:text-stone-100"
-                            : "text-charcoal-light hover:text-charcoal"
-                        }`}
-                        title={crumb.title}
-                      >
-                        {crumb.title.trim() || "（タイトルなし）"}
-                      </button>
-                    </React.Fragment>
-                  );
-                })}
+            {/* ドロワーパネル */}
+            <div className="relative w-4/5 max-w-xs h-full bg-[var(--bg-card-solid)] shadow-2xl z-10 flex flex-col">
+              <DocumentTreeSidebar
+                notes={notes}
+                activeNoteId={activeNoteId}
+                onSelectNote={handleSelectNote}
+                onCreateRootNote={onCreateRootNote}
+                onCreateChildNote={onCreateChildNote}
+                onMoveNote={onMoveNote}
+                onRenameNote={onRenameNote}
+                onDeleteNote={onDeleteNote}
+                onOpenMoveModal={onOpenMoveModal}
+                onUpdateNoteIcon={onUpdateNoteIcon}
+                onReorderNotes={onReorderNotes}
+                onTogglePin={onTogglePin}
+                onOpenTrash={() => {
+                  setIsSidebarOpen(false);
+                  onOpenTrash?.();
+                }}
+                deletedCount={deletedCount}
+                onCloseSidebar={() => setIsSidebarOpen(false)}
+                activeSpace={activeSpace}
+                onSpaceChange={onSpaceChange}
+                spaceCounts={spaceCounts}
+              />
             </div>
           </div>
+        )}
 
-          {/* 右側アクション: ＋ 子ページ追加 */}
-          {activeNoteId && (
-            <div className="flex items-center gap-2 shrink-0 ml-2">
-              <button
-                type="button"
-                onClick={() => onCreateChildNote(activeNoteId)}
-                className="inline-flex items-center gap-1 px-2.5 py-1 rounded-xl text-xs font-semibold text-amber-800 dark:text-amber-300 bg-amber-500/10 hover:bg-amber-500/20 transition-all cursor-pointer border-none shadow-2xs"
-                title="このノートの配下に子ページを作成"
-              >
-                <Plus size={13} strokeWidth={2.5} />
-                <span>子ページ</span>
-              </button>
+        {/* ── 右メイン執筆エリア（Windowsエクスプローラー風アドレスバー ＆ エディタ） ── */}
+        <main className="flex-1 h-full min-h-0 overflow-hidden bg-transparent relative flex flex-col min-w-0">
+          {/* ノート非選択時（Pagesホーム時）のみ、最小限のアドレスバーを表示 */}
+          {!activeNoteId && (
+            <div className="w-full flex items-center justify-between px-3.5 py-2 border-b border-black/[0.04] dark:border-white/[0.05] bg-[var(--bg-card-solid)]/75 backdrop-blur-md shrink-0 select-none z-10">
+              <div className="flex items-center gap-1.5 min-w-0 flex-1 overflow-x-auto no-scrollbar py-0.5">
+                {!isSidebarOpen && (
+                  <button
+                    type="button"
+                    onClick={() => setIsSidebarOpen(true)}
+                    aria-label="ページ一覧を開く"
+                    className="h-7 px-2 mr-1 rounded-lg bg-stone-200/60 dark:bg-stone-800 text-charcoal-light hover:text-charcoal hover:bg-stone-200 transition-colors flex items-center gap-1 text-xs shrink-0 cursor-pointer border-none"
+                    title="ページ一覧を開く"
+                  >
+                    <PanelLeftOpen className="w-3.5 h-3.5 text-[#B58D3D]" />
+                    <span className="hidden sm:inline font-medium">一覧</span>
+                  </button>
+                )}
+
+                <div className="flex items-center gap-1 text-xs font-medium text-charcoal-light truncate">
+                  <span className="flex items-center gap-1 text-charcoal-light px-1.5 py-0.5 rounded">
+                    <FolderRoot size={13} className="text-[#B58D3D]" />
+                    <span className="font-semibold">Pages</span>
+                  </span>
+                </div>
+              </div>
             </div>
           )}
-        </div>
 
         {/* モバイル時のフローティングボタン（サイドバーが閉じていてノート表示中の場合） */}
         {isMobile && !isSidebarOpen && (
@@ -272,5 +264,6 @@ export const DocumentSpace: React.FC<DocumentSpaceProps> = ({
         )}
       </main>
     </div>
+    </DocumentSpaceContext.Provider>
   );
 };

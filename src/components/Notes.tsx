@@ -58,6 +58,12 @@ import { NotesSpaceNav } from "./notes/NotesSpaceNav";
 import {
   Sparkles,
   Folder,
+  FileText,
+  PanelLeftOpen,
+  ChevronRight,
+  Trash2,
+  X,
+  RotateCcw,
 } from "lucide-react";
 import { C } from "../lib/designSystem";
 import { useUndoToast } from "../hooks/useUndoToast";
@@ -71,6 +77,8 @@ import { ConfirmModal } from "./notes/ConfirmModal";
 import { NoteBreadcrumbs } from "./notes/NoteBreadcrumbs";
 import { MoveNoteModal } from "./notes/MoveNoteModal";
 import { MoodPicker } from "./notes/MoodPicker";
+import { NoteIcon, NoteIconPickerModal } from "./notes/NoteIconPickerModal";
+import { useDocumentSpace } from "./notes/DocumentSpaceContext";
 import {
   fetchDailyFootprint,
   formatFootprintMarkdown,
@@ -667,6 +675,8 @@ export function NoteViewer({
   onMoodChange,
   onJournalDateChange,
   onContextSnapshotChange,
+  onIconChange,
+  onTogglePin,
   isDocumentSpace = false,
 }: {
   note: NoteItem;
@@ -696,6 +706,8 @@ export function NoteViewer({
   onMoodChange?: (mood: JournalMood) => void;
   onJournalDateChange?: (date: string) => void;
   onContextSnapshotChange?: (snapshot: NoteContextSnapshot) => void;
+  onIconChange?: (icon: string | null) => void;
+  onTogglePin?: () => void;
   isDocumentSpace?: boolean;
 }) {
   const [showToc, setShowToc] = useState(false);
@@ -703,8 +715,58 @@ export function NoteViewer({
   const [tagInput, setTagInput] = useState("");
   const [showGuide, setShowGuide] = useState(false);
   const [isImportingFootprint, setIsImportingFootprint] = useState(false);
+  const [isIconPickerOpen, setIsIconPickerOpen] = useState(false);
   const editorRef = useRef<NoteEditorHandles>(null);
   const imageFileInputRef = useRef<HTMLInputElement>(null);
+
+  const docSpace = useDocumentSpace();
+
+  // 統合ヘッダー用のパンくずスロット
+  const breadcrumbSlot = useMemo(() => {
+    if (!docSpace) return null;
+    const { isSidebarOpen, setIsSidebarOpen, breadcrumbs: spaceCrumbs, onSelectNote: spaceSelectNote } = docSpace;
+    const crumbs = spaceCrumbs.filter((c): c is NoteBreadcrumb & { id: string } => Boolean(c.id));
+    return (
+      <div className="flex items-center gap-1 text-xs font-medium text-charcoal-light truncate">
+        {/* サイドバー展開ボタン（サイドバーが閉じているときにスマート表示） */}
+        {!isSidebarOpen && (
+          <button
+            type="button"
+            onClick={() => setIsSidebarOpen(true)}
+            aria-label="ページ一覧を開く"
+            className="h-7 px-2 mr-1 rounded-lg bg-stone-200/60 dark:bg-stone-800 text-charcoal-light hover:text-charcoal hover:bg-stone-200 transition-colors flex items-center gap-1 text-xs shrink-0 cursor-pointer border-none"
+            title="ページ一覧を開く"
+          >
+            <PanelLeftOpen className="w-3.5 h-3.5 text-[#B58D3D]" />
+            <span className="hidden sm:inline font-medium">一覧</span>
+          </button>
+        )}
+
+        {crumbs.map((crumb, idx) => {
+          const isLast = idx === crumbs.length - 1;
+          return (
+            <React.Fragment key={crumb.id}>
+              {idx > 0 && (
+                <ChevronRight size={12} className="text-charcoal-xlight shrink-0" />
+              )}
+              <button
+                type="button"
+                onClick={() => spaceSelectNote(crumb.id)}
+                className={`truncate max-w-[130px] sm:max-w-[200px] px-1.5 py-0.5 rounded hover:bg-black/5 dark:hover:bg-white/5 transition-colors cursor-pointer border-none bg-transparent ${
+                  isLast
+                    ? "font-semibold text-charcoal dark:text-stone-100"
+                    : "text-charcoal-light hover:text-charcoal"
+                }`}
+                title={crumb.title}
+              >
+                {crumb.title.trim() || "（タイトルなし）"}
+              </button>
+            </React.Fragment>
+          );
+        })}
+      </div>
+    );
+  }, [docSpace]);
 
   const isJournalNote = Boolean(
     note.journalDate ||
@@ -879,33 +941,42 @@ export function NoteViewer({
 
   const toc = extractToc(note.content);
 
-  // 目次（TOC）サイドバーの描画
+  // 目次（TOC）サイドバーの描画（画面の一番右端に配置し本文の文字レイアウトを崩さない）
   const renderTocSidebar = (
-    <aside style={{ width: "220px", flexShrink: 0, marginTop: "0.5rem", display: "block" }}>
-      <div
-        style={{
-          position: "sticky",
-          top: "4rem",
-          background: "var(--bg-surface-glass)",
-          backdropFilter: "blur(16px)",
-          padding: "1rem",
-          borderRadius: "16px",
-          boxShadow: C.cardShadow,
-          maxHeight: "calc(100vh - 8rem)",
-          overflowY: "auto",
-          border: "1px solid var(--border-subtle)",
-        }}
-        className="arca-scroll"
-      >
-        <h4 style={{ fontSize: "0.75rem", fontWeight: 700, color: C.charcoalMid, margin: "0 0 1rem", letterSpacing: "0.05em" }}>
+    <aside
+      data-testid="note-toc-sidebar"
+      className="fixed top-20 right-4 sm:right-6 z-30 w-60 sm:w-64 max-h-[calc(100vh-6.5rem)] flex flex-col transition-all duration-200"
+      style={{
+        background: "var(--bg-card-solid)",
+        backdropFilter: "blur(24px) saturate(180%)",
+        WebkitBackdropFilter: "blur(24px) saturate(180%)",
+        borderRadius: "18px",
+        boxShadow: "var(--shadow-modal)",
+        border: "1px solid var(--border-subtle)",
+        overflow: "hidden",
+      }}
+    >
+      <div className="flex items-center justify-between px-4 py-3 border-b border-[var(--border-subtle)] shrink-0">
+        <h4 className="text-xs font-bold text-charcoal-mid dark:text-stone-300 tracking-wider m-0">
           目次
         </h4>
-        <ul style={{ listStyle: "none", padding: 0, margin: 0, display: "flex", flexDirection: "column", gap: "0.5rem" }}>
+        <button
+          type="button"
+          onClick={() => setShowToc(false)}
+          className="w-6 h-6 rounded-lg flex items-center justify-center text-charcoal-light hover:text-charcoal hover:bg-black/5 dark:hover:bg-white/10 transition-colors cursor-pointer border-none bg-transparent"
+          title="目次を閉じる"
+          aria-label="目次を閉じる"
+        >
+          <X size={14} />
+        </button>
+      </div>
+      <div className="p-3 overflow-y-auto arca-scroll flex-1">
+        <ul style={{ listStyle: "none", padding: 0, margin: 0, display: "flex", flexDirection: "column", gap: "0.45rem" }}>
           {toc.length === 0 ? (
             <li style={{ fontSize: "0.75rem", color: C.charcoalXLight }}>見出しがありません</li>
           ) : (
             toc.map((t) => (
-              <li key={t.id} style={{ paddingLeft: `${(t.level - 1) * 0.8}rem` }}>
+              <li key={t.id} style={{ paddingLeft: `${(t.level - 1) * 0.75}rem` }}>
                 <a
                   href={`#${t.id}`}
                   onClick={(e) => {
@@ -946,33 +1017,47 @@ export function NoteViewer({
   // エディタ本文（タイトル、メタ行、Tiptap、サブノート）
   const editorBody = (
     <>
-      {/* パンくずリスト（階層ナビゲーション） */}
-      <NoteBreadcrumbs
-        breadcrumbs={breadcrumbs}
-        onSelectBreadcrumb={onSelectBreadcrumb}
-      />
+      {/* 非DocumentSpace時のみ本文上にパンくずリスト（DocumentSpace時はヘッダーに統合） */}
+      {!isDocumentSpace && (
+        <NoteBreadcrumbs
+          breadcrumbs={breadcrumbs}
+          onSelectBreadcrumb={onSelectBreadcrumb}
+        />
+      )}
 
-      {/* タイトル入力（直接インライン編集） */}
-      <input
-        type="text"
-        value={note.title}
-        onChange={(e) => onTitleChange(e.target.value)}
-        placeholder="タイトルを入力…"
-        style={{
-          display: "block",
-          width: "100%",
-          background: "transparent",
-          border: "none",
-          outline: "none",
-          fontSize: isDocumentSpace ? "clamp(1.85rem, 3.5vw, 2.35rem)" : "2rem",
-          fontWeight: 750,
-          color: C.charcoal,
-          letterSpacing: "-0.03em",
-          lineHeight: 1.2,
-          marginBottom: "0.8rem",
-          boxSizing: "border-box",
-        }}
-      />
+      {/* タイトル行（アイコン選択ボタン ＆ インラインタイトル編集） */}
+      <div style={{ display: "flex", alignItems: "center", gap: "0.65rem", marginBottom: "0.8rem" }}>
+        {onIconChange && (
+          <button
+            type="button"
+            onClick={() => setIsIconPickerOpen(true)}
+            className="w-10 h-10 rounded-xl bg-amber-500/10 text-[#B58D3D] hover:bg-amber-500/20 flex items-center justify-center shrink-0 transition-all cursor-pointer border-none shadow-2xs group"
+            title="アイコンを変更"
+            aria-label="アイコンを変更"
+          >
+            <NoteIcon icon={note.icon} defaultIcon={<FileText className="w-5 h-5" />} className="w-5 h-5 group-hover:scale-110 transition-transform" />
+          </button>
+        )}
+        <input
+          type="text"
+          value={note.title}
+          onChange={(e) => onTitleChange(e.target.value)}
+          placeholder="タイトルを入力…"
+          style={{
+            display: "block",
+            width: "100%",
+            background: "transparent",
+            border: "none",
+            outline: "none",
+            fontSize: isDocumentSpace ? "clamp(1.85rem, 3.5vw, 2.35rem)" : "2rem",
+            fontWeight: 750,
+            color: C.charcoal,
+            letterSpacing: "-0.03em",
+            lineHeight: 1.2,
+            boxSizing: "border-box",
+          }}
+        />
+      </div>
 
       {/* メタ行（タグ・更新日） */}
       <div
@@ -1164,6 +1249,7 @@ export function NoteViewer({
       {/* ── NoteEditor: Tiptap WYSIWYG エディタ本体 ── */}
       <NoteEditor
         ref={editorRef}
+        noteId={note.id}
         content={note.content}
         attachments={note.attachments}
         onAttachmentsChange={onAttachmentsChange}
@@ -1193,11 +1279,13 @@ export function NoteViewer({
         style={{ display: "none" }}
       />
 
-      {/* ────── ツールバー ────── */}
+      {/* ────── ツールバー（パンくず統合 ＆ コントロール） ────── */}
       <NoteToolbar
+        leftSlot={isDocumentSpace ? breadcrumbSlot : undefined}
         onBack={onBack}
         onMoveNote={onMoveNote}
         onInsertImage={() => imageFileInputRef.current?.click()}
+        onInsertToggle={() => editorRef.current?.insertToggleBlock()}
         onExtract={handleExtract}
         isExtracting={isExtracting}
         canExtract={!!note.content.trim()}
@@ -1211,12 +1299,14 @@ export function NoteViewer({
         onDelete={onDelete}
         isSourceMode={isSourceMode}
         onToggleSourceMode={() => setIsSourceMode((s) => !s)}
+        isPinned={Boolean(note.pinned)}
+        onTogglePin={onTogglePin}
       />
 
       {/* ────── 本文コンテナ（Notion風シームレス執筆エリア / 浮遊カード） ────── */}
       {isDocumentSpace ? (
         <div
-          className="flex-1 w-full h-full overflow-y-auto arca-scroll"
+          className="flex-1 w-full h-full overflow-y-auto arca-scroll relative"
           style={{
             WebkitOverflowScrolling: "touch",
             overscrollBehaviorY: "contain",
@@ -1224,16 +1314,16 @@ export function NoteViewer({
           }}
         >
           <div
-            className={`w-full mx-auto px-4 sm:px-12 py-6 transition-all duration-200 flex gap-8 ${
+            className={`w-full mx-auto px-4 sm:px-12 py-6 transition-all duration-200 ${
               isFullWidth ? "max-w-none" : "max-w-4xl"
             }`}
             style={{
               paddingBottom: "calc(8rem + env(safe-area-inset-bottom, 0px))",
             }}
           >
-            <div className="flex-1 min-w-0">{editorBody}</div>
-            {showToc && renderTocSidebar}
+            <div className="w-full min-w-0">{editorBody}</div>
           </div>
+          {showToc && renderTocSidebar}
         </div>
       ) : (
         <div
@@ -1241,11 +1331,11 @@ export function NoteViewer({
             width: "100%",
             display: "flex",
             justifyContent: "center",
-            gap: "2rem",
             padding: isFullWidth
               ? "2rem clamp(1.5rem, 5vw, 4rem) calc(8rem + env(safe-area-inset-bottom, 0px))"
               : "2rem clamp(1rem, 4vw, 3rem) calc(8rem + env(safe-area-inset-bottom, 0px))",
             boxSizing: "border-box",
+            position: "relative",
           }}
         >
           <div
@@ -1253,7 +1343,6 @@ export function NoteViewer({
             style={{
               width: "100%",
               maxWidth: isFullWidth ? "100%" : "880px",
-              flex: 1,
               minWidth: 0,
               background: "var(--bg-surface-glass)",
               backdropFilter: "blur(20px) saturate(180%)",
@@ -1272,35 +1361,47 @@ export function NoteViewer({
         </div>
       )}
 
-      {/* フッター（文字数・保存ステータス） */}
-      <footer
-        style={{
-          position: "fixed",
-          bottom: 0,
-          left: 0,
-          right: 0,
-          padding: "0.45rem 2rem calc(0.45rem + env(safe-area-inset-bottom, 0px)) 2rem",
-          textAlign: "right",
-          background: "var(--bg-surface-glass)",
-          backdropFilter: "blur(12px)",
-          WebkitBackdropFilter: "blur(12px)",
-          pointerEvents: "none",
-          zIndex: 40,
-          borderTop: "1px solid var(--border-subtle)",
-        }}
+      {/* 右下に単独でフワッと現れる保存ステータス */}
+      <div
+        className={`fixed bottom-5 right-6 z-40 pointer-events-none transition-all duration-300 ease-out ${
+          saveStatus !== "idle"
+            ? "opacity-100 translate-y-0"
+            : "opacity-0 translate-y-2 pointer-events-none"
+        }`}
       >
-        <span
+        <div
           style={{
             display: "inline-flex",
             alignItems: "center",
-            gap: "0.3rem",
-            fontSize: "0.66rem",
-            color: saveStatus === "saving" ? C.charcoalXLight : C.goldDark,
-            letterSpacing: "0.04em",
-            marginRight: "1rem",
+            gap: "0.4rem",
+            padding: "0.35rem 0.75rem",
+            borderRadius: "9999px",
+            background: "var(--bg-card-solid)",
+            backdropFilter: "blur(16px)",
+            WebkitBackdropFilter: "blur(16px)",
+            border: "1px solid var(--border-subtle)",
+            boxShadow: "var(--shadow-modal, 0 4px 16px rgba(0,0,0,0.08))",
+            fontSize: "0.72rem",
+            fontWeight: 500,
+            color: saveStatus === "saving" ? C.charcoalLight : C.goldDark,
+            letterSpacing: "0.02em",
           }}
         >
-          {saveStatus === "saving" && "保存中..."}
+          {saveStatus === "saving" && (
+            <>
+              <span
+                style={{
+                  display: "inline-block",
+                  width: "5px",
+                  height: "5px",
+                  borderRadius: "50%",
+                  background: C.gold,
+                  animation: "aether-pulse 1.2s ease-in-out infinite",
+                }}
+              />
+              <span>保存中...</span>
+            </>
+          )}
           {saveStatus === "saved" && (
             <>
               <span
@@ -1312,14 +1413,22 @@ export function NoteViewer({
                   background: C.gold,
                 }}
               />
-              保存済み
+              <span>保存済み</span>
             </>
           )}
-        </span>
-        <span style={{ fontSize: "0.66rem", color: C.charcoalXLight, letterSpacing: "0.04em" }}>
-          {note.content.length.toLocaleString()} 文字
-        </span>
-      </footer>
+        </div>
+      </div>
+
+      {/* ✦ アイコン選択モーダル */}
+      <NoteIconPickerModal
+        isOpen={isIconPickerOpen}
+        onClose={() => setIsIconPickerOpen(false)}
+        currentIcon={note.icon}
+        onSelectIcon={(iconId) => {
+          onIconChange?.(iconId);
+        }}
+        noteTitle={note.title}
+      />
 
       {/* ✦ Markdown 構文ガイドモーダル */}
       <MarkdownGuideModal
@@ -2051,72 +2160,114 @@ function TrashModal({
 }) {
   return (
     <div
-      style={{
-        position: "fixed",
-        inset: 0,
-        zIndex: 2000,
-        background: "rgba(253,252,250,0.5)",
-        backdropFilter: "blur(4px)",
-        display: "flex",
-        alignItems: "center",
-        justifyContent: "center",
-        padding: "2rem",
-      }}
+      className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/30 backdrop-blur-sm select-none animate-in fade-in duration-150"
+      onClick={onClose}
     >
       <div
-        className="arca-card"
-        style={{
-          background: "var(--bg-card-solid)",
-          borderRadius: "20px",
-          boxShadow: C.toastShadow,
-          width: "100%",
-          maxWidth: "800px",
-          maxHeight: "80vh",
-          display: "flex",
-          flexDirection: "column",
-          overflow: "hidden",
-          border: "1px solid var(--border-subtle)",
-        }}
+        onClick={(e) => e.stopPropagation()}
+        className="relative w-full max-w-2xl max-h-[85vh] bg-[var(--bg-card-solid,rgba(255,255,255,0.98))] rounded-3xl shadow-2xl border border-black/[0.06] dark:border-white/[0.08] flex flex-col overflow-hidden animate-in zoom-in-95 duration-150"
       >
-        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "1.5rem 2rem", borderBottom: "1px solid var(--border-subtle)" }}>
-          <div style={{ display: "flex", alignItems: "center", gap: "1rem" }}>
-            <h2 style={{ fontSize: "1.2rem", fontWeight: 700, margin: 0, color: C.charcoal }}>ごみ箱</h2>
+        {/* ヘッダー */}
+        <div className="flex items-center justify-between px-6 py-4 border-b border-black/[0.05] dark:border-white/[0.06] shrink-0">
+          <div className="flex items-center gap-2.5">
+            <div className="w-8 h-8 rounded-xl bg-red-500/10 text-[#E0564A] flex items-center justify-center shrink-0">
+              <Trash2 className="w-4 h-4" />
+            </div>
+            <div>
+              <div className="flex items-center gap-2">
+                <h2 className="text-base font-bold text-charcoal">ごみ箱</h2>
+                <span className="px-2 py-0.5 rounded-full text-[11px] font-semibold bg-black/[0.04] dark:bg-white/[0.08] text-charcoal-light">
+                  {deletedNotes.length}件
+                </span>
+              </div>
+              <p className="text-[11px] text-charcoal-light">
+                ごみ箱にあるページは復元するか、完全に削除（データベースから消去）できます
+              </p>
+            </div>
+          </div>
+
+          <div className="flex items-center gap-2">
             {deletedNotes.length > 0 && (
               <button
                 type="button"
                 onClick={onEmptyTrash}
-                style={{
-                  background: "rgba(224, 86, 74, 0.08)",
-                  border: "none",
-                  borderRadius: "6px",
-                  padding: "0.3rem 0.65rem",
-                  fontSize: "0.75rem",
-                  fontWeight: 600,
-                  color: C.danger,
-                  cursor: "pointer",
-                  transition: "all 0.15s ease",
-                }}
+                className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-semibold bg-[#E0564A]/10 text-[#E0564A] hover:bg-[#E0564A]/20 transition-all cursor-pointer border-none"
               >
-                ごみ箱を空にする
+                <Trash2 className="w-3.5 h-3.5" />
+                <span>ごみ箱を空にする</span>
               </button>
             )}
+            <button
+              type="button"
+              onClick={onClose}
+              aria-label="閉じる"
+              className="w-8 h-8 rounded-xl flex items-center justify-center text-charcoal-light hover:text-charcoal hover:bg-black/5 dark:hover:bg-white/5 transition-colors cursor-pointer border-none bg-transparent"
+            >
+              <X className="w-4 h-4" />
+            </button>
           </div>
-          <button onClick={onClose} aria-label="閉じる" style={{ background: "transparent", border: "none", cursor: "pointer", fontSize: "1.2rem", color: C.charcoalLight }}>✕</button>
         </div>
-        <div className="arca-scroll" style={{ padding: "2rem", overflowY: "auto", flex: 1, display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(220px, 1fr))", gap: "1rem" }}>
+
+        {/* リスト領域 */}
+        <div className="flex-1 overflow-y-auto p-4 sm:p-6 space-y-2.5 arca-scroll">
           {deletedNotes.length === 0 ? (
-            <p style={{ gridColumn: "1 / -1", textAlign: "center", color: C.charcoalXLight, fontSize: "0.9rem", margin: "2rem 0" }}>ごみ箱は空です</p>
-          ) : (
-            deletedNotes.map((n) => (
-              <div key={n.id} style={{ background: "var(--bg-nav-track)", border: "1px solid var(--border-subtle)", borderRadius: "12px", padding: "1.2rem", display: "flex", flexDirection: "column", gap: "0.6rem" }}>
-                <h3 style={{ fontSize: "0.95rem", margin: 0, color: C.charcoal, fontWeight: 650, display: "-webkit-box", WebkitLineClamp: 1, WebkitBoxOrient: "vertical", overflow: "hidden" }}>{n.title || "（タイトルなし）"}</h3>
-                <p style={{ fontSize: "0.75rem", color: C.charcoalMid, margin: 0, display: "-webkit-box", WebkitLineClamp: 2, WebkitBoxOrient: "vertical", overflow: "hidden", lineHeight: 1.5 }}>{getExcerpt(n.content, 60)}</p>
-                <div style={{ marginTop: "auto", display: "flex", alignItems: "center", gap: "0.5rem" }}>
-                  <button onClick={() => onRestore(n.id)} style={{ background: "var(--bg-surface)", border: "1px solid var(--border-subtle)", borderRadius: "6px", padding: "0.4rem 0.8rem", fontSize: "0.75rem", cursor: "pointer", color: C.charcoal, fontWeight: 600, transition: "background 0.15s" }}>復元する</button>
-                  <button onClick={() => onPermanentDelete(n.id)} style={{ background: "rgba(224, 86, 74, 0.08)", border: "none", borderRadius: "6px", padding: "0.4rem 0.8rem", fontSize: "0.75rem", cursor: "pointer", color: C.danger, fontWeight: 600, transition: "background 0.15s" }}>完全に削除</button>
-                </div>
+            <div className="flex flex-col items-center justify-center py-16 text-center select-none">
+              <div className="w-12 h-12 rounded-2xl bg-black/[0.03] dark:bg-white/[0.04] flex items-center justify-center text-charcoal-xlight mb-3">
+                <Trash2 className="w-6 h-6 stroke-[1.5]" />
               </div>
-            ))
+              <p className="text-sm font-medium text-charcoal mb-1">ごみ箱は空です</p>
+              <p className="text-xs text-charcoal-light">削除されたページはありません</p>
+            </div>
+          ) : (
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              {deletedNotes.map((n) => (
+                <div
+                  key={n.id}
+                  className="flex flex-col justify-between p-3.5 rounded-2xl bg-black/[0.02] dark:bg-white/[0.03] border border-black/[0.04] dark:border-white/[0.06] hover:border-black/[0.08] transition-all group"
+                >
+                  <div className="mb-3">
+                    <div className="flex items-center gap-2 mb-1.5">
+                      <span className="w-5 h-5 rounded-lg bg-amber-500/10 text-[#B58D3D] flex items-center justify-center shrink-0">
+                        <NoteIcon
+                          icon={n.icon}
+                          defaultIcon={<FileText className="w-3 h-3 stroke-[2]" />}
+                          className="w-3 h-3 stroke-[2]"
+                        />
+                      </span>
+                      <h3 className="text-xs font-semibold text-charcoal truncate flex-1">
+                        {n.title || "（タイトルなし）"}
+                      </h3>
+                    </div>
+                    <p className="text-[11px] text-charcoal-light line-clamp-2 leading-relaxed">
+                      {getExcerpt(n.content, 60) || "（本文なし）"}
+                    </p>
+                  </div>
+
+                  <div className="flex items-center justify-between pt-2 border-t border-black/[0.03] dark:border-white/[0.04]">
+                    <span className="text-[10px] text-charcoal-xlight">
+                      {n.updatedAt ? new Date(n.updatedAt).toLocaleDateString() : ""}
+                    </span>
+                    <div className="flex items-center gap-1.5">
+                      <button
+                        type="button"
+                        onClick={() => onRestore(n.id)}
+                        className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg text-[11px] font-medium bg-black/[0.04] dark:bg-white/[0.06] text-charcoal hover:bg-black/[0.08] dark:hover:bg-white/[0.12] transition-colors cursor-pointer border-none"
+                      >
+                        <RotateCcw className="w-3 h-3 text-charcoal-light" />
+                        <span>復元する</span>
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => onPermanentDelete(n.id)}
+                        className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg text-[11px] font-medium bg-red-500/10 text-[#E0564A] hover:bg-red-500/20 transition-colors cursor-pointer border-none"
+                      >
+                        <span>完全に削除</span>
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              ))}
+            </div>
           )}
         </div>
       </div>
@@ -2211,24 +2362,12 @@ export function NoteDashboard({
         }}
       >
         <div>
-          <p
-            style={{
-              fontSize: "0.68rem",
-              fontWeight: 650,
-              letterSpacing: "0.1em",
-              textTransform: "uppercase",
-              color: C.charcoalLight,
-              margin: 0,
-            }}
-          >
-            NOTES
-          </p>
           <h1
             style={{
               fontSize: "1.75rem",
               fontWeight: 750,
               color: C.charcoal,
-              margin: "0.15rem 0 0",
+              margin: 0,
               letterSpacing: "-0.03em",
               lineHeight: 1.2,
             }}
@@ -2684,6 +2823,8 @@ export default function Notes({
           mood: data.mood || undefined,
           photos: data.photos || undefined,
           contextSnapshot: data.contextSnapshot || undefined,
+          icon: data.icon || undefined,
+          order: typeof data.order === "number" ? data.order : undefined,
         });
       });
       setNotes(fetched);
@@ -2780,6 +2921,36 @@ export default function Notes({
       }
     },
     [notes, mutateNote, showMessageToast]
+  );
+
+  // ノート並び替え処理（手動ドラッグ＆ドロップ）
+  const handleReorderNotes = useCallback(
+    async (orderedIds: string[], parentId: string | null) => {
+      // 楽観的更新
+      setNotes((prev) =>
+        prev.map((n) => {
+          const idx = orderedIds.indexOf(n.id);
+          if (idx !== -1) {
+            return { ...n, order: idx, parentId };
+          }
+          return n;
+        })
+      );
+
+      try {
+        await Promise.all(
+          orderedIds.map((id, index) =>
+            updateDoc(doc(db, "notes", id), {
+              order: index,
+              parentId: parentId,
+            })
+          )
+        );
+      } catch (err) {
+        console.error("Reorder notes failed", err);
+      }
+    },
+    []
   );
 
   // ノート削除処理（カスケード保護 ＆ 一括Undo）
@@ -3201,9 +3372,14 @@ export default function Notes({
           onRenameNote={(id, title) => mutateNote(id, { title })}
           onDeleteNote={(target) => setNoteToDelete(target)}
           onOpenMoveModal={(target) => setMovingNote(target)}
+          onUpdateNoteIcon={(id, icon) => mutateNote(id, { icon: icon || "" })}
+          onReorderNotes={handleReorderNotes}
+          onOpenTrash={() => setShowTrash(true)}
+          deletedCount={deletedNotes.length}
           activeSpace={activeSpace}
           onSpaceChange={handleSpaceChange}
           spaceCounts={spaceCounts}
+          onTogglePin={(id, pinned) => mutateNote(id, { pinned })}
         >
           {activeDocNote ? (
             <NoteErrorBoundary key={`boundary-doc-${activeDocNote.id}`}>
@@ -3240,6 +3416,8 @@ export default function Notes({
                 onContextSnapshotChange={(snapshot) =>
                   currentId && mutateNote(currentId, { contextSnapshot: snapshot }, true)
                 }
+                onIconChange={(icon) => currentId && mutateNote(currentId, { icon: icon || "" })}
+                onTogglePin={() => activeDocNote && mutateNote(activeDocNote.id, { pinned: !activeDocNote.pinned })}
                 isDocumentSpace={true}
               />
             </NoteErrorBoundary>
@@ -3248,6 +3426,7 @@ export default function Notes({
               notes={documentNotes}
               onSelectNote={handleSelectNote}
               onCreateNewPage={() => handleNewNote(null, "document")}
+              onReorderNotes={handleReorderNotes}
             />
           )}
         </DocumentSpace>
@@ -3301,6 +3480,8 @@ export default function Notes({
                 onContextSnapshotChange={(snapshot) =>
                   currentId && mutateNote(currentId, { contextSnapshot: snapshot }, true)
                 }
+                onIconChange={(icon) => currentId && mutateNote(currentId, { icon: icon || "" })}
+                onTogglePin={() => activeNote && mutateNote(activeNote.id, { pinned: !activeNote.pinned })}
               />
             </NoteErrorBoundary>
           ) : (

@@ -28,6 +28,7 @@ import {
   resolveShiftInfo,
   getActivePMTasksForDate,
   calculateFourTwoCycleRange,
+  getFourDayWorkBlock,
 } from "./pmCycleService";
 import type { PMSettings, PMTemplateItem, PMLogItem } from "../types/pm";
 import type { CalendarEvent } from "../types";
@@ -953,7 +954,26 @@ describe("resolveDateShiftInfo & getActivePMTasksForDate (Sprint 9 改修)", () 
       expect(cycle.days).toHaveLength(6);
     });
 
+    it("getFourDayWorkBlock: 4連勤ブロック（出勤1〜4日目）の4日間配列が正しく抽出されること", () => {
+      // 出勤1日目起点
+      const block1 = getFourDayWorkBlock("2026-09-01", sampleEvents);
+      expect(block1).toEqual(["2026-09-01", "2026-09-02", "2026-09-03", "2026-09-04"]);
+
+      // 出勤3日目起点でも同じ4日間が抽出されること
+      const block3 = getFourDayWorkBlock("2026-09-03", sampleEvents);
+      expect(block3).toEqual(["2026-09-01", "2026-09-02", "2026-09-03", "2026-09-04"]);
+
+      // 出勤4日目起点でも同じ4日間が抽出されること
+      const block4 = getFourDayWorkBlock("2026-09-04", sampleEvents);
+      expect(block4).toEqual(["2026-09-01", "2026-09-02", "2026-09-03", "2026-09-04"]);
+    });
+
     it("settings が null または undefined でもクラッシュせず安全にフォールバックする", () => {
+      // getFourDayWorkBlock
+      expect(() => getFourDayWorkBlock("2026-09-03", [], null)).not.toThrow();
+      expect(() => getFourDayWorkBlock("2026-09-03", [], undefined)).not.toThrow();
+      expect(getFourDayWorkBlock("2026-09-03", [], null)).toHaveLength(4);
+
       // calculateFourTwoCycleRange
       expect(() => calculateFourTwoCycleRange("2026-09-03", [], null)).not.toThrow();
       expect(() => calculateFourTwoCycleRange("2026-09-03", [], undefined)).not.toThrow();

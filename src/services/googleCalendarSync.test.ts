@@ -13,6 +13,7 @@ import {
   deleteGoogleCalendarEvent,
   cleanDuplicateEvents,
   syncGoogleCalendarToArca,
+  batchUpdateShiftEvents,
   GoogleCalendarApiError,
 } from "./googleCalendarSync";
 import {
@@ -98,6 +99,40 @@ describe("googleCalendarSync", () => {
       expect(body.summary).toBe("休暇");
       expect(body.start.date).toBe("2026-08-22");
       expect(body.end.date).toBe("2026-08-22");
+    });
+
+    it("24:00終了の遅番シフトの場合、終了日時が翌日00:00として正しくISO変換される", () => {
+      const event = {
+        title: "遅番",
+        date: "2026-09-15",
+        startTime: "15:00",
+        endTime: "24:00",
+      };
+
+      const body = formatToGoogleEventBody(event);
+      const startDate = new Date(body.start.dateTime!);
+      const endDate = new Date(body.end.dateTime!);
+
+      expect(endDate.getTime()).toBeGreaterThan(startDate.getTime());
+      // 差分が9時間（9 * 3600 * 1000 ms）
+      expect(endDate.getTime() - startDate.getTime()).toBe(9 * 3600 * 1000);
+    });
+
+    it("16:00〜01:00 の日跨ぎ遅番シフトの場合、終了日時が翌日01:00として正しくISO変換される", () => {
+      const event = {
+        title: "遅番",
+        date: "2026-09-15",
+        startTime: "16:00",
+        endTime: "01:00",
+      };
+
+      const body = formatToGoogleEventBody(event);
+      const startDate = new Date(body.start.dateTime!);
+      const endDate = new Date(body.end.dateTime!);
+
+      expect(endDate.getTime()).toBeGreaterThan(startDate.getTime());
+      // 差分が9時間（9 * 3600 * 1000 ms）
+      expect(endDate.getTime() - startDate.getTime()).toBe(9 * 3600 * 1000);
     });
   });
 
@@ -495,6 +530,78 @@ describe("googleCalendarSync", () => {
       await expect(syncGoogleCalendarToArca("expired-token")).rejects.toThrow(GoogleCalendarApiError);
       // トークンが自動破棄されていること
       expect(localStorage.getItem("arca_g_token")).toBeNull();
+    });
+  });
+
+  describe("batchUpdateShiftEvents", () => {
+    it("複数日の出勤イベント（Google Event 含む）を一括で更新する", async () => {
+      globalThis.fetch = vi.fn().mockResolvedValue({
+        ok: true,
+        status: 200,
+        text: async () => JSON.stringify({ id: "updated" }),
+      });
+
+      const existingEvents: CalendarEvent[] = [
+        {
+          id: "ev-1",
+          title: "早番",
+          date: "2026-09-01",
+          startTime: "06:00",
+          endTime: "15:00",
+          note: "",
+          googleEventId: "gid-1",
+          createdAt: null,
+        },
+        {
+          id: "ev-2",
+          title: "早番",
+          date: "2026-09-02",
+          startTime: "06:00",
+          endTime: "15:00",
+          note: "",
+          googleEventId: "gid-2",
+          createdAt: null,
+        },
+      ];
+
+      await batchUpdateShiftEvents(
+        "mock-token",
+        ["2026-09-01", "2026-09-02"],
+        {
+          title: "遅番",
+          startTime: "15:00",
+          endTime: "24:00",
+        },
+        existingEvents
+      );
+
+      // Google Calendar API への PATCH が2回呼ばれること
+      expect(globalThis.fetch).toHaveBeenCalledTimes(2);
+      expect(updateDoc).toHaveBeenCalledTimes(2);
+    });
+
+    it("既存の出勤イベントが存在しない日には新規作成を行う", async () => {
+      globalThis.fetch = vi.fn().mockResolvedValue({
+        ok: true,
+        status: 200,
+        text: async () => JSON.stringify({ id: "new-gid-created" }),
+      });
+
+      await batchUpdateShiftEvents(
+        "mock-token",
+        ["2026-09-10"],
+        {
+          title: "早番",
+          startTime: "06:00",
+          endTime: "15:00",
+        },
+        []
+      );
+
+      // Google Calendar API への POST
+      expect(globalThis.fetch).toHaveBeenCalledTimes(1);
+      // Firestore への addDoc
+      expect(addDoc).toHaveBeenCalledTimes(1);
     });
   });
 });

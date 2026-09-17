@@ -6,7 +6,7 @@
  *  - Apple HIG 準拠、枠線の完全排除、多層シャドウ、マットゴールド #C5A059
  *  - 道具としての静けさと直感的な操作性
  *  - 上部: Googleカレンダー同期状況 & 自動算出結果の可視化
- *  - 区切り線の下: ワンタップで「出勤 ✦ / 休日 🌙」手動調整（1〜6日目、シフト名補正）
+ *  - 区切り線の下: ワンタップで「出勤 / 休日」手動調整（1〜6日目、シフト名補正）
  *  - 「自動判定に戻す（リセット）」機能でワンタップ解除
  */
 
@@ -15,7 +15,7 @@ import type { ShiftInfo, ShiftOverride } from "../../types/shift";
 import type { CalendarEvent, SyncStatus } from "../../types";
 import { WORK_SHIFT_KEYWORDS, resolveShiftInfo } from "../../services/pmCycleService";
 import { C } from "../../lib/designSystem";
-import { MoonIcon } from "./ShiftBadge";
+import { MoonIcon, SunIcon } from "./ShiftBadge";
 
 export interface ShiftOverrideModalProps {
   isOpen: boolean;
@@ -220,7 +220,10 @@ export function ShiftOverrideModal({
                       <span>{`休日 ${autoShift.streakNumber}日目`}</span>
                     </>
                   ) : (
-                    `✦ 出勤 ${autoShift.streakNumber}日目${autoShift.shiftName ? ` (${autoShift.shiftName})` : ""}`
+                    <>
+                      <SunIcon size="0.85rem" />
+                      <span>{`出勤 ${autoShift.streakNumber}日目${autoShift.shiftName ? ` (${autoShift.shiftName})` : ""}`}</span>
+                    </>
                   )}
                 </span>
                 {currentShift.isOverridden && (
@@ -394,7 +397,8 @@ export function ShiftOverrideModal({
                 transition: "all 0.15s ease",
               }}
             >
-              ✦ 出勤日
+              <SunIcon size="0.85rem" />
+              <span>出勤日</span>
             </button>
             <button
               type="button"

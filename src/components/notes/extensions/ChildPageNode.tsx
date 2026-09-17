@@ -1,12 +1,13 @@
 /**
  * src/components/notes/extensions/ChildPageNode.tsx
- * Arca — Tiptap カスタム Node: 子ページリンクカード (Apple HIG 準拠)
+ * Arca — Tiptap カスタム Node: 子ページインラインボタン (Apple HIG 準拠)
  *
  * 特長:
- * 1. インラインテキストリンクを廃止し、独立した Atom ブロック要素として動作
- * 2. pageId のみを保持し、allNotes から最新のタイトルをリアクティブに解決
+ * 1. インライン Atom 要素（group: "inline", inline: true）として動作
+ *    - ボタンの左右にキャレットを置いてタイピング・改行（Enter）が可能
+ * 2. pageId のみを保持し、allNotes から最新のタイトルとカスタムSVGアイコンを解決
  * 3. e.preventDefault() & e.stopPropagation() により、SPA内部でのシームレスな画面遷移を実現
- * 4. tiptap-markdown と完全連携し、[child-page:pageId] 構文での入出力をサポート
+ * 4. tiptap-markdown と完全連携し、インライン [child-page:pageId] 構文での入出力をサポート
  */
 
 import React, { useContext, useEffect } from "react";
@@ -14,6 +15,7 @@ import { Node, mergeAttributes } from "@tiptap/core";
 import { ReactNodeViewRenderer, NodeViewWrapper, type NodeViewProps } from "@tiptap/react";
 import { FileText, ChevronRight } from "lucide-react";
 import { NoteEditorContext } from "../NoteEditorContext";
+import { NoteIcon } from "../NoteIconPickerModal";
 
 export const ChildPageComponent: React.FC<NodeViewProps> = (props) => {
   const { allNotes, onSelectNote } = useContext(NoteEditorContext);
@@ -42,8 +44,12 @@ export const ChildPageComponent: React.FC<NodeViewProps> = (props) => {
   };
 
   return (
-    <NodeViewWrapper className="my-2 select-none" data-child-page-node={pageId}>
-      <div
+    <NodeViewWrapper
+      as="span"
+      className="inline-flex items-center align-middle mx-1 my-1 select-none"
+      data-child-page-node={pageId}
+    >
+      <span
         role="button"
         tabIndex={0}
         onClick={handleClick}
@@ -54,26 +60,31 @@ export const ChildPageComponent: React.FC<NodeViewProps> = (props) => {
             handleClick(e as any);
           }
         }}
-        className="group flex items-center justify-between gap-2.5 max-w-md px-3.5 py-2.5 rounded-xl bg-stone-100/70 dark:bg-stone-800/70 hover:bg-stone-200/80 dark:hover:bg-stone-700/80 transition-all duration-150 cursor-pointer shadow-2xs hover:shadow-xs select-none"
+        className="group inline-flex items-center justify-between w-64 sm:w-72 h-[42px] px-3.5 rounded-xl bg-stone-100/80 dark:bg-stone-800/80 hover:bg-stone-200/90 dark:hover:bg-stone-700/90 border border-black/[0.04] dark:border-white/[0.06] transition-all duration-150 cursor-pointer shadow-2xs hover:shadow-xs select-none align-middle"
         title="子ページを開く"
       >
-        <div className="flex items-center gap-2.5 min-w-0 flex-1">
-          <div className="w-6 h-6 rounded-lg bg-amber-500/10 text-[#B58D3D] flex items-center justify-center shrink-0">
-            <FileText className="w-3.5 h-3.5 stroke-[2]" />
-          </div>
+        <span className="flex items-center gap-2.5 min-w-0 flex-1 mr-2">
+          <span className="w-6 h-6 rounded-lg bg-amber-500/10 text-[#B58D3D] flex items-center justify-center shrink-0">
+            <NoteIcon
+              icon={targetNote?.icon}
+              defaultIcon={<FileText className="w-3.5 h-3.5 stroke-[2]" />}
+              className="w-3.5 h-3.5 stroke-[2]"
+            />
+          </span>
           <span className="text-sm font-medium text-charcoal group-hover:text-[#B58D3D] transition-colors truncate">
             {title}
           </span>
-        </div>
+        </span>
         <ChevronRight className="w-4 h-4 text-charcoal-light group-hover:text-charcoal group-hover:translate-x-0.5 transition-all shrink-0" />
-      </div>
+      </span>
     </NodeViewWrapper>
   );
 };
 
 export const ChildPageNode = Node.create({
   name: "childPage",
-  group: "block",
+  group: "inline",
+  inline: true,
   atom: true,
   draggable: true,
   selectable: true,
@@ -93,6 +104,9 @@ export const ChildPageNode = Node.create({
   parseHTML() {
     return [
       {
+        tag: 'span[data-type="child-page"]',
+      },
+      {
         tag: 'div[data-type="child-page"]',
       },
       {
@@ -108,7 +122,7 @@ export const ChildPageNode = Node.create({
   },
 
   renderHTML({ HTMLAttributes }) {
-    return ["div", mergeAttributes({ "data-type": "child-page" }, HTMLAttributes)];
+    return ["span", mergeAttributes({ "data-type": "child-page" }, HTMLAttributes)];
   },
 
   addStorage() {
@@ -116,50 +130,10 @@ export const ChildPageNode = Node.create({
       markdown: {
         serialize(state: any, node: any) {
           state.write(`[child-page:${node.attrs.pageId}]`);
-          state.closeBlock(node);
         },
         parse: {
           updateDOM(element: HTMLElement) {
-            // 1. <p> 要素を走査し、[child-page:id] を含む段落を独立したブロック div に置換
-            const paragraphs = Array.from(element.querySelectorAll("p"));
-            paragraphs.forEach((p) => {
-              const text = p.textContent || "";
-              if (!text.includes("[child-page:")) return;
-
-              const regex = /\[child-page:([a-zA-Z0-9_-]+)\]/g;
-              const matches: { pageId: string; index: number; length: number }[] = [];
-              let m: RegExpExecArray | null;
-              while ((m = regex.exec(text)) !== null) {
-                matches.push({ pageId: m[1], index: m.index, length: m[0].length });
-              }
-              if (matches.length === 0) return;
-
-              const fragment = document.createDocumentFragment();
-              let lastIdx = 0;
-              matches.forEach((match) => {
-                const before = text.substring(lastIdx, match.index).trim();
-                if (before) {
-                  const subP = document.createElement("p");
-                  subP.textContent = before;
-                  fragment.appendChild(subP);
-                }
-                const div = document.createElement("div");
-                div.setAttribute("data-type", "child-page");
-                div.setAttribute("data-page-id", match.pageId);
-                fragment.appendChild(div);
-                lastIdx = match.index + match.length;
-              });
-              const after = text.substring(lastIdx).trim();
-              if (after) {
-                const subP = document.createElement("p");
-                subP.textContent = after;
-                fragment.appendChild(subP);
-              }
-
-              p.parentNode?.replaceChild(fragment, p);
-            });
-
-            // 2. 残存するテキストノード（<p> 以外のコンテキスト）内の [child-page:xxxx] を置換
+            // 1. テキストノード内の [child-page:xxxx] を <span> に置換
             const walker = document.createTreeWalker(element, NodeFilter.SHOW_TEXT);
             const nodesToReplace: { node: Text; parent: ParentNode; newNodes: globalThis.Node[] }[] = [];
             let currentNode = walker.nextNode();
@@ -175,10 +149,10 @@ export const ChildPageNode = Node.create({
                   if (match.index > lastIndex) {
                     newNodes.push(document.createTextNode(val.substring(lastIndex, match.index)));
                   }
-                  const div = document.createElement("div");
-                  div.setAttribute("data-type", "child-page");
-                  div.setAttribute("data-page-id", match[1]);
-                  newNodes.push(div);
+                  const span = document.createElement("span");
+                  span.setAttribute("data-type", "child-page");
+                  span.setAttribute("data-page-id", match[1]);
+                  newNodes.push(span);
                   lastIndex = match.index + match[0].length;
                 }
                 if (lastIndex < val.length) {
@@ -195,21 +169,25 @@ export const ChildPageNode = Node.create({
               parent.removeChild(node);
             });
 
-            // 3. 既存の a[href^="note:"] も独立した div[data-type="child-page"] に置換
+            // 2. 既存の a[href^="note:"] も span[data-type="child-page"] に置換
             const links = Array.from(element.querySelectorAll('a[href^="note:"]'));
             links.forEach((a) => {
               const href = a.getAttribute("href") || "";
               const pageId = href.replace(/^note:/, "");
-              const div = document.createElement("div");
-              div.setAttribute("data-type", "child-page");
-              div.setAttribute("data-page-id", pageId);
+              const span = document.createElement("span");
+              span.setAttribute("data-type", "child-page");
+              span.setAttribute("data-page-id", pageId);
+              a.parentNode?.replaceChild(span, a);
+            });
 
-              const parentP = a.closest("p");
-              if (parentP && parentP.textContent?.trim() === a.textContent?.trim()) {
-                parentP.parentNode?.replaceChild(div, parentP);
-              } else {
-                a.parentNode?.replaceChild(div, a);
-              }
+            // 3. 過去の div[data-type="child-page"] があれば span に置換
+            const divs = Array.from(element.querySelectorAll('div[data-type="child-page"]'));
+            divs.forEach((div) => {
+              const pageId = div.getAttribute("data-page-id") || "";
+              const span = document.createElement("span");
+              span.setAttribute("data-type", "child-page");
+              span.setAttribute("data-page-id", pageId);
+              div.parentNode?.replaceChild(span, div);
             });
           },
         },

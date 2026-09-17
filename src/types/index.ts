@@ -181,6 +181,10 @@ export interface NoteItem {
   attachments?: Record<string, string>;
   /** 配下の子ノートの表示形式 ('list' | 'board' | 'journal', デフォルト: 'list') */
   childViewMode?: NoteChildViewMode;
+  /** ノートのカスタムSVGアイコン名またはSVG識別子 */
+  icon?: string;
+  /** 手動ドラッグ＆ドロップ並び替え用インデックス */
+  order?: number;
 
   /** ジャーナル専用フィールド (Sprint: Journal / Memory) */
   /** 日記の日付（YYYY-MM-DD） */

@@ -10,6 +10,7 @@
 
 import {
   collection,
+  addDoc,
   updateDoc,
   deleteDoc,
   setDoc,
@@ -20,6 +21,7 @@ import {
 import { db } from "../lib/firebase";
 import { clearSavedToken } from "./googleAuth";
 import type { CalendarEvent } from "../types";
+import { isWorkEvent } from "./pmCycleService";
 
 const CALENDAR_API_ROOT = "https://www.googleapis.com/calendar/v3";
 const CALENDAR_BASE_URL = "https://www.googleapis.com/calendar/v3/calendars/primary";
@@ -188,20 +190,29 @@ export function formatToGoogleEventBody(event: {
   const description = event.note || "";
 
   if (event.startTime && /^\d{1,2}:\d{2}$/.test(event.startTime)) {
-    const [startH, startM] = event.startTime.split(":");
-    const startIso = `${event.date}T${startH.padStart(2, "0")}:${startM.padStart(2, "0")}:00`;
+    const [startY, startMonth, startDay] = event.date.split("-").map(Number);
+    const [startH, startM] = event.startTime.split(":").map(Number);
+    const startDate = new Date(startY, startMonth - 1, startDay, startH, startM, 0);
 
-    let endIso = startIso;
+    let endDate = new Date(startDate);
     if (event.endTime && /^\d{1,2}:\d{2}$/.test(event.endTime)) {
-      const [endH, endM] = event.endTime.split(":");
-      endIso = `${event.date}T${endH.padStart(2, "0")}:${endM.padStart(2, "0")}:00`;
+      const [endH, endM] = event.endTime.split(":").map(Number);
+      if (endH === 24 && endM === 0) {
+        // 24:00 は翌日の 00:00
+        endDate = new Date(startY, startMonth - 1, startDay + 1, 0, 0, 0);
+      } else if (endH < startH || (endH === startH && endM < startM)) {
+        // 日跨ぎ（終了時刻が開始時刻より前、例: 16:00〜01:00）
+        endDate = new Date(startY, startMonth - 1, startDay + 1, endH, endM, 0);
+      } else {
+        endDate = new Date(startY, startMonth - 1, startDay, endH, endM, 0);
+      }
     }
 
     return {
       summary: title,
       description,
-      start: { dateTime: new Date(startIso).toISOString(), timeZone },
-      end: { dateTime: new Date(endIso).toISOString(), timeZone },
+      start: { dateTime: startDate.toISOString(), timeZone },
+      end: { dateTime: endDate.toISOString(), timeZone },
     };
   }
 
@@ -327,6 +338,90 @@ export async function updateGoogleCalendarEvent(
       body: JSON.stringify(body),
     }
   );
+}
+
+/**
+ * 複数日（4連勤ワンシフト等）の出勤イベントを一括更新・作成する
+ *
+ * 各対象日について:
+ * 1. 既存の出勤イベントが存在する場合:
+ *    - Google 連携中かつ googleEventId があれば updateGoogleCalendarEvent を実行
+ *    - Firestore ドキュメントを updateDoc で更新
+ * 2. 既存の出勤イベントが存在しない場合:
+ *    - Google 連携中なら createGoogleCalendarEvent で Google イベントを作成
+ *    - Firestore ドキュメントを addDoc で新規追加
+ *
+ * @param token Google Access Token (未ログイン時は null)
+ * @param dates 対象日配列（例: 4日間の日付配列）
+ * @param shiftData タイトル、開始時刻、終了時刻、メモ
+ * @param existingEvents 既存の CalendarEvent 配列
+ */
+export async function batchUpdateShiftEvents(
+  token: string | null | undefined,
+  dates: string[],
+  shiftData: {
+    title: string;
+    startTime: string;
+    endTime: string;
+    note?: string;
+  },
+  existingEvents: CalendarEvent[]
+): Promise<void> {
+  for (const date of dates) {
+    const existingWork = existingEvents.find(
+      (e) => e.date === date && isWorkEvent(e.title)
+    );
+
+    if (existingWork) {
+      // 1. 既存イベントの更新
+      if (token && existingWork.googleEventId) {
+        try {
+          await updateGoogleCalendarEvent(token, existingWork.googleEventId, {
+            title: shiftData.title,
+            date,
+            startTime: shiftData.startTime,
+            endTime: shiftData.endTime,
+            note: shiftData.note ?? existingWork.note,
+          });
+        } catch (gErr) {
+          console.error(`[Google Calendar Sync] Failed to update event on ${date}:`, gErr);
+        }
+      }
+
+      await updateDoc(doc(db, "events", existingWork.id), {
+        title: shiftData.title,
+        startTime: shiftData.startTime,
+        endTime: shiftData.endTime,
+        ...(shiftData.note !== undefined ? { note: shiftData.note } : {}),
+      });
+    } else {
+      // 2. 新規イベントの作成
+      let newGoogleId: string | undefined;
+      if (token) {
+        try {
+          newGoogleId = await createGoogleCalendarEvent(token, {
+            title: shiftData.title,
+            date,
+            startTime: shiftData.startTime,
+            endTime: shiftData.endTime,
+            note: shiftData.note || "",
+          });
+        } catch (gErr) {
+          console.error(`[Google Calendar Sync] Failed to create event on ${date}:`, gErr);
+        }
+      }
+
+      await addDoc(collection(db, "events"), {
+        title: shiftData.title,
+        date,
+        startTime: shiftData.startTime,
+        endTime: shiftData.endTime,
+        note: shiftData.note || "",
+        googleEventId: newGoogleId || null,
+        createdAt: serverTimestamp(),
+      });
+    }
+  }
 }
 
 /**

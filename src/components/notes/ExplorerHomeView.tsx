@@ -1,4 +1,4 @@
-﻿/**
+/**
  * src/components/notes/ExplorerHomeView.tsx
  * Arca — ノート (Pages) エクスプローラー ホームビュー
  *
@@ -11,18 +11,19 @@
 import React from "react";
 import {
   Pin,
-  Clock,
   FileText,
   Plus,
   ChevronRight,
   FolderTree,
 } from "lucide-react";
 import type { NoteItem } from "../../types";
+import { NoteIcon } from "./NoteIconPickerModal";
 
 interface ExplorerHomeViewProps {
   notes: NoteItem[];
   onSelectNote: (id: string) => void;
   onCreateNewPage: () => void;
+  onReorderNotes?: (orderedIds: string[], parentId: string | null) => void;
 }
 
 export const ExplorerHomeView: React.FC<ExplorerHomeViewProps> = ({
@@ -33,11 +34,10 @@ export const ExplorerHomeView: React.FC<ExplorerHomeViewProps> = ({
   // ピン留めされたノート（クイックアクセス）
   const pinnedNotes = notes.filter((n) => n.pinned && !n.isDeleted);
 
-  // 最近更新されたノート（直近10件）
+  // 最近使用したページ（updatedAt 降順: 更新が新しい順）
   const recentNotes = [...notes]
     .filter((n) => !n.isDeleted)
-    .sort((a, b) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime())
-    .slice(0, 10);
+    .sort((a, b) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime());
 
   // 親ノート辞書（階層表示用）
   const noteMap = new Map<string, NoteItem>();
@@ -75,7 +75,7 @@ export const ExplorerHomeView: React.FC<ExplorerHomeViewProps> = ({
               <span>Pages ホーム</span>
             </h1>
             <p className="text-xs text-charcoal-light mt-1">
-              ドキュメントのクイックアクセスと最近編集したページ
+              ドキュメントのクイックアクセスと最近使用したページ一覧
             </p>
           </div>
 
@@ -118,7 +118,11 @@ export const ExplorerHomeView: React.FC<ExplorerHomeViewProps> = ({
                   >
                     <div className="flex items-start gap-2.5">
                       <div className="w-8 h-8 rounded-xl bg-amber-500/10 text-[#B58D3D] flex items-center justify-center shrink-0">
-                        <FileText className="w-4 h-4" />
+                        <NoteIcon
+                          icon={note.icon}
+                          defaultIcon={<FileText className="w-4 h-4" />}
+                          className="w-4 h-4"
+                        />
                       </div>
                       <div className="min-w-0 flex-1">
                         <h3 className="text-sm font-semibold text-charcoal group-hover:text-[#B58D3D] transition-colors truncate">
@@ -149,17 +153,17 @@ export const ExplorerHomeView: React.FC<ExplorerHomeViewProps> = ({
           )}
         </div>
 
-        {/* ── 3. 最近使用したページ（Recent Pages） ── */}
+        {/* ── 3. 最近使用したページ（更新順） ── */}
         <div>
           <div className="flex items-center justify-between mb-3">
             <div className="flex items-center gap-1.5">
-              <Clock className="w-4 h-4 text-charcoal-light" />
+              <FolderTree className="w-4 h-4 text-stone-400 dark:text-stone-500" />
               <h2 className="text-xs font-bold uppercase tracking-wider text-charcoal-light">
                 最近使用したページ
               </h2>
             </div>
             <span className="text-xs text-charcoal-xlight">
-              全 {notes.length} ページ
+              全 {recentNotes.length} ページ
             </span>
           </div>
 
@@ -168,6 +172,7 @@ export const ExplorerHomeView: React.FC<ExplorerHomeViewProps> = ({
               <div className="divide-y divide-black/[0.03] dark:divide-white/[0.04]">
                 {recentNotes.map((note) => {
                   const parent = note.parentId ? noteMap.get(note.parentId) : null;
+
                   return (
                     <div
                       key={note.id}
@@ -180,11 +185,15 @@ export const ExplorerHomeView: React.FC<ExplorerHomeViewProps> = ({
                           onSelectNote(note.id);
                         }
                       }}
-                      className="group flex items-center justify-between px-4 py-3 hover:bg-black/[0.025] dark:hover:bg-white/[0.035] transition-colors cursor-pointer text-left"
+                      className="group relative flex items-center justify-between px-4 py-3 hover:bg-black/[0.025] dark:hover:bg-white/[0.035] transition-colors cursor-pointer text-left"
                     >
                       <div className="flex items-center gap-3 min-w-0 flex-1 pr-4">
                         <div className="w-7 h-7 rounded-lg bg-black/[0.035] dark:bg-white/[0.06] text-charcoal-light group-hover:text-[#B58D3D] group-hover:bg-amber-500/10 flex items-center justify-center shrink-0 transition-colors">
-                          <FileText className="w-3.5 h-3.5" />
+                          <NoteIcon
+                            icon={note.icon}
+                            defaultIcon={<FileText className="w-3.5 h-3.5" />}
+                            className="w-3.5 h-3.5"
+                          />
                         </div>
                         <div className="min-w-0 flex-1">
                           <span className="text-sm font-medium text-charcoal group-hover:text-[#B58D3D] transition-colors truncate block">

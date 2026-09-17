@@ -276,24 +276,12 @@ export default function Recipes({ onNavigateToLists, onDetailViewChange }: Recip
             }}
           >
             <div>
-              <p
-                style={{
-                  fontSize: "0.68rem",
-                  fontWeight: 650,
-                  letterSpacing: "0.1em",
-                  textTransform: "uppercase",
-                  color: C.charcoalLight,
-                  margin: 0,
-                }}
-              >
-                RECIPES
-              </p>
               <h1
                 style={{
                   fontSize: "1.75rem",
                   fontWeight: 750,
                   color: C.charcoal,
-                  margin: "0.15rem 0 0",
+                  margin: 0,
                   letterSpacing: "-0.03em",
                   lineHeight: 1.2,
                 }}

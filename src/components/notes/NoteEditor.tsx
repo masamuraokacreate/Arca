@@ -24,21 +24,39 @@ import {
 import { useEditor, EditorContent } from "@tiptap/react";
 import StarterKit from "@tiptap/starter-kit";
 import Placeholder from "@tiptap/extension-placeholder";
-import { Image } from "@tiptap/extension-image";
 import { TaskList } from "@tiptap/extension-task-list";
 import { TaskItem } from "@tiptap/extension-task-item";
 import Link from "@tiptap/extension-link";
 import Underline from "@tiptap/extension-underline";
 import { Markdown } from "tiptap-markdown";
 import { Extension } from "@tiptap/core";
+import { Bookmark as BookmarkIcon, Link2, FileText } from "lucide-react";
 import { C } from "../../lib/designSystem";
 import { uploadNoteImage } from "../../services/imageUploadService";
 import { ChildPageNode } from "./extensions/ChildPageNode";
+import { BookmarkNode } from "./extensions/BookmarkNode";
+import { CustomImageNode } from "./extensions/CustomImageNode";
+import { ToggleBlockNode } from "./extensions/ToggleBlockNode";
 import { NoteEditorContext } from "./NoteEditorContext";
 import type { NoteItem } from "../../types";
 
 /**
- * Markdown 出力時の不要な過剰エスケープ（\*, \_, &lt;, &gt; 等）を正規化・クレンジングする
+ * 文字列が有効なHTTP/HTTPS URL単体であるかを判定する
+ */
+export function isValidUrl(text: string): boolean {
+  if (!text) return false;
+  const trimmed = text.trim();
+  if (trimmed.includes("\n") || trimmed.includes(" ") || trimmed.includes("\t")) return false;
+  try {
+    const url = new URL(trimmed);
+    return url.protocol === "http:" || url.protocol === "https:";
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Markdown 出力時の不要な過剰エスケープ（\*, \_, \[, \], \#, &lt;, &gt; 等）を正規化・クレンジングする
  */
 export function normalizeMarkdown(md: string): string {
   if (!md) return "";
@@ -52,8 +70,8 @@ export function normalizeMarkdown(md: string): string {
     .replace(/&lt;/g, "<")
     .replace(/&gt;/g, ">")
     .replace(/&amp;/g, "&")
-    // 単独のバックスラッシュエスケープ（\* や \_）を復元
-    .replace(/\\([*_~`])/g, "$1");
+    // 単独のバックスラッシュ過剰エスケープ（\*, \_, \[, \], \#, \-, \+, \>, \=, \., \!, \|, \~ 等）を復元
+    .replace(/\\([\\*~_\[\]#\-+>=.|!])/g, "$1");
 }
 
 /**
@@ -81,6 +99,20 @@ const ClearMarksOnEnter = Extension.create({
         }
         return false;
       },
+    };
+  },
+});
+
+/**
+ * Ctrl+Z (Undo) / Ctrl+Y, Ctrl+Shift+Z (Redo) を確実に実行するキーマップ拡張
+ */
+const HistoryKeymap = Extension.create({
+  name: "historyKeymap",
+  addKeyboardShortcuts() {
+    return {
+      "Mod-z": () => this.editor.commands.undo(),
+      "Mod-y": () => this.editor.commands.redo(),
+      "Mod-Shift-z": () => this.editor.commands.redo(),
     };
   },
 });
@@ -152,6 +184,13 @@ export const SLASH_COMMANDS: SlashCommand[] = [
     action: (editor) => editor?.chain().focus().toggleTaskList().run(),
   },
   {
+    id: "toggle",
+    label: "トグルリスト",
+    description: "クリックで開閉できる折りたたみブロック",
+    icon: "▶",
+    action: (editor) => editor?.chain().focus().insertToggleBlock().run(),
+  },
+  {
     id: "image",
     label: "画像のアップロード",
     description: "画像ファイルを選択して挿入",
@@ -182,6 +221,190 @@ export const SLASH_COMMANDS: SlashCommand[] = [
     action: (editor) => editor?.chain().focus().setHorizontalRule().run(),
   },
 ];
+
+export type UrlPasteOption = "bookmark" | "link" | "text";
+
+interface UrlPasteMenuProps {
+  url: string;
+  coords: { top: number; left: number } | null;
+  onSelect: (option: UrlPasteOption) => void;
+  onDismiss: () => void;
+}
+
+const URL_PASTE_OPTIONS: {
+  id: UrlPasteOption;
+  label: string;
+  description: string;
+  icon: React.ReactNode;
+}[] = [
+  {
+    id: "bookmark",
+    label: "Webブックマークを作成",
+    description: "ドメインとFavicon付きのカード",
+    icon: <BookmarkIcon size={15} className="text-[#B58D3D]" />,
+  },
+  {
+    id: "link",
+    label: "リンクとして貼り付け",
+    description: "インラインテキストリンク",
+    icon: <Link2 size={15} className="text-[#B58D3D]" />,
+  },
+  {
+    id: "text",
+    label: "テキストのみ貼り付け",
+    description: "通常のURL文字列",
+    icon: <FileText size={15} className="text-stone-400 dark:text-stone-500" />,
+  },
+];
+
+function UrlPasteMenu({ url: _url, coords, onSelect, onDismiss }: UrlPasteMenuProps) {
+  const [focusIdx, setFocusIdx] = useState(0);
+  const menuRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    const keyHandler = (e: globalThis.KeyboardEvent) => {
+      if (e.key === "ArrowDown") {
+        e.preventDefault();
+        e.stopPropagation();
+        setFocusIdx((i) => (i + 1) % URL_PASTE_OPTIONS.length);
+      } else if (e.key === "ArrowUp") {
+        e.preventDefault();
+        e.stopPropagation();
+        setFocusIdx((i) => (i - 1 + URL_PASTE_OPTIONS.length) % URL_PASTE_OPTIONS.length);
+      } else if (e.key === "Enter") {
+        e.preventDefault();
+        e.stopPropagation();
+        onSelect(URL_PASTE_OPTIONS[focusIdx].id);
+      } else if (e.key === "Escape") {
+        e.preventDefault();
+        e.stopPropagation();
+        onDismiss();
+      }
+    };
+
+    const clickOutsideHandler = (e: MouseEvent) => {
+      if (menuRef.current && !menuRef.current.contains(e.target as Node)) {
+        onDismiss();
+      }
+    };
+
+    window.addEventListener("keydown", keyHandler, true);
+    window.addEventListener("mousedown", clickOutsideHandler);
+    return () => {
+      window.removeEventListener("keydown", keyHandler, true);
+      window.removeEventListener("mousedown", clickOutsideHandler);
+    };
+  }, [focusIdx, onSelect, onDismiss]);
+
+  const style: React.CSSProperties = coords
+    ? {
+        position: "fixed",
+        top: `${coords.top}px`,
+        left: `${coords.left}px`,
+      }
+    : {
+        position: "absolute",
+        top: "2.5rem",
+        left: "1rem",
+      };
+
+  return (
+    <div
+      ref={menuRef}
+      className="arca-slash-menu arca-scroll"
+      data-testid="url-paste-menu"
+      style={{
+        ...style,
+        zIndex: 110,
+        background: "var(--bg-card-solid)",
+        backdropFilter: "blur(24px) saturate(180%)",
+        WebkitBackdropFilter: "blur(24px) saturate(180%)",
+        borderRadius: "16px",
+        boxShadow: "var(--shadow-modal)",
+        padding: "0.45rem",
+        width: "250px",
+        overflowY: "auto",
+        border: "1px solid var(--border-subtle)",
+        display: "flex",
+        flexDirection: "column",
+        gap: "2px",
+      }}
+      onClick={(e) => e.stopPropagation()}
+    >
+      <div
+        style={{
+          fontSize: "0.69rem",
+          fontWeight: 700,
+          color: "var(--text-muted)",
+          padding: "0.3rem 0.5rem 0.2rem",
+          letterSpacing: "0.03em",
+        }}
+      >
+        URLの挿入形式を選択
+      </div>
+      {URL_PASTE_OPTIONS.map((opt, i) => (
+        <button
+          key={opt.id}
+          type="button"
+          data-testid={`url-paste-opt-${opt.id}`}
+          onClick={() => onSelect(opt.id)}
+          onMouseEnter={() => setFocusIdx(i)}
+          style={{
+            display: "flex",
+            alignItems: "center",
+            gap: "0.6rem",
+            padding: "0.45rem 0.65rem",
+            borderRadius: "10px",
+            border: "none",
+            background: i === focusIdx ? "var(--bg-card-hover)" : "transparent",
+            cursor: "pointer",
+            textAlign: "left",
+            width: "100%",
+            transition: "background 0.1s ease",
+          }}
+        >
+          <span
+            style={{
+              width: "28px",
+              height: "28px",
+              borderRadius: "8px",
+              background: i === focusIdx ? "rgba(181, 141, 61, 0.15)" : "rgba(0,0,0,0.04)",
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+              fontSize: "0.95rem",
+              flexShrink: 0,
+            }}
+          >
+            {opt.icon}
+          </span>
+          <div style={{ flex: 1, minWidth: 0 }}>
+            <div
+              style={{
+                fontSize: "0.82rem",
+                fontWeight: 600,
+                color: i === focusIdx ? C.goldDark : C.charcoal,
+              }}
+            >
+              {opt.label}
+            </div>
+            <div
+              style={{
+                fontSize: "0.68rem",
+                color: C.charcoalLight,
+                whiteSpace: "nowrap",
+                overflow: "hidden",
+                textOverflow: "ellipsis",
+              }}
+            >
+              {opt.description}
+            </div>
+          </div>
+        </button>
+      ))}
+    </div>
+  );
+}
 
 function SlashMenu({
   query,
@@ -346,6 +569,12 @@ export interface NoteEditorHandles {
   insertImage: (file: File) => Promise<void>;
   insertChildPageLink: (noteId: string, title?: string) => void;
   insertChildPageNode: (pageId: string) => void;
+  insertBookmarkNode: (url: string) => void;
+  insertToggleBlock: () => void;
+  undo: () => void;
+  redo: () => void;
+  canUndo: () => boolean;
+  canRedo: () => boolean;
   focus: () => void;
 }
 
@@ -359,6 +588,7 @@ export interface NoteEditorProps {
   onInsertChildPage?: () => void;
   onSelectNote?: (noteId: string) => void;
   allNotes?: NoteItem[];
+  noteId?: string;
 }
 
 export const NoteEditor = forwardRef<NoteEditorHandles, NoteEditorProps>(function NoteEditor(
@@ -370,23 +600,40 @@ export const NoteEditor = forwardRef<NoteEditorHandles, NoteEditorProps>(functio
     onInsertChildPage,
     onSelectNote,
     allNotes = [],
+    noteId,
   },
   ref
 ) {
   const [slashActive, setSlashActive] = useState(false);
   const [slashQuery, setSlashQuery] = useState("");
   const [slashCoords, setSlashCoords] = useState<{ top: number; left: number } | null>(null);
+  const [urlPasteState, setUrlPasteState] = useState<{
+    url: string;
+    coords: { top: number; left: number } | null;
+    hasSelection: boolean;
+    selectedText: string;
+    from: number;
+    to: number;
+  } | null>(null);
   const [isUploading, setIsUploading] = useState(false);
   const isComposingRef = useRef(false);
+  const isInternalChangeRef = useRef(false);
+  const currentNoteIdRef = useRef<string | undefined>(noteId);
+  const cursorPositionRef = useRef<{ start: number; end: number } | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const sourceTextareaRef = useRef<HTMLTextAreaElement>(null);
 
-  // ソースモード時: コンテンツ量に合わせて高さを自動リサイズ
+  // ソースモード時: コンテンツ量に合わせて高さを自動リサイズ & カーソル位置復元
   useEffect(() => {
     if (isSourceMode && sourceTextareaRef.current) {
       sourceTextareaRef.current.style.height = "auto";
       const scrollH = sourceTextareaRef.current.scrollHeight;
       sourceTextareaRef.current.style.height = `${Math.max(480, scrollH + 20)}px`;
+
+      if (cursorPositionRef.current) {
+        const { start, end } = cursorPositionRef.current;
+        sourceTextareaRef.current.setSelectionRange(start, end);
+      }
     }
   }, [content, isSourceMode]);
 
@@ -403,6 +650,7 @@ export const NoteEditor = forwardRef<NoteEditorHandles, NoteEditorProps>(functio
       }),
       Underline,
       ClearMarksOnEnter,
+      HistoryKeymap,
       Placeholder.configure({
         placeholder:
           placeholder ||
@@ -422,14 +670,10 @@ export const NoteEditor = forwardRef<NoteEditorHandles, NoteEditorProps>(functio
         nested: false,
         HTMLAttributes: { class: "arca-tiptap-task-item" },
       }),
-      Image.configure({
-        inline: true,
-        allowBase64: true,
-        HTMLAttributes: {
-          class: "arca-tiptap-image rounded-2xl",
-        },
-      }),
+      CustomImageNode,
       ChildPageNode,
+      BookmarkNode,
+      ToggleBlockNode,
       Markdown.configure({
         html: false,
         tightLists: true,
@@ -455,7 +699,7 @@ export const NoteEditor = forwardRef<NoteEditorHandles, NoteEditorProps>(functio
           isComposingRef.current = false;
           return false;
         },
-        paste: (_view, event) => {
+        paste: (view, event) => {
           const items = event.clipboardData?.items;
           if (items) {
             for (let i = 0; i < items.length; i++) {
@@ -469,6 +713,40 @@ export const NoteEditor = forwardRef<NoteEditorHandles, NoteEditorProps>(functio
               }
             }
           }
+
+          // URLペーストの検知とポップアップ選択
+          const text = event.clipboardData?.getData("text/plain")?.trim();
+          if (text && isValidUrl(text)) {
+            event.preventDefault();
+            const { from, to } = view.state.selection;
+            const hasSelection = from !== to;
+            const selectedText = hasSelection ? view.state.doc.textBetween(from, to, " ") : "";
+
+            try {
+              const coords = view.coordsAtPos(from);
+              const top = coords.bottom + 8;
+              const left = Math.max(16, Math.min(coords.left, window.innerWidth - 280));
+              setUrlPasteState({
+                url: text,
+                coords: { top, left },
+                hasSelection,
+                selectedText,
+                from,
+                to,
+              });
+            } catch {
+              setUrlPasteState({
+                url: text,
+                coords: null,
+                hasSelection,
+                selectedText,
+                from,
+                to,
+              });
+            }
+            return true;
+          }
+
           return false;
         },
         drop: (_view, event) => {
@@ -488,6 +766,7 @@ export const NoteEditor = forwardRef<NoteEditorHandles, NoteEditorProps>(functio
     },
     onUpdate: ({ editor: ed }) => {
       try {
+        isInternalChangeRef.current = true;
         const rawMd = (ed.storage as any).markdown?.getMarkdown?.() ?? ed.getHTML();
         const cleanMd = normalizeMarkdown(rawMd);
         onChange(cleanMd);
@@ -522,14 +801,32 @@ export const NoteEditor = forwardRef<NoteEditorHandles, NoteEditorProps>(functio
 
   // 外部からの content 変更（別ノートを開いた時やソース切替時）を同期
   useEffect(() => {
-    if (!editor || isComposingRef.current) return;
-    const currentMd = (editor.storage as any).markdown?.getMarkdown?.();
-    const cleanCurrent = normalizeMarkdown(currentMd);
-    const cleanProp = normalizeMarkdown(content);
-    if (cleanProp !== cleanCurrent && !editor.isFocused) {
+    if (!editor) return;
+
+    // ノートが切り替わった場合（別ノートの表示）
+    const isNoteChanged = noteId !== undefined && noteId !== currentNoteIdRef.current;
+    if (isNoteChanged) {
+      currentNoteIdRef.current = noteId;
       editor.commands.setContent(content || "");
+      return;
     }
-  }, [content, editor]);
+
+    // ユーザー自身による入力の直後のエコーバックならsetContentを絶対に呼ばない（カーソル飛び完全防止）
+    if (isInternalChangeRef.current) {
+      isInternalChangeRef.current = false;
+      return;
+    }
+
+    // 外部からの明示的な変更かつエディタにフォーカスがない場合のみ安全に同期
+    if (!editor.isFocused && !isComposingRef.current) {
+      const currentMd = (editor.storage as any).markdown?.getMarkdown?.();
+      const cleanCurrent = normalizeMarkdown(currentMd);
+      const cleanProp = normalizeMarkdown(content);
+      if (cleanProp !== cleanCurrent) {
+        editor.commands.setContent(content || "");
+      }
+    }
+  }, [content, editor, noteId]);
 
   // Firebase Storage へのアップロード ＆ URL 挿入
   const handleUploadAndInsert = useCallback(
@@ -618,6 +915,34 @@ export const NoteEditor = forwardRef<NoteEditorHandles, NoteEditorProps>(functio
           ])
           .run();
       },
+      insertBookmarkNode: (url: string) => {
+        if (!editor) return;
+        editor
+          .chain()
+          .focus()
+          .insertContent([
+            {
+              type: "bookmark",
+              attrs: { url },
+            },
+            {
+              type: "paragraph",
+            },
+          ])
+          .run();
+      },
+      insertToggleBlock: () => {
+        if (!editor) return;
+        editor.chain().focus().insertToggleBlock().run();
+      },
+      undo: () => {
+        editor?.commands.undo();
+      },
+      redo: () => {
+        editor?.commands.redo();
+      },
+      canUndo: () => editor?.can().undo() ?? false,
+      canRedo: () => editor?.can().redo() ?? false,
       focus: () => {
         editor?.commands.focus();
       },
@@ -646,7 +971,55 @@ export const NoteEditor = forwardRef<NoteEditorHandles, NoteEditorProps>(functio
     });
   };
 
+  const handleUrlPasteSelect = (option: UrlPasteOption) => {
+    if (!editor || !urlPasteState) return;
+    const { url, hasSelection, from, to } = urlPasteState;
+    setUrlPasteState(null);
+
+    if (option === "bookmark") {
+      // Webブックマークカード作成: BookmarkNode を挿入
+      if (hasSelection) {
+        editor.chain().focus().deleteRange({ from, to }).run();
+      }
+      editor
+        .chain()
+        .focus()
+        .insertContent([
+          {
+            type: "bookmark",
+            attrs: { url },
+          },
+          {
+            type: "paragraph",
+          },
+        ])
+        .run();
+    } else if (option === "link") {
+      // インラインリンクとして挿入
+      if (hasSelection) {
+        editor.chain().focus().setLink({ href: url }).run();
+      } else {
+        editor.chain().focus().insertContent(`[${url}](${url})`).run();
+      }
+    } else {
+      // 通常のテキストとして挿入
+      if (hasSelection) {
+        editor.chain().focus().deleteRange({ from, to }).run();
+      }
+      editor.chain().focus().insertContent(url).run();
+    }
+  };
+
   // ソースモード（生Markdownテキストエリア）
+  const handleSourceChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
+    const target = e.target;
+    cursorPositionRef.current = {
+      start: target.selectionStart,
+      end: target.selectionEnd,
+    };
+    onChange(target.value);
+  };
+
   if (isSourceMode) {
     return (
       <div
@@ -680,7 +1053,7 @@ export const NoteEditor = forwardRef<NoteEditorHandles, NoteEditorProps>(functio
         <textarea
           ref={sourceTextareaRef}
           value={content}
-          onChange={(e) => onChange(normalizeMarkdown(e.target.value))}
+          onChange={handleSourceChange}
           placeholder={placeholder || "Markdownで書き始める…"}
           className="arca-scroll w-full flex-1"
           style={{
@@ -759,6 +1132,15 @@ export const NoteEditor = forwardRef<NoteEditorHandles, NoteEditorProps>(functio
             setSlashActive(false);
             setSlashCoords(null);
           }}
+        />
+      )}
+
+      {urlPasteState && (
+        <UrlPasteMenu
+          url={urlPasteState.url}
+          coords={urlPasteState.coords}
+          onSelect={handleUrlPasteSelect}
+          onDismiss={() => setUrlPasteState(null)}
         />
       )}
 

@@ -232,11 +232,11 @@ describe("Calendar コンポーネント", () => {
 
     await user.click(shiftBadge);
     expect(screen.getByText("出勤ステータス確認")).toBeInTheDocument();
-    expect(screen.getByText("✦ 出勤日")).toBeInTheDocument();
+    expect(screen.getByText("出勤日")).toBeInTheDocument();
     expect(screen.getByText("休日（休み）")).toBeInTheDocument();
   });
 
-  it("勤務イベントが存在する場合に「出勤 1日目」のバッジが表示される", () => {
+  it("勤務イベントが存在する場合に「出勤 1日目」のバッジが表示され、Sunアイコンが使用される", () => {
     mockSnapshot([makeEvent("仕事")], []);
 
     render(<Calendar />);
@@ -244,7 +244,81 @@ describe("Calendar コンポーネント", () => {
     const shiftBadge = screen.getByTestId("calendar-shift-badge");
     expect(shiftBadge).toBeInTheDocument();
     expect(shiftBadge.textContent).toContain("出勤 1日目");
+    // Sun アイコン（aria-label="sun"）が含まれていること
+    expect(shiftBadge.querySelector('[aria-label="sun"]')).toBeInTheDocument();
+  });
+
+  it("月間セルに出勤時間マイクロピル（文字ではなく時間のみ）が表示される", () => {
+    const workEventWithTime = {
+      id: "ev-work-1",
+      data: {
+        title: "早番",
+        date: TODAY,
+        startTime: "06:00",
+        endTime: "15:00",
+        note: "",
+        createdAt: null,
+      },
+    };
+    mockSnapshot([workEventWithTime], []);
+
+    render(<Calendar />);
+
+    // 時間 "06:00" のマイクロピルが表示されること
+    const pills = screen.getAllByTestId("shift-time-pill");
+    expect(pills.length).toBeGreaterThanOrEqual(1);
+    expect(pills[0].textContent).toBe("06:00");
+  });
+
+  it("「時間変更」ボタンをクリックすると ShiftEditModal が開き、4連勤一括変更を保存できる", async () => {
+    const workEvent = {
+      id: "ev-work-1",
+      data: {
+        title: "早番",
+        date: TODAY,
+        startTime: "06:00",
+        endTime: "15:00",
+        note: "",
+        createdAt: null,
+      },
+    };
+    mockSnapshot([workEvent], []);
+    const user = userEvent.setup({ delay: null });
+
+    render(<Calendar />);
+
+    const editBtn = screen.getByTestId("calendar-shift-edit-btn");
+    expect(editBtn).toBeInTheDocument();
+    await user.click(editBtn);
+
+    // モーダルヘッダー
+    expect(screen.getByText("出勤時間・シフト変更")).toBeInTheDocument();
+
+    // 範囲セグメント（4連勤一括変更・単日）
+    expect(screen.getByTestId("scope-four-day-btn")).toBeInTheDocument();
+    expect(screen.getByTestId("scope-single-btn")).toBeInTheDocument();
+
+    // プリセット（遅番 15:00〜24:00）を選択
+    const latePreset = screen.getByTestId("preset-late-15");
+    expect(latePreset).toBeInTheDocument();
+    await user.click(latePreset);
+
+    // 開始時刻と終了時刻が入力フィールドに反映されていること
+    const startInput = screen.getByTestId("shift-start-time-input") as HTMLInputElement;
+    const endInput = screen.getByTestId("shift-end-time-input") as HTMLInputElement;
+    expect(startInput.value).toBe("15:00");
+    expect(endInput.value).toBe("24:00");
+
+    // 保存実行
+    const saveBtn = screen.getByTestId("shift-edit-save-btn");
+    await user.click(saveBtn);
+
+    await waitFor(() => {
+      // 4連勤一括で updateDoc または addDoc が呼ばれること
+      expect(updateDoc).toHaveBeenCalled();
+    });
   });
 });
+
 
 

@@ -23,11 +23,13 @@ import {
 } from "firebase/firestore";
 import { db } from "../lib/firebase";
 import { useGoogleAuth } from "../hooks/useGoogleAuth";
+import { Sun, Moon, Clock, ClipboardList } from "lucide-react";
 import {
   syncGoogleCalendarToArca,
   createGoogleCalendarEvent,
   updateGoogleCalendarEvent,
   deleteGoogleCalendarEvent,
+  batchUpdateShiftEvents,
 } from "../services/googleCalendarSync";
 import type { CalendarEvent, CalendarTask, SyncStatus } from "../types";
 import type { PMSettings, PMTemplateItem, PMLogItem } from "../types/pm";
@@ -48,6 +50,7 @@ import {
 } from "../services/pmCycleService";
 import { ShiftOverrideModal } from "./calendar/ShiftOverrideModal";
 import { ShiftBadge } from "./calendar/ShiftBadge";
+import { ShiftEditModal } from "./calendar/ShiftEditModal";
 
 type Task = CalendarTask;
 
@@ -702,6 +705,68 @@ function AddTaskForm({
 }
 
 // ─────────────────────────────────────────
+// getShiftTimeStyle — 出勤時間帯に応じたマイクロピルのスタイル
+// ─────────────────────────────────────────
+function getShiftTimeStyle(startTime?: string, isSelected?: boolean): {
+  className: string;
+  style: React.CSSProperties;
+} {
+  const baseClass = "text-[10px] font-medium px-1.5 py-0.5 rounded-full whitespace-nowrap shrink-0";
+
+  if (isSelected) {
+    return {
+      className: `${baseClass} bg-white/25 text-white`,
+      style: {
+        letterSpacing: "-0.02em",
+        lineHeight: 1.2,
+      },
+    };
+  }
+
+  if (!startTime || !/^\d{1,2}:\d{2}$/.test(startTime)) {
+    // 標準日勤
+    return {
+      className: `${baseClass} bg-stone-500/10 text-stone-700 dark:text-stone-300`,
+      style: {
+        letterSpacing: "-0.02em",
+        lineHeight: 1.2,
+      },
+    };
+  }
+
+  const [h] = startTime.split(":").map(Number);
+
+  if (h >= 5 && h < 12) {
+    // 早番（朝: 05:00〜11:59開始）: ソフトアンバー
+    return {
+      className: `${baseClass} bg-amber-500/10 text-amber-800 dark:text-amber-300`,
+      style: {
+        letterSpacing: "-0.02em",
+        lineHeight: 1.2,
+      },
+    };
+  } else if (h >= 15) {
+    // 遅番（夜: 15:00以降開始）: トワイライトインディゴ
+    return {
+      className: `${baseClass} bg-indigo-500/10 text-indigo-800 dark:text-indigo-300`,
+      style: {
+        letterSpacing: "-0.02em",
+        lineHeight: 1.2,
+      },
+    };
+  } else {
+    // 日勤（昼: 12:00〜14:59開始、または標準日勤）: ソフトオリーブ/サンドセージ
+    return {
+      className: `${baseClass} bg-stone-500/10 text-stone-700 dark:text-stone-300`,
+      style: {
+        letterSpacing: "-0.02em",
+        lineHeight: 1.2,
+      },
+    };
+  }
+}
+
+// ─────────────────────────────────────────
 // MonthGrid — 月間カレンダーグリッド（シフト可視化対応）
 // ─────────────────────────────────────────
 function MonthGrid({
@@ -734,20 +799,22 @@ function MonthGrid({
 }) {
   const { firstDay, daysInMonth, daysInPrev } = monthMeta(year, month);
 
-  // 勤務・シフト予定のマップ化（手動オーバーライドも考慮）
-  const shiftMap = new Map<string, { isWork: boolean; title?: string }>();
+  // 勤務・シフト予定のマップ化（手動オーバーライドも考慮、開始時刻も保持）
+  const shiftMap = new Map<string, { isWork: boolean; title?: string; startTime?: string }>();
   for (const ev of events) {
     const isWork = isWorkEvent(ev.title);
     if (isWork && !shiftMap.has(ev.date)) {
-      shiftMap.set(ev.date, { isWork: true, title: ev.title });
+      shiftMap.set(ev.date, { isWork: true, title: ev.title, startTime: ev.startTime });
     }
   }
   if (settings?.overrides) {
     for (const [date, override] of Object.entries(settings.overrides)) {
       if ("type" in override && override.type) {
+        const existing = shiftMap.get(date);
         shiftMap.set(date, {
           isWork: override.type === "work",
           title: override.shiftName,
+          startTime: existing?.startTime,
         });
       } else if ("isRestDay" in override && override.isRestDay) {
         shiftMap.set(date, {
@@ -897,42 +964,40 @@ function MonthGrid({
                 {day}
               </span>
 
-              {/* シフト（仕事/休）ミニバッジ */}
+              {/* シフト時間マイクロピル または Sun/Moon インジケータ */}
               {inMonth && shiftMap.size > 0 && (
-                <div style={{ margin: "2px 0", lineHeight: 1 }}>
+                <div style={{ margin: "2px 0", lineHeight: 1, display: "flex", alignItems: "center", justifyContent: "center" }}>
                   {isWork ? (
-                    <span
-                      style={{
-                        fontSize: "0.6rem",
-                        fontWeight: 650,
-                        color: isSelected ? "#FDFCFA" : C.goldDark,
-                        background: isSelected ? "rgba(255,255,255,0.22)" : C.goldFaint,
-                        padding: "0.1rem 0.3rem",
-                        borderRadius: "4px",
-                        letterSpacing: "-0.02em",
-                        whiteSpace: "nowrap",
-                        maxWidth: "38px",
-                        overflow: "hidden",
-                        display: "inline-block",
-                        textOverflow: "ellipsis",
-                      }}
-                    >
-                      {shift.title?.replace(/【Day\s*\d+】|Day\s*\d+/i, "").trim() || "勤"}
-                    </span>
+                    shift?.startTime ? (
+                      <span
+                        className={getShiftTimeStyle(shift.startTime, isSelected).className}
+                        style={getShiftTimeStyle(shift.startTime, isSelected).style}
+                        data-testid="shift-time-pill"
+                      >
+                        {shift.startTime}
+                      </span>
+                    ) : (
+                      <Sun
+                        style={{
+                          width: "0.75rem",
+                          height: "0.75rem",
+                          color: isSelected ? "#FDFCFA" : C.goldDark,
+                        }}
+                        aria-label="出勤"
+                        data-testid="cell-work-sun-icon"
+                      />
+                    )
                   ) : (
-                    <span
+                    <Moon
                       style={{
-                        fontSize: "0.6rem",
-                        fontWeight: 650,
+                        width: "0.72rem",
+                        height: "0.72rem",
                         color: isSelected ? "#FDFCFA" : C.sage,
-                        background: isSelected ? "rgba(255,255,255,0.22)" : "rgba(82, 121, 111, 0.12)",
-                        padding: "0.1rem 0.35rem",
-                        borderRadius: "4px",
-                        letterSpacing: "-0.02em",
+                        opacity: 0.85,
                       }}
-                    >
-                      休
-                    </span>
+                      aria-label="休日"
+                      data-testid="cell-holiday-moon-icon"
+                    />
                   )}
                 </div>
               )}
@@ -1204,6 +1269,7 @@ export default function Calendar() {
   const [pmTemplates, setPmTemplates] = useState<PMTemplateItem[]>([]);
   const [pmLogs, setPmLogs] = useState<PMLogItem[]>([]);
   const [showShiftOverrideModal, setShowShiftOverrideModal] = useState(false);
+  const [showShiftEditModal, setShowShiftEditModal] = useState(false);
 
   const { isReady, isSignedIn, accessToken, signIn, signOut } = useGoogleAuth();
   const { toast, showUndoToast, showMessageToast, dismissToast, triggerUndo } = useUndoToast<CalendarEvent>();
@@ -1359,6 +1425,67 @@ export default function Calendar() {
       }
     },
     [selectedDate, showMessageToast]
+  );
+
+  // ── 4連勤ワンシフト一括 / シフト時間一括更新ハンドラ ──
+  const handleSaveShiftBatch = useCallback(
+    async (params: {
+      dates: string[];
+      title: string;
+      startTime: string;
+      endTime: string;
+      scope: "single" | "four_day";
+    }) => {
+      try {
+        await batchUpdateShiftEvents(
+          isSignedIn ? accessToken : null,
+          params.dates,
+          {
+            title: params.title,
+            startTime: params.startTime,
+            endTime: params.endTime,
+          },
+          events
+        );
+
+        // 楽観的ローカル更新（Firestore snapshot前の即時反映）
+        setEvents((prev) => {
+          const next = [...prev];
+          for (const d of params.dates) {
+            const idx = next.findIndex((e) => e.date === d && isWorkEvent(e.title));
+            if (idx >= 0) {
+              next[idx] = {
+                ...next[idx],
+                title: params.title,
+                startTime: params.startTime,
+                endTime: params.endTime,
+              };
+            } else {
+              next.push({
+                id: `opt-${d}-${Date.now()}`,
+                title: params.title,
+                date: d,
+                startTime: params.startTime,
+                endTime: params.endTime,
+                note: "",
+                createdAt: null,
+              });
+            }
+          }
+          return next;
+        });
+
+        showMessageToast(
+          params.scope === "four_day"
+            ? `4連勤のシフト時間を「${params.title} (${params.startTime}〜${params.endTime})」に一括変更しました`
+            : `シフト時間を「${params.title} (${params.startTime}〜${params.endTime})」に変更しました`
+        );
+      } catch (err) {
+        console.error("Failed to batch update shift events:", err);
+        showMessageToast("シフト時間の変更に失敗しました");
+      }
+    },
+    [isSignedIn, accessToken, events, showMessageToast]
   );
 
   // ── PM 完了トグル ──
@@ -1525,10 +1652,7 @@ export default function Calendar() {
       {/* ─── ヘッダー（統一された静かなデザイン） ─── */}
       <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", marginBottom: "1.5rem", padding: "0 0.25rem" }}>
         <div>
-          <p style={{ fontSize: "0.68rem", fontWeight: 650, color: C.charcoalLight, letterSpacing: "0.1em", textTransform: "uppercase", margin: 0 }}>
-            CALENDAR
-          </p>
-          <h1 style={{ fontSize: "1.75rem", fontWeight: 750, color: C.charcoal, margin: "0.15rem 0 0", letterSpacing: "-0.03em" }}>
+          <h1 style={{ fontSize: "1.75rem", fontWeight: 750, color: C.charcoal, margin: 0, letterSpacing: "-0.03em" }}>
             カレンダー
           </h1>
           <p style={{ fontSize: "0.78rem", color: C.charcoalLight, margin: "0.3rem 0 0", letterSpacing: "0.01em" }}>
@@ -1568,6 +1692,34 @@ export default function Calendar() {
           testId="calendar-shift-badge"
           size="sm"
         />
+
+        {/* シフト時間一括変更ボタン */}
+        <button
+          type="button"
+          onClick={() => setShowShiftEditModal(true)}
+          data-testid="calendar-shift-edit-btn"
+          className="whitespace-nowrap shrink-0"
+          style={{
+            display: "inline-flex",
+            alignItems: "center",
+            gap: "0.3rem",
+            padding: "0.2rem 0.65rem",
+            borderRadius: "9999px",
+            background: selectedShift.type === "work" ? C.goldFaint : "rgba(0, 0, 0, 0.04)",
+            color: selectedShift.type === "work" ? C.goldDark : C.charcoalLight,
+            border: "none",
+            fontSize: "0.72rem",
+            fontWeight: 600,
+            letterSpacing: "0.02em",
+            cursor: "pointer",
+            boxShadow: "0 1px 3px rgba(0, 0, 0, 0.04)",
+            transition: "all 0.15s ease",
+          }}
+          title="出勤時間・4連勤ワンシフト一括変更"
+        >
+          <Clock style={{ width: "0.75rem", height: "0.75rem", flexShrink: 0 }} />
+          <span>時間変更</span>
+        </button>
       </div>
 
       {/* ─── 左右2ペイン（PC: 2カラム横並び / モバイル: 縦積み） ─── */}
@@ -1599,7 +1751,33 @@ export default function Calendar() {
         >
           {/* ── 予定セクション ── */}
           <div className="arca-card" style={{ padding: "1.15rem 1.4rem", borderRadius: "20px" }}>
-            <p style={sectionLabelStyle}>予定</p>
+            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: "0.65rem" }}>
+              <p style={{ ...sectionLabelStyle, margin: 0 }}>予定</p>
+              {selectedShift.type === "work" && (
+                <button
+                  type="button"
+                  onClick={() => setShowShiftEditModal(true)}
+                  data-testid="panel-shift-edit-btn"
+                  className="whitespace-nowrap shrink-0"
+                  style={{
+                    background: "none",
+                    border: "none",
+                    padding: "0.1rem 0.35rem",
+                    cursor: "pointer",
+                    fontSize: "0.72rem",
+                    color: C.goldDark,
+                    display: "inline-flex",
+                    alignItems: "center",
+                    gap: "0.25rem",
+                    fontWeight: 650,
+                  }}
+                  title="出勤時間・4連勤ワンシフト一括変更"
+                >
+                  <Clock style={{ width: "0.75rem", height: "0.75rem" }} />
+                  <span>シフト時間変更</span>
+                </button>
+              )}
+            </div>
 
             {dayEvents.length === 0 ? (
               <p style={emptyStyle}>予定はありません</p>
@@ -1651,7 +1829,7 @@ export default function Calendar() {
             <div className="arca-card" style={{ padding: "1.15rem 1.4rem", borderRadius: "20px" }}>
               <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: "0.75rem" }}>
                 <div style={{ display: "flex", alignItems: "center", gap: "0.45rem" }}>
-                  <span style={{ fontSize: "0.75rem", color: "#4A72B2" }}>✦</span>
+                  <ClipboardList style={{ width: "0.85rem", height: "0.85rem", color: "#4A72B2" }} />
                   <p style={{ ...sectionLabelStyle, margin: 0 }}>PM作業</p>
                 </div>
                 <span
@@ -1764,6 +1942,18 @@ export default function Calendar() {
         onGoogleSync={syncCalendar}
         onClose={() => setShowShiftOverrideModal(false)}
         onSave={handleSaveShiftOverride}
+      />
+
+      {/* ─── 4連勤ワンシフト一括 / シフト時間変更モーダル ─── */}
+      <ShiftEditModal
+        isOpen={showShiftEditModal}
+        targetDate={selectedDate}
+        events={events}
+        pmSettings={pmSettings}
+        googleSyncStatus={syncStatus}
+        isGoogleSignedIn={isSignedIn}
+        onClose={() => setShowShiftEditModal(false)}
+        onSave={handleSaveShiftBatch}
       />
 
       {/* ─── 共通 Undo トースト ─── */}

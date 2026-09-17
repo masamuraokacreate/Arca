@@ -22,11 +22,15 @@ import {
   Plus,
   PanelLeftClose,
   FolderRoot,
+  Trash2,
+  Pin,
+  PinOff,
 } from "lucide-react";
 import { C } from "../../lib/designSystem";
 import type { NoteSpaceType } from "../../types";
 import { canMoveNoteTo } from "../../utils/noteHierarchy";
 import { NoteContextMenu } from "./NoteContextMenu";
+import { NoteIcon, NoteIconPickerModal } from "./NoteIconPickerModal";
 
 interface DocumentTreeSidebarProps {
   notes: NoteItem[];
@@ -38,6 +42,11 @@ interface DocumentTreeSidebarProps {
   onRenameNote?: (id: string, newTitle: string) => void;
   onDeleteNote?: (note: NoteItem) => void;
   onOpenMoveModal?: (note: NoteItem) => void;
+  onUpdateNoteIcon?: (id: string, icon: string | null) => void;
+  onReorderNotes?: (orderedIds: string[], parentId: string | null) => void;
+  onTogglePin?: (id: string, currentPinned: boolean) => void;
+  onOpenTrash?: () => void;
+  deletedCount?: number;
   onCloseSidebar?: () => void;
   activeSpace?: NoteSpaceType;
   onSpaceChange?: (space: NoteSpaceType) => void;
@@ -64,14 +73,23 @@ export const DocumentTreeSidebar: React.FC<DocumentTreeSidebarProps> = ({
   onRenameNote,
   onDeleteNote,
   onOpenMoveModal,
+  onUpdateNoteIcon,
+  onReorderNotes,
+  onTogglePin,
+  onOpenTrash,
+  deletedCount = 0,
   onCloseSidebar,
 }) => {
+  // ピン留めされたノート一覧
+  const pinnedNotes = useMemo(() => notes.filter((n) => n.pinned && !n.isDeleted), [notes]);
+
   // 開閉状態管理（ノードIDのSet）
   const [expandedIds, setExpandedIds] = useState<Set<string>>(new Set());
 
   // ドラッグ＆ドロップステート
   const [draggedNoteId, setDraggedNoteId] = useState<string | null>(null);
   const [dragOverTargetId, setDragOverTargetId] = useState<string | null>(null);
+  const [dragOverPosition, setDragOverPosition] = useState<"before" | "after" | "inside" | null>(null);
   const [isDragOverRoot, setIsDragOverRoot] = useState<boolean>(false);
 
   // コンテキストメニューステート
@@ -80,6 +98,9 @@ export const DocumentTreeSidebar: React.FC<DocumentTreeSidebarProps> = ({
     y: number;
     note: NoteItem;
   } | null>(null);
+
+  // アイコン選択モーダルステート
+  const [iconPickerTargetNote, setIconPickerTargetNote] = useState<NoteItem | null>(null);
 
   // インライン名前変更ステート
   const [renamingNoteId, setRenamingNoteId] = useState<string | null>(null);
@@ -98,7 +119,12 @@ export const DocumentTreeSidebar: React.FC<DocumentTreeSidebarProps> = ({
     });
 
     childrenMap.forEach((list) => {
-      list.sort((a, b) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime());
+      list.sort((a, b) => {
+        const orderA = typeof a.order === "number" ? a.order : Infinity;
+        const orderB = typeof b.order === "number" ? b.order : Infinity;
+        if (orderA !== orderB) return orderA - orderB;
+        return new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime();
+      });
     });
 
     const buildNodes = (parentId: string | null, depth: number): TreeNode[] => {
@@ -179,6 +205,7 @@ export const DocumentTreeSidebar: React.FC<DocumentTreeSidebarProps> = ({
   const handleDragEnd = () => {
     setDraggedNoteId(null);
     setDragOverTargetId(null);
+    setDragOverPosition(null);
     setIsDragOverRoot(false);
   };
 
@@ -187,11 +214,40 @@ export const DocumentTreeSidebar: React.FC<DocumentTreeSidebarProps> = ({
     e.stopPropagation();
     if (!draggedNoteId || draggedNoteId === targetNoteId) return;
 
-    if (canMoveNoteTo(notes, draggedNoteId, targetNoteId)) {
-      e.dataTransfer.dropEffect = "move";
-      setDragOverTargetId(targetNoteId);
+    const targetNote = notes.find((n) => n.id === targetNoteId);
+    if (!targetNote) return;
+
+    // Y座標の相対位置を計算（上30%=前、下30%=後、中央=中）
+    const rect = e.currentTarget.getBoundingClientRect();
+    const offsetY = e.clientY - rect.top;
+    const height = rect.height;
+
+    let position: "before" | "after" | "inside" = "inside";
+    if (offsetY < height * 0.3) {
+      position = "before";
+    } else if (offsetY > height * 0.7) {
+      position = "after";
     } else {
-      e.dataTransfer.dropEffect = "none";
+      position = "inside";
+    }
+
+    if (position === "inside") {
+      if (canMoveNoteTo(notes, draggedNoteId, targetNoteId)) {
+        e.dataTransfer.dropEffect = "move";
+        setDragOverTargetId(targetNoteId);
+        setDragOverPosition("inside");
+      } else {
+        e.dataTransfer.dropEffect = "none";
+      }
+    } else {
+      const parentId = targetNote.parentId ?? null;
+      if (parentId === draggedNoteId || !canMoveNoteTo(notes, draggedNoteId, parentId)) {
+        e.dataTransfer.dropEffect = "none";
+      } else {
+        e.dataTransfer.dropEffect = "move";
+        setDragOverTargetId(targetNoteId);
+        setDragOverPosition(position);
+      }
     }
   };
 
@@ -199,10 +255,45 @@ export const DocumentTreeSidebar: React.FC<DocumentTreeSidebarProps> = ({
     e.preventDefault();
     e.stopPropagation();
     const sourceId = e.dataTransfer.getData("text/arca-note-id") || draggedNoteId;
-    if (sourceId && sourceId !== targetNoteId && canMoveNoteTo(notes, sourceId, targetNoteId)) {
-      onMoveNote(sourceId, targetNoteId);
-      // ドロップ先フォルダを自動展開
-      setExpandedIds((prev) => new Set(prev).add(targetNoteId));
+    if (!sourceId || sourceId === targetNoteId) {
+      handleDragEnd();
+      return;
+    }
+
+    const targetNote = notes.find((n) => n.id === targetNoteId);
+    if (!targetNote) {
+      handleDragEnd();
+      return;
+    }
+
+    const position = dragOverPosition || "inside";
+
+    if (position === "inside") {
+      if (canMoveNoteTo(notes, sourceId, targetNoteId)) {
+        onMoveNote(sourceId, targetNoteId);
+        setExpandedIds((prev) => new Set(prev).add(targetNoteId));
+      }
+    } else {
+      // 同一階層内での並び替え（before / after）
+      const parentId = targetNote.parentId ?? null;
+      if (canMoveNoteTo(notes, sourceId, parentId)) {
+        const siblings = notes
+          .filter((n) => (n.parentId ?? null) === parentId && !n.isDeleted)
+          .sort((a, b) => {
+            const orderA = typeof a.order === "number" ? a.order : Infinity;
+            const orderB = typeof b.order === "number" ? b.order : Infinity;
+            if (orderA !== orderB) return orderA - orderB;
+            return new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime();
+          });
+
+        const siblingIds = siblings.map((s) => s.id).filter((id) => id !== sourceId);
+        const targetIdx = siblingIds.indexOf(targetNoteId);
+        if (targetIdx !== -1) {
+          const insertIdx = position === "before" ? targetIdx : targetIdx + 1;
+          siblingIds.splice(insertIdx, 0, sourceId);
+          onReorderNotes?.(siblingIds, parentId);
+        }
+      }
     }
     handleDragEnd();
   };
@@ -225,6 +316,9 @@ export const DocumentTreeSidebar: React.FC<DocumentTreeSidebarProps> = ({
     const isActive = note.id === activeNoteId;
     const isDraggingThis = note.id === draggedNoteId;
     const isDragOver = note.id === dragOverTargetId;
+    const isDragBefore = isDragOver && dragOverPosition === "before";
+    const isDragAfter = isDragOver && dragOverPosition === "after";
+    const isDragInside = isDragOver && dragOverPosition === "inside";
     const isRenaming = note.id === renamingNoteId;
 
     return (
@@ -236,7 +330,10 @@ export const DocumentTreeSidebar: React.FC<DocumentTreeSidebarProps> = ({
           onDragOver={(e) => handleDragOverNode(e, note.id)}
           onDragLeave={(e) => {
             e.stopPropagation();
-            if (dragOverTargetId === note.id) setDragOverTargetId(null);
+            if (dragOverTargetId === note.id) {
+              setDragOverTargetId(null);
+              setDragOverPosition(null);
+            }
           }}
           onDrop={(e) => handleDropOnNode(e, note.id)}
           onContextMenu={(e) => {
@@ -252,11 +349,15 @@ export const DocumentTreeSidebar: React.FC<DocumentTreeSidebarProps> = ({
           className={`group relative flex items-center min-h-[42px] px-2 py-1.5 rounded-xl cursor-pointer transition-all duration-150 ${
             isDraggingThis ? "opacity-40 scale-95" : ""
           } ${
-            isDragOver
+            isDragInside
               ? "bg-amber-500/20 ring-2 ring-amber-500/40 shadow-sm"
               : isActive
               ? "bg-amber-500/10 text-[#B58D3D]"
               : "hover:bg-black/[0.035] dark:hover:bg-white/[0.04] text-charcoal"
+          } ${
+            isDragBefore ? "before:absolute before:top-0 before:left-2 before:right-2 before:h-0.5 before:bg-[#B58D3D] before:rounded-full before:z-10" : ""
+          } ${
+            isDragAfter ? "after:absolute after:bottom-0 after:left-2 after:right-2 after:h-0.5 after:bg-[#B58D3D] after:rounded-full after:z-10" : ""
           }`}
           style={{
             paddingLeft: `${Math.max(8, depth * 16 + 8)}px`,
@@ -277,17 +378,31 @@ export const DocumentTreeSidebar: React.FC<DocumentTreeSidebarProps> = ({
             {isExpanded ? <ChevronDown className="w-3.5 h-3.5" /> : <ChevronRight className="w-3.5 h-3.5" />}
           </button>
 
-          {/* アイコン */}
-          <div className="flex-shrink-0 mx-1 text-charcoal-light group-hover:text-charcoal">
-            {hasChildren ? (
-              isExpanded ? (
-                <FolderOpen className="w-4 h-4 text-[#B58D3D]" />
-              ) : (
-                <Folder className="w-4 h-4 text-charcoal-light" />
-              )
-            ) : (
-              <FileText className="w-4 h-4" />
-            )}
+          {/* アイコン（クリックでSVGアイコン選択モーダルを開く） */}
+          <div
+            className="flex-shrink-0 mx-1 text-charcoal-light group-hover:text-charcoal hover:scale-110 transition-transform cursor-pointer"
+            onClick={(e) => {
+              e.stopPropagation();
+              setIconPickerTargetNote(note);
+            }}
+            title="アイコンを変更"
+            aria-label="アイコンを変更"
+          >
+            <NoteIcon
+              icon={note.icon}
+              defaultIcon={
+                hasChildren ? (
+                  isExpanded ? (
+                    <FolderOpen className="w-4 h-4 text-[#B58D3D]" />
+                  ) : (
+                    <Folder className="w-4 h-4 text-charcoal-light" />
+                  )
+                ) : (
+                  <FileText className="w-4 h-4" />
+                )
+              }
+              className="w-4 h-4"
+            />
           </div>
 
           {/* タイトル or インライン名前変更入力 */}
@@ -314,6 +429,24 @@ export const DocumentTreeSidebar: React.FC<DocumentTreeSidebarProps> = ({
               {note.title.trim() || "（タイトルなし）"}
             </span>
           )}
+
+          {/* ホバー時のピン留めボタン */}
+          <button
+            type="button"
+            onClick={(e) => {
+              e.stopPropagation();
+              onTogglePin?.(note.id, !note.pinned);
+            }}
+            className={`w-7 h-7 flex items-center justify-center rounded-lg transition-all shrink-0 ${
+              note.pinned
+                ? "text-[#B58D3D] opacity-100 hover:bg-amber-500/10"
+                : "opacity-0 group-hover:opacity-100 text-charcoal-light hover:text-[#B58D3D] hover:bg-black/5 dark:hover:bg-white/5"
+            }`}
+            title={note.pinned ? "ピン留めを解除" : "ピン留め"}
+            aria-label={note.pinned ? "ピン留めを解除" : "ピン留め"}
+          >
+            <Pin className={`w-3.5 h-3.5 ${note.pinned ? "fill-[#B58D3D]" : ""}`} />
+          </button>
 
           {/* ホバー時の子ページ作成ボタン */}
           <button
@@ -419,6 +552,58 @@ export const DocumentTreeSidebar: React.FC<DocumentTreeSidebarProps> = ({
           }
         }}
       >
+        {/* ── ピン留めセクション ── */}
+        {pinnedNotes.length > 0 && (
+          <div className="mb-3 pb-2 border-b border-black/[0.04] dark:border-white/[0.05]">
+            <div className="flex items-center gap-1.5 px-2 py-1 text-[10px] font-semibold text-charcoal-light uppercase tracking-wider">
+              <Pin size={11} className="text-[#B58D3D] fill-[#B58D3D]" />
+              <span>ピン留め</span>
+              <span className="text-[10px] font-normal px-1.5 py-0.2 rounded-full bg-black/5 dark:bg-white/10 ml-auto">
+                {pinnedNotes.length}
+              </span>
+            </div>
+            <div className="space-y-0.5 mt-1">
+              {pinnedNotes.map((pNote) => {
+                const isPActive = pNote.id === activeNoteId;
+                return (
+                  <div
+                    key={`pin-${pNote.id}`}
+                    onClick={() => onSelectNote(pNote.id)}
+                    className={`group relative flex items-center min-h-[34px] px-2 py-1 rounded-xl cursor-pointer transition-all duration-150 ${
+                      isPActive
+                        ? "bg-amber-500/10 text-[#B58D3D]"
+                        : "hover:bg-black/[0.035] dark:hover:bg-white/[0.04] text-charcoal"
+                    }`}
+                  >
+                    <div className="w-5 h-5 rounded-lg flex items-center justify-center shrink-0 mr-1.5 text-[#B58D3D]">
+                      <NoteIcon
+                        icon={pNote.icon}
+                        defaultIcon={<FileText className="w-3.5 h-3.5" />}
+                        className="w-3.5 h-3.5"
+                      />
+                    </div>
+                    <span className="flex-1 min-w-0 text-xs truncate font-medium">
+                      {pNote.title.trim() || "（タイトルなし）"}
+                    </span>
+                    <button
+                      type="button"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        onTogglePin?.(pNote.id, false);
+                      }}
+                      className="w-6 h-6 flex items-center justify-center rounded-lg opacity-0 group-hover:opacity-100 transition-all text-charcoal-light hover:text-[#B58D3D] hover:bg-black/5 dark:hover:bg-white/5 shrink-0"
+                      title="ピン留めを解除"
+                      aria-label="ピン留めを解除"
+                    >
+                      <PinOff size={12} />
+                    </button>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        )}
+
         {tree.length === 0 ? (
           <div className="flex flex-col items-center justify-center h-48 px-4 text-center">
             <FileText className="w-8 h-8 text-charcoal-xlight mb-2 stroke-[1.5]" />
@@ -437,6 +622,28 @@ export const DocumentTreeSidebar: React.FC<DocumentTreeSidebarProps> = ({
         )}
       </div>
 
+      {/* ── 最下部固定フッター: ごみ箱 ── */}
+      {onOpenTrash && (
+        <div className="p-2 border-t border-black/[0.05] dark:border-white/[0.06] bg-black/[0.01] dark:bg-white/[0.01] shrink-0">
+          <button
+            type="button"
+            onClick={onOpenTrash}
+            className="w-full flex items-center justify-between px-2.5 py-2 rounded-xl text-xs font-medium text-charcoal-light hover:text-charcoal hover:bg-black/5 dark:hover:bg-white/5 transition-colors cursor-pointer border-none bg-transparent group select-none"
+            title="ごみ箱を開く"
+          >
+            <div className="flex items-center gap-2">
+              <Trash2 className="w-4 h-4 text-charcoal-light group-hover:text-[#E0564A] transition-colors" />
+              <span className="group-hover:text-[#E0564A] transition-colors">ごみ箱</span>
+            </div>
+            {deletedCount > 0 && (
+              <span className="px-1.5 py-0.5 rounded-full text-[10px] font-semibold bg-black/[0.05] dark:bg-white/[0.1] text-charcoal-light group-hover:bg-[#E0564A]/10 group-hover:text-[#E0564A] transition-colors">
+                {deletedCount}
+              </span>
+            )}
+          </button>
+        </div>
+      )}
+
       {/* ── 右クリックカスタムコンテキストメニュー ── */}
       {contextMenu && (
         <NoteContextMenu
@@ -448,6 +655,9 @@ export const DocumentTreeSidebar: React.FC<DocumentTreeSidebarProps> = ({
             setRenamingNoteId(note.id);
             setRenameTitle(note.title);
           }}
+          onChangeIcon={(note) => {
+            setIconPickerTargetNote(note);
+          }}
           onCreateChild={(noteId) => {
             onCreateChildNote(noteId);
             setExpandedIds((prev) => new Set(prev).add(noteId));
@@ -458,6 +668,20 @@ export const DocumentTreeSidebar: React.FC<DocumentTreeSidebarProps> = ({
           onDelete={(note) => {
             onDeleteNote?.(note);
           }}
+        />
+      )}
+
+      {/* ── アイコン選択モーダル ── */}
+      {iconPickerTargetNote && (
+        <NoteIconPickerModal
+          isOpen={true}
+          onClose={() => setIconPickerTargetNote(null)}
+          currentIcon={iconPickerTargetNote.icon}
+          onSelectIcon={(iconId) => {
+            onUpdateNoteIcon?.(iconPickerTargetNote.id, iconId);
+            setIconPickerTargetNote(null);
+          }}
+          noteTitle={iconPickerTargetNote.title}
         />
       )}
     </aside>

@@ -42,6 +42,8 @@ export function useGoogleAuth(
   const pendingResolversRef = useRef<
     { resolve: (token: string) => void; reject: (err: Error) => void }[]
   >([]);
+  // GISポップアップ/トークン要求が現在進行中かどうかの排他ガードフラグ
+  const isRequestingRef = useRef(false);
 
   // ref 経由でコールバックを常に最新に保つ（deps を不安定にしない）
   const onLoginRef = useRef(onLogin);
@@ -56,6 +58,7 @@ export function useGoogleAuth(
       client_id: CLIENT_ID,
       scope: SCOPE,
       callback: (resp: TokenResponse) => {
+        isRequestingRef.current = false;
         if (resp.error) {
           console.error("Google OAuth error:", resp.error_description || resp.error);
           clearSavedToken();
@@ -77,6 +80,7 @@ export function useGoogleAuth(
         resolvers.forEach((r) => r.resolve(resp.access_token));
       },
       error_callback: (err) => {
+        isRequestingRef.current = false;
         console.error("Google OAuth error_callback:", err);
         clearSavedToken();
         setAccessToken(null);
@@ -118,6 +122,15 @@ export function useGoogleAuth(
         return Promise.reject(new Error("Google認証クライアントの初期化中です。少々お待ちください。"));
       }
 
+      // すでにトークン要求ポップアップが進行中の場合、重複してポップアップを開かず
+      // 進行中のリクエスト完了を待つPromiseキューに合流させる
+      if (isRequestingRef.current) {
+        return new Promise<string>((resolve, reject) => {
+          pendingResolversRef.current.push({ resolve, reject });
+        });
+      }
+
+      isRequestingRef.current = true;
       return new Promise<string>((resolve, reject) => {
         pendingResolversRef.current.push({ resolve, reject });
         try {
@@ -125,6 +138,7 @@ export function useGoogleAuth(
             prompt: forcePrompt ? "consent" : "",
           });
         } catch (e) {
+          isRequestingRef.current = false;
           pendingResolversRef.current = pendingResolversRef.current.filter((r) => r.resolve !== resolve);
           reject(e instanceof Error ? e : new Error(String(e)));
         }

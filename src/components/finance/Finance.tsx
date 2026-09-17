@@ -487,24 +487,12 @@ export default function Finance() {
         >
           {/* アプリ名・見出し */}
           <div>
-            <p
-              style={{
-                fontSize: "0.65rem",
-                fontWeight: 650,
-                letterSpacing: "0.1em",
-                textTransform: "uppercase",
-                color: C.charcoalLight,
-                margin: 0,
-              }}
-            >
-              FINANCE
-            </p>
             <h1
               style={{
                 fontSize: "1.35rem",
                 fontWeight: 750,
                 color: C.charcoal,
-                margin: "0.1rem 0 0",
+                margin: 0,
                 letterSpacing: "-0.02em",
                 lineHeight: 1.2,
               }}

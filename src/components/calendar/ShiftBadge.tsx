@@ -9,6 +9,7 @@
  */
 
 import React from "react";
+import { Sun, Moon } from "lucide-react";
 import type { ShiftInfo } from "../../types/shift";
 import { C } from "../../lib/designSystem";
 
@@ -21,15 +22,9 @@ export interface ShiftBadgeProps {
   size?: "sm" | "md";
 }
 
-export function MoonIcon({ size = "0.82rem", style }: { size?: string; style?: React.CSSProperties }) {
+export function MoonIcon({ size = "0.82rem", style }: { size?: string | number; style?: React.CSSProperties }) {
   return (
-    <svg
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth={2}
-      strokeLinecap="round"
-      strokeLinejoin="round"
+    <Moon
       style={{
         width: size,
         height: size,
@@ -39,9 +34,23 @@ export function MoonIcon({ size = "0.82rem", style }: { size?: string; style?: R
         ...style,
       }}
       aria-label="moon"
-    >
-      <path d="M12 3a6 6 0 0 0 9 9 9 9 0 1 1-9-9Z" />
-    </svg>
+    />
+  );
+}
+
+export function SunIcon({ size = "0.82rem", style }: { size?: string | number; style?: React.CSSProperties }) {
+  return (
+    <Sun
+      style={{
+        width: size,
+        height: size,
+        flexShrink: 0,
+        display: "inline-block",
+        verticalAlign: "middle",
+        ...style,
+      }}
+      aria-label="sun"
+    />
   );
 }
 
@@ -100,7 +109,7 @@ export function ShiftBadge({
       }}
     >
       <span style={{ fontSize: isSmall ? "0.7rem" : "0.8rem", lineHeight: 1, display: "inline-flex", alignItems: "center" }}>
-        {isWork ? "✦" : <MoonIcon size={isSmall ? "0.72rem" : "0.82rem"} />}
+        {isWork ? <SunIcon size={isSmall ? "0.72rem" : "0.82rem"} /> : <MoonIcon size={isSmall ? "0.72rem" : "0.82rem"} />}
       </span>
       <span>{displayText}</span>
       {shift.isOverridden && (

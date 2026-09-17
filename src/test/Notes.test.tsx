@@ -706,8 +706,8 @@ describe("Notes 階層化・ハブ＆カード（Parent-Child Hub）統合テス
 
     render(<Notes initialNoteId="hub-1" />);
 
-    // パンくずとタイトルが表示されている
-    expect(screen.getByText("Pages")).toBeInTheDocument();
+    // パンくずからPagesが削除され、親ページが先頭に表示されている
+    expect(screen.queryByText("Pages")).toBeNull();
     expect(screen.getByDisplayValue("プロジェクトハブ")).toBeInTheDocument();
     expect(screen.getAllByTitle("プロジェクトハブ")[0]).toBeInTheDocument(); // パンくずのtitle属性
 

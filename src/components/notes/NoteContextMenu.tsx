@@ -11,7 +11,7 @@
 
 import React, { useEffect, useRef } from "react";
 import type { NoteItem } from "../../types";
-import { Edit3, Plus, FolderInput, Trash2 } from "lucide-react";
+import { Edit3, Plus, FolderInput, Trash2, Smile } from "lucide-react";
 
 export interface NoteContextMenuProps {
   x: number;
@@ -19,6 +19,7 @@ export interface NoteContextMenuProps {
   note: NoteItem;
   onClose: () => void;
   onRename: (note: NoteItem) => void;
+  onChangeIcon?: (note: NoteItem) => void;
   onCreateChild: (noteId: string) => void;
   onMove: (note: NoteItem) => void;
   onDelete: (note: NoteItem) => void;
@@ -30,6 +31,7 @@ export const NoteContextMenu: React.FC<NoteContextMenuProps> = ({
   note,
   onClose,
   onRename,
+  onChangeIcon,
   onCreateChild,
   onMove,
   onDelete,
@@ -106,6 +108,22 @@ export const NoteContextMenu: React.FC<NoteContextMenuProps> = ({
         <Edit3 size={14} className="text-charcoal-light shrink-0" />
         <span>名前の変更</span>
       </button>
+
+      {/* メニューアイテム: アイコンの変更 */}
+      {onChangeIcon && (
+        <button
+          type="button"
+          role="menuitem"
+          onClick={() => {
+            onChangeIcon(note);
+            onClose();
+          }}
+          className="w-full flex items-center gap-2.5 px-3 py-2 rounded-xl text-xs font-medium text-charcoal hover:bg-black/[0.04] dark:hover:bg-white/[0.06] transition-colors cursor-pointer border-none bg-transparent text-left"
+        >
+          <Smile size={14} className="text-amber-700 dark:text-amber-400 shrink-0" />
+          <span>アイコンの変更</span>
+        </button>
+      )}
 
       {/* メニューアイテム: 子ページを作成 */}
       <button

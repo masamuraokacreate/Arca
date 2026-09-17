@@ -41,9 +41,6 @@ export const CycleRibbon: React.FC<CycleRibbonProps> = ({
       {/* ─── サイクル情報ヘッダー ─── */}
       <div className="flex items-center justify-between px-1 mb-2.5">
         <div className="flex items-center gap-2">
-          <span className="text-xs font-bold tracking-wider uppercase text-charcoal-light">
-            4勤2休 サイクル司令塔
-          </span>
           <span className="text-[0.72rem] text-charcoal-xlight font-medium">
             {cycleRange.startDate.replace(/-/g, "/")} 〜 {cycleRange.endDate.replace(/-/g, "/")}
           </span>

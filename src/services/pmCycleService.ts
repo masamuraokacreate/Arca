@@ -1097,4 +1097,102 @@ export function calculateFourTwoCycleRange(
   };
 }
 
+/**
+ * 選択された日付（主に出勤日）が属する4連勤ブロック（計4日間）の日付文字列配列を取得する
+ *
+ * 4勤2休サイクル（出勤1日目〜4日目）の4日間を "YYYY-MM-DD" の配列で返す。
+ *
+ * @param targetDate 対象日 "YYYY-MM-DD"
+ * @param events カレンダーイベント一覧
+ * @param settings PMSettings (オーバーライド設定含む)
+ * @returns 4日間の日付配列 [出勤1日目, 出勤2日目, 出勤3日目, 出勤4日目]
+ */
+export function getFourDayWorkBlock(
+  targetDate: string,
+  events: CalendarEvent[],
+  settings?: PMSettings | null
+): string[] {
+  const cycle = calculateFourTwoCycleRange(targetDate, events, settings);
+  return cycle.days
+    .filter((d) => d.cycleDayType === "work")
+    .map((d) => d.date);
+}
+
+/**
+ * 4勤2休サイクル範囲の表示用ラベル文字列を生成する
+ * 例: "2026年9月 第3サイクル (09/14〜09/19)"
+ *
+ * @param cycleRange 4勤2休サイクル範囲 (startDate, endDate, days)
+ * @returns 表示用ラベル文字列
+ */
+export function getCycleDisplayLabel(cycleRange: FourTwoCycleRange): string {
+  const [sy, sm, sd] = cycleRange.startDate.split("-").map(Number);
+  const [_ey, em, ed] = cycleRange.endDate.split("-").map(Number);
+
+  // 月内におけるサイクルの概算番号（1日〜6日: 第1, 7日〜12日: 第2, ...）
+  const cycleIndex = Math.min(Math.max(Math.ceil(sd / 6), 1), 6);
+
+  const startFormatted = `${String(sm).padStart(2, "0")}/${String(sd).padStart(2, "0")}`;
+  const endFormatted = `${String(em).padStart(2, "0")}/${String(ed).padStart(2, "0")}`;
+
+  return `${sy}年${sm}月 第${cycleIndex}サイクル (${startFormatted}〜${endFormatted})`;
+}
+
+/**
+ * 4勤2休サイクル範囲の日付範囲ラベル文字列を生成する
+ * 例: "09/14(月)～09/19(土)"
+ *
+ * @param cycleRange 4勤2休サイクル範囲 (startDate, endDate, days)
+ * @returns 日付範囲文字列 "MM/DD(曜日)～MM/DD(曜日)"
+ */
+export function getCycleDateRangeLabel(cycleRange: FourTwoCycleRange): string {
+  if (cycleRange.days && cycleRange.days.length > 0) {
+    const first = cycleRange.days[0];
+    const last = cycleRange.days[cycleRange.days.length - 1];
+
+    const startFormatted = `${String(first.month).padStart(2, "0")}/${String(first.dayOfMonth).padStart(2, "0")}(${first.dayOfWeek})`;
+    const endFormatted = `${String(last.month).padStart(2, "0")}/${String(last.dayOfMonth).padStart(2, "0")}(${last.dayOfWeek})`;
+
+    return `${startFormatted}～${endFormatted}`;
+  }
+
+  const [sy, sm, sd] = cycleRange.startDate.split("-").map(Number);
+  const [ey, em, ed] = cycleRange.endDate.split("-").map(Number);
+  const startDayOfWeek = JAPANESE_WEEKDAYS[new Date(Date.UTC(sy, sm - 1, sd)).getUTCDay()];
+  const endDayOfWeek = JAPANESE_WEEKDAYS[new Date(Date.UTC(ey, em - 1, ed)).getUTCDay()];
+
+  const startFormatted = `${String(sm).padStart(2, "0")}/${String(sd).padStart(2, "0")}(${startDayOfWeek})`;
+  const endFormatted = `${String(em).padStart(2, "0")}/${String(ed).padStart(2, "0")}(${endDayOfWeek})`;
+
+  return `${startFormatted}～${endFormatted}`;
+}
+
+/**
+ * サイクル移動用: 基準日を指定した方向（-1: 前サイクル, 1: 翌サイクル）へ6日間ずらす
+ *
+ * @param currentAnchorDate 現在の基準日 "YYYY-MM-DD"
+ * @param direction -1 または 1
+ * @returns 新しい基準日 "YYYY-MM-DD"
+ */
+export function getAdjacentCycleAnchor(
+  currentAnchorDate: string,
+  direction: -1 | 1
+): string {
+  const epoch = dateStrToEpochDays(currentAnchorDate);
+  const newEpoch = epoch + direction * 6;
+  return epochDaysToDateStr(newEpoch);
+}
+
+/**
+ * 日付文字列 "YYYY-MM-DD" を指定日数ずらす（タイムゾーン安全）
+ *
+ * @param dateStr 対象日 "YYYY-MM-DD"
+ * @param offsetDays オフセット日数（負数で過去、正数で未来）
+ * @returns ずらした後の日付文字列 "YYYY-MM-DD"
+ */
+export function shiftDateStr(dateStr: string, offsetDays: number): string {
+  const epoch = dateStrToEpochDays(dateStr);
+  return epochDaysToDateStr(epoch + offsetDays);
+}
+
 

@@ -11,7 +11,7 @@
  * 6. 外部リンクのスマートURLカード表示
  */
 
-import { useState, useCallback, type ReactNode, isValidElement } from "react";
+import { useState, useCallback, useMemo, type ReactNode, isValidElement } from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import remarkBreaks from "remark-breaks";
@@ -172,12 +172,17 @@ function NoteImage({
 }) {
   const [lightboxOpen, setLightboxOpen] = useState(false);
 
-  // alt からタイトルとサイズ（small / medium / full）を抽出
+  // alt からタイトルとサイズ（width=50% または small / medium / full）を抽出
   const rawAlt = alt || "";
   let initialSize: ImageSize = "medium";
   let cleanAlt = rawAlt;
+  let customWidth: string | null = null;
 
-  if (rawAlt.includes("|")) {
+  const widthMatch = rawAlt.match(/\|width=([0-9]+%)/);
+  if (widthMatch) {
+    customWidth = widthMatch[1];
+    cleanAlt = rawAlt.replace(/\|width=[0-9]+%/, "").trim();
+  } else if (rawAlt.includes("|")) {
     const parts = rawAlt.split("|");
     cleanAlt = parts[0].trim();
     const sizeCandidate = parts[1].trim().toLowerCase();
@@ -213,11 +218,31 @@ function NoteImage({
     }
   }
 
-  const sizeStyles = {
-    small: { maxWidth: "260px", margin: "1.2rem auto" },
-    medium: { maxWidth: "620px", margin: "1.6rem auto" },
-    full: { maxWidth: "100%", width: "100%", margin: "1.8rem 0" },
-  }[currentSize];
+  const widthPercent = customWidth ? parseInt(customWidth.replace("%", ""), 10) : null;
+  const isInlineLayout = widthPercent !== null && widthPercent < 95;
+
+  // 標準幅表示（max-w-4xl、本文実幅約800px）を基準とした固定最大幅
+  // 全画面表示に切り替えても画像が巨大化せず、標準幅表示時と完全に同一のサイズを維持
+  const standardBaseWidth = 800;
+  const computedMaxWidth = widthPercent
+    ? Math.round((standardBaseWidth * widthPercent) / 100)
+    : 800;
+
+  const sizeStyles: React.CSSProperties = customWidth
+    ? {
+        width: `${widthPercent}%`,
+        maxWidth: `min(100%, ${computedMaxWidth}px)`,
+        display: isInlineLayout ? "inline-flex" : "flex",
+        margin: isInlineLayout ? "0.6rem 0.4%" : "1.6rem auto",
+        verticalAlign: "top",
+      }
+    : {
+        ...{
+          small: { maxWidth: "260px", margin: "1.2rem auto", display: "flex" as const },
+          medium: { maxWidth: "620px", margin: "1.6rem auto", display: "flex" as const },
+          full: { maxWidth: "min(100%, 800px)", width: "100%", margin: "1.8rem auto", display: "flex" as const },
+        }[currentSize],
+      };
 
   return (
     <figure
@@ -392,6 +417,85 @@ function escapeRegex(str: string): string {
   return str.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
 
+interface ContentSection {
+  type: "markdown" | "toggle";
+  content: string;
+  title?: string;
+  isOpen?: boolean;
+}
+
+function parseToggleSections(rawText: string): ContentSection[] {
+  const sections: ContentSection[] = [];
+  const regex = /<details(\s+open)?><summary>(.*?)<\/summary>([\s\S]*?)<\/details>/gi;
+  let lastIndex = 0;
+  let match: RegExpExecArray | null;
+
+  while ((match = regex.exec(rawText)) !== null) {
+    if (match.index > lastIndex) {
+      sections.push({
+        type: "markdown",
+        content: rawText.slice(lastIndex, match.index),
+      });
+    }
+    const isOpen = Boolean(match[1]);
+    const title = match[2]?.trim() || "トグル";
+    const innerContent = match[3] || "";
+    sections.push({
+      type: "toggle",
+      content: innerContent,
+      title,
+      isOpen,
+    });
+    lastIndex = match.index + match[0].length;
+  }
+
+  if (lastIndex < rawText.length) {
+    sections.push({
+      type: "markdown",
+      content: rawText.slice(lastIndex),
+    });
+  }
+
+  return sections;
+}
+
+function ToggleViewer({
+  title,
+  defaultOpen = true,
+  children,
+}: {
+  title: string;
+  defaultOpen?: boolean;
+  children: ReactNode;
+}) {
+  const [isOpen, setIsOpen] = useState(defaultOpen);
+
+  return (
+    <div className="my-3 rounded-2xl border border-stone-200/70 dark:border-stone-800/80 bg-stone-50/50 dark:bg-stone-900/30 overflow-hidden shadow-2xs">
+      <button
+        type="button"
+        onClick={() => setIsOpen(!isOpen)}
+        className="w-full flex items-center gap-2 px-3.5 py-2.5 bg-stone-100/60 dark:bg-stone-800/50 hover:bg-stone-150/70 dark:hover:bg-stone-800/80 transition-colors select-none text-left cursor-pointer border-none"
+      >
+        <ChevronRight
+          size={16}
+          className={`transition-transform duration-200 text-[#B58D3D] shrink-0 ${
+            isOpen ? "rotate-90" : "rotate-0"
+          }`}
+        />
+        <span className="text-sm font-semibold text-charcoal dark:text-stone-200 truncate">
+          {title || "トグル"}
+        </span>
+      </button>
+      {isOpen && (
+        <div className="px-4 py-2 text-stone-800 dark:text-stone-200">
+          {children}
+        </div>
+      )}
+    </div>
+  );
+}
+
 // ─────────────────────────────────────────
 // メイン MarkdownViewer コンポーネント
 // ─────────────────────────────────────────
@@ -412,7 +516,10 @@ export function MarkdownViewer({
   }
 
   // [child-page:pageId] 構文を Markdown リンク [子ページ](note:pageId) に前処理
-  const processedContent = content.replace(/\[child-page:([a-zA-Z0-9_-]+)\]/g, "[$1](note:$1)");
+  // [bookmark:URL] 構文をスマートURLカード表示用に単独URL行に前処理
+  const processedContent = content
+    .replace(/\[child-page:([a-zA-Z0-9_-]+)\]/g, "[$1](note:$1)")
+    .replace(/\[bookmark:(https?:\/\/[^\]]+)\]/g, "\n\n$1\n\n");
 
   // タスクリストのチェックボックスをクリックした際のトグル処理
   const handleTaskToggle = (taskText: string, currentChecked: boolean) => {
@@ -448,389 +555,436 @@ export function MarkdownViewer({
     return <Tag id={id}>{children}</Tag>;
   };
 
-  return (
-    <div className="arca-prose">
-      <ReactMarkdown
-        urlTransform={(url) => url}
-        remarkPlugins={[remarkGfm, remarkBreaks]}
-        components={{
-          h1: ({ children }) => renderHeading(1, children),
-          h2: ({ children }) => renderHeading(2, children),
-          h3: ({ children }) => renderHeading(3, children),
-          h4: ({ children }) => renderHeading(4, children),
-          h5: ({ children }) => renderHeading(5, children),
-          h6: ({ children }) => renderHeading(6, children),
+  const markdownComponents: React.ComponentProps<typeof ReactMarkdown>["components"] = useMemo(
+    () => ({
+      h1: ({ children }) => renderHeading(1, children),
+      h2: ({ children }) => renderHeading(2, children),
+      h3: ({ children }) => renderHeading(3, children),
+      h4: ({ children }) => renderHeading(4, children),
+      h5: ({ children }) => renderHeading(5, children),
+      h6: ({ children }) => renderHeading(6, children),
 
-          // コード要素（インライン vs ブロック判定）
-          code: ({ className, children, ...props }) => {
-            const isInline = !className && typeof children === "string" && !children.includes("\n");
-            if (isInline) {
-              return (
-                <code
-                  style={{
-                    fontFamily: "SF Mono, Menlo, Monaco, Consolas, monospace",
-                    fontSize: "0.85em",
-                    background: C.ivory2,
-                    color: C.charcoal,
-                    padding: "0.18em 0.46em",
-                    borderRadius: "5px",
-                    letterSpacing: "-0.01em",
-                  }}
-                  {...props}
-                >
-                  {children}
-                </code>
-              );
-            }
-            return <CodeBlock className={className}>{children}</CodeBlock>;
-          },
-          pre: ({ children }) => <>{children}</>,
-
-          // テーブル要素（Apple HIG風カードテーブル）
-          table: ({ children }) => (
-            <div
+      // コード要素（インライン vs ブロック判定）
+      code: ({ className, children, ...props }) => {
+        const isInline = !className && typeof children === "string" && !children.includes("\n");
+        if (isInline) {
+          return (
+            <code
               style={{
-                width: "100%",
-                overflowX: "auto",
-                margin: "1.6rem 0",
-                borderRadius: "14px",
-                boxShadow: "0 1px 4px rgba(0, 0, 0, 0.04), 0 0 1px rgba(0, 0, 0, 0.08)",
-                background: C.white,
-                border: "1px solid rgba(0, 0, 0, 0.05)",
-              }}
-            >
-              <table
-                style={{
-                  width: "100%",
-                  borderCollapse: "collapse",
-                  textAlign: "left",
-                  fontSize: "0.88rem",
-                }}
-              >
-                {children}
-              </table>
-            </div>
-          ),
-          thead: ({ children }) => (
-            <thead
-              style={{
-                background: C.ivory,
-                borderBottom: `1px solid ${C.ivory2}`,
-              }}
-            >
-              {children}
-            </thead>
-          ),
-          th: ({ children }) => (
-            <th
-              style={{
-                padding: "0.75rem 1rem",
-                fontWeight: 650,
-                fontSize: "0.8rem",
-                color: C.charcoalMid,
-                letterSpacing: "0.02em",
-                borderBottom: `1px solid ${C.ivory2}`,
-              }}
-            >
-              {children}
-            </th>
-          ),
-          td: ({ children }) => (
-            <td
-              style={{
-                padding: "0.75rem 1rem",
+                fontFamily: "SF Mono, Menlo, Monaco, Consolas, monospace",
+                fontSize: "0.85em",
+                background: C.ivory2,
                 color: C.charcoal,
-                borderBottom: "1px solid rgba(0, 0, 0, 0.04)",
-                lineHeight: 1.6,
+                padding: "0.18em 0.46em",
+                borderRadius: "5px",
+                letterSpacing: "-0.01em",
               }}
+              {...props}
             >
               {children}
-            </td>
-          ),
+            </code>
+          );
+        }
+        return <CodeBlock className={className}>{children}</CodeBlock>;
+      },
+      pre: ({ children }) => <>{children}</>,
 
-          // リスト要素（箇条書き・番号・タスクリスト）
-          ul: ({ className, children }) => {
-            const isTaskList = className?.includes("contains-task-list");
-            return (
-              <ul
-                className={className}
-                style={{
-                  listStyleType: isTaskList ? "none" : "disc",
-                  paddingLeft: isTaskList ? "0.2rem" : "1.6rem",
-                  margin: "0.8rem 0 1.25rem",
-                  lineHeight: 1.88,
-                }}
-              >
-                {children}
-              </ul>
-            );
-          },
-          ol: ({ className, children }) => (
-            <ol
+      // テーブル要素（Apple HIG風カードテーブル）
+      table: ({ children }) => (
+        <div
+          style={{
+            overflowX: "auto",
+            margin: "1.4rem 0",
+            borderRadius: "12px",
+            border: `1px solid ${C.goldFaint}`,
+            boxShadow: C.cardShadow,
+            background: "#fff",
+          }}
+          className="arca-scroll"
+        >
+          <table
+            style={{
+              width: "100%",
+              borderCollapse: "collapse",
+              fontSize: "0.88rem",
+              fontVariantNumeric: "tabular-nums",
+            }}
+          >
+            {children}
+          </table>
+        </div>
+      ),
+      thead: ({ children }) => (
+        <thead
+          style={{
+            background: C.goldFaint,
+            borderBottom: `1px solid ${C.goldFaint}`,
+          }}
+        >
+          {children}
+        </thead>
+      ),
+      tbody: ({ children }) => <tbody>{children}</tbody>,
+      tr: ({ children }) => (
+        <tr
+          style={{
+            borderBottom: "1px solid rgba(0, 0, 0, 0.04)",
+            transition: "background 0.12s",
+          }}
+          onMouseEnter={(e) => {
+            (e.currentTarget as HTMLTableRowElement).style.background = C.ivory2;
+          }}
+          onMouseLeave={(e) => {
+            (e.currentTarget as HTMLTableRowElement).style.background = "transparent";
+          }}
+        >
+          {children}
+        </tr>
+      ),
+      th: ({ children, style }) => (
+        <th
+          style={{
+            padding: "0.65rem 1rem",
+            textAlign: (style?.textAlign as any) || "left",
+            fontWeight: 650,
+            fontSize: "0.78rem",
+            color: C.charcoal,
+            letterSpacing: "0.03em",
+            textTransform: "uppercase",
+          }}
+        >
+          {children}
+        </th>
+      ),
+      td: ({ children, style }) => (
+        <td
+          style={{
+            padding: "0.65rem 1rem",
+            textAlign: (style?.textAlign as any) || "left",
+            color: C.charcoal,
+          }}
+        >
+          {children}
+        </td>
+      ),
+
+      // 箇条書きリスト
+      ul: ({ className, children }) => {
+        const isTaskList = className?.includes("contains-task-list");
+        return (
+          <ul
+            className={className}
+            style={{
+              listStyleType: isTaskList ? "none" : "disc",
+              paddingLeft: isTaskList ? "0.2rem" : "1.5rem",
+              margin: "0.8rem 0",
+            }}
+          >
+            {children}
+          </ul>
+        );
+      },
+      ol: ({ children }) => (
+        <ol
+          style={{
+            listStyleType: "decimal",
+            paddingLeft: "1.5rem",
+            margin: "0.8rem 0",
+          }}
+        >
+          {children}
+        </ol>
+      ),
+      li: ({ className, children }) => {
+        const isTaskItem = className?.includes("task-list-item");
+        if (isTaskItem) {
+          return (
+            <li
               className={className}
               style={{
-                listStyleType: "decimal",
-                paddingLeft: "1.6rem",
-                margin: "0.8rem 0 1.25rem",
-                lineHeight: 1.88,
+                display: "flex",
+                alignItems: "flex-start",
+                gap: "0.55rem",
+                marginBottom: "0.45rem",
+                listStyleType: "none",
               }}
             >
               {children}
-            </ol>
-          ),
-          li: ({ className, children }) => {
-            const isTaskItem = className?.includes("task-list-item");
-            if (isTaskItem) {
-              return (
-                <li
-                  className={className}
-                  style={{
-                    display: "flex",
-                    alignItems: "flex-start",
-                    gap: "0.55rem",
-                    marginBottom: "0.45rem",
-                    listStyleType: "none",
-                  }}
-                >
-                  {children}
-                </li>
-              );
-            }
-            return (
-              <li
-                className={className}
-                style={{
-                  display: "list-item",
-                  marginBottom: "0.4rem",
-                  color: C.charcoal,
-                }}
-              >
-                {children}
-              </li>
-            );
-          },
+            </li>
+          );
+        }
+        return (
+          <li
+            className={className}
+            style={{
+              display: "list-item",
+              marginBottom: "0.4rem",
+              color: C.charcoal,
+            }}
+          >
+            {children}
+          </li>
+        );
+      },
 
-          // チェックボックス（タスクリスト）
-          input: ({ type, checked, disabled: _disabled, ...props }) => {
-            if (type === "checkbox") {
-              const isChecked = !!checked;
-              return (
-                <input
-                  type="checkbox"
-                  checked={isChecked}
-                  disabled={!onContentChange}
-                  onChange={(e) => {
-                    if (onContentChange) {
-                      const parentLi = (e.target as HTMLElement).closest("li");
-                      const text = parentLi ? parentLi.textContent?.trim() || "" : "";
-                      handleTaskToggle(text, isChecked);
-                    }
-                  }}
-                  style={{
-                    width: "16px",
-                    height: "16px",
-                    marginTop: "0.28rem",
-                    accentColor: C.gold,
-                    cursor: onContentChange ? "pointer" : "default",
-                    flexShrink: 0,
-                  }}
-                  {...props}
-                />
-              );
-            }
-            return <input type={type} {...props} />;
-          },
+      // チェックボックス（タスクリスト）
+      input: ({ type, checked, disabled: _disabled, ...props }) => {
+        if (type === "checkbox") {
+          const isChecked = !!checked;
+          return (
+            <input
+              type="checkbox"
+              checked={isChecked}
+              onChange={(e) => {
+                const parent = e.currentTarget.closest("li");
+                const text = parent?.textContent || "";
+                if (text) {
+                  handleTaskToggle(text, isChecked);
+                }
+              }}
+              style={{
+                appearance: "none",
+                WebkitAppearance: "none",
+                width: 17,
+                height: 17,
+                borderRadius: "5px",
+                border: isChecked ? "none" : `1.5px solid ${C.gold}`,
+                background: isChecked ? C.gold : "transparent",
+                cursor: "pointer",
+                display: "inline-flex",
+                alignItems: "center",
+                justifyContent: "center",
+                marginTop: "0.25rem",
+                flexShrink: 0,
+                transition: "all 0.15s ease",
+              }}
+              {...props}
+            />
+          );
+        }
+        return <input type={type} checked={checked} {...props} />;
+      },
 
-          // リンク（単独URLならスマートカード表示、内部ノートリンクならNotion風子ページボタン）
-          a: ({ href, children }) => {
-            const url = href || "";
-            const text = getHeadingText(children);
+      // リンク & スマートURLカード & 子ページリンク
+      a: ({ href, children }) => {
+        const url = href || "";
+        const text = String(children || "");
 
-            // 内部ノートリンク判定: note:xxx または arca-note://xxx または #note-xxx
-            if (url.startsWith("note:") || url.startsWith("arca-note://") || url.startsWith("#note-")) {
-              const noteId = url
-                .replace(/^note:/, "")
-                .replace(/^arca-note:\/\//, "")
-                .replace(/^#note-/, "");
+        // 子ページリンク [タイトル](note:pageId)
+        if (url.startsWith("note:") || url.startsWith("arca-note://") || url.startsWith("#note-")) {
+          const noteId = url
+            .replace(/^note:/, "")
+            .replace(/^arca-note:\/\//, "")
+            .replace(/^#note-/, "");
 
-              const targetNote = allNotes?.find((n) => n.id === noteId);
+          const targetNote = allNotes?.find((n) => n.id === noteId);
 
-              // 削除済みまたは存在しない子ページは画面上にゴースト表示しない
-              if (allNotes && allNotes.length > 0 && !targetNote) {
-                return null;
-              }
+          // 削除済みまたは存在しない子ページは画面上にゴースト表示しない
+          if (allNotes && allNotes.length > 0 && !targetNote) {
+            return null;
+          }
 
-              const fallbackText = text.replace(/^📄\s*/, "").trim();
-              const title =
-                targetNote?.title?.trim() ||
-                (fallbackText && fallbackText !== noteId ? fallbackText : "無題のページ");
+          const fallbackText = text.replace(/^📄\s*/, "").trim();
+          const title =
+            targetNote?.title?.trim() ||
+            (fallbackText && fallbackText !== noteId ? fallbackText : "無題のページ");
 
-              return (
-                <span
-                  role="button"
-                  tabIndex={0}
-                  onClick={(e) => {
-                    e.preventDefault();
-                    e.stopPropagation();
-                    if (noteId && onSelectNote) {
-                      onSelectNote(noteId);
-                    }
-                  }}
-                  onKeyDown={(e) => {
-                    if (e.key === "Enter" || e.key === " ") {
-                      e.preventDefault();
-                      e.stopPropagation();
-                      if (noteId && onSelectNote) {
-                        onSelectNote(noteId);
-                      }
-                    }
-                  }}
-                  className="group inline-flex items-center justify-between gap-2.5 w-full max-w-md px-3.5 py-2.5 my-2 rounded-xl bg-stone-100/70 dark:bg-stone-800/70 hover:bg-stone-200/80 dark:hover:bg-stone-700/80 transition-all duration-150 cursor-pointer shadow-2xs hover:shadow-xs select-none"
-                  title="子ページを開く"
-                >
-                  <span className="flex items-center gap-2.5 min-w-0 flex-1">
-                    <span className="w-6 h-6 rounded-lg bg-amber-500/10 text-[#B58D3D] flex items-center justify-center shrink-0">
-                      <FileText className="w-3.5 h-3.5 stroke-[2]" />
-                    </span>
-                    <span className="text-sm font-medium text-charcoal dark:text-stone-200 group-hover:text-[#B58D3D] transition-colors truncate">
-                      {title}
-                    </span>
-                  </span>
-                  <ChevronRight className="w-4 h-4 text-charcoal-light dark:text-stone-400 group-hover:text-charcoal dark:group-hover:text-stone-200 group-hover:translate-x-0.5 transition-all shrink-0" />
+          return (
+            <span
+              role="button"
+              tabIndex={0}
+              onClick={(e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                if (noteId && onSelectNote) {
+                  onSelectNote(noteId);
+                }
+              }}
+              onKeyDown={(e) => {
+                if (e.key === "Enter" || e.key === " ") {
+                  e.preventDefault();
+                  e.stopPropagation();
+                  if (noteId && onSelectNote) {
+                    onSelectNote(noteId);
+                  }
+                }
+              }}
+              className="group inline-flex items-center justify-between gap-2.5 w-full max-w-md px-3.5 py-2.5 my-2 rounded-xl bg-stone-100/70 dark:bg-stone-800/70 hover:bg-stone-200/80 dark:hover:bg-stone-700/80 transition-all duration-150 cursor-pointer shadow-2xs hover:shadow-xs select-none"
+              title="子ページを開く"
+            >
+              <span className="flex items-center gap-2.5 min-w-0 flex-1">
+                <span className="w-6 h-6 rounded-lg bg-amber-500/10 text-[#B58D3D] flex items-center justify-center shrink-0">
+                  <FileText className="w-3.5 h-3.5 stroke-[2]" />
                 </span>
-              );
-            }
+                <span className="text-sm font-medium text-charcoal dark:text-stone-200 group-hover:text-[#B58D3D] transition-colors truncate">
+                  {title}
+                </span>
+              </span>
+              <ChevronRight className="w-4 h-4 text-charcoal-light dark:text-stone-400 group-hover:text-charcoal dark:group-hover:text-stone-200 group-hover:translate-x-0.5 transition-all shrink-0" />
+            </span>
+          );
+        }
 
-            if (url === text && url.startsWith("http")) {
-              let hostname = "";
-              try {
-                hostname = new URL(url).hostname;
-              } catch {}
-              if (hostname) {
-                return (
-                  <a
-                    href={url}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    style={{
-                      display: "flex",
-                      alignItems: "center",
-                      gap: "0.8rem",
-                      padding: "0.75rem 1rem",
-                      background: C.white,
-                      borderRadius: "12px",
-                      boxShadow: C.cardShadow,
-                      textDecoration: "none",
-                      color: C.charcoal,
-                      transition: "transform 0.15s, box-shadow 0.15s",
-                      margin: "1.2rem 0",
-                      border: "1px solid rgba(0, 0, 0, 0.04)",
-                    }}
-                    onMouseEnter={(e) => {
-                      (e.currentTarget as HTMLAnchorElement).style.transform = "translateY(-2px)";
-                      (e.currentTarget as HTMLAnchorElement).style.boxShadow = C.cardShadowHover;
-                    }}
-                    onMouseLeave={(e) => {
-                      (e.currentTarget as HTMLAnchorElement).style.transform = "translateY(0)";
-                      (e.currentTarget as HTMLAnchorElement).style.boxShadow = C.cardShadow;
-                    }}
-                  >
-                    <img
-                      src={`https://www.google.com/s2/favicons?domain=${hostname}&sz=32`}
-                      alt=""
-                      style={{ width: 22, height: 22, borderRadius: 4, flexShrink: 0 }}
-                      onError={(e) => {
-                        (e.currentTarget as HTMLImageElement).style.display = "none";
-                      }}
-                    />
-                    <span style={{ display: "flex", flexDirection: "column", overflow: "hidden" }}>
-                      <span
-                        style={{
-                          fontSize: "0.83rem",
-                          fontWeight: 600,
-                          color: C.charcoal,
-                          whiteSpace: "nowrap",
-                          overflow: "hidden",
-                          textOverflow: "ellipsis",
-                        }}
-                      >
-                        {hostname}
-                      </span>
-                      <span
-                        style={{
-                          fontSize: "0.72rem",
-                          color: C.charcoalLight,
-                          whiteSpace: "nowrap",
-                          overflow: "hidden",
-                          textOverflow: "ellipsis",
-                        }}
-                      >
-                        {url}
-                      </span>
-                    </span>
-                  </a>
-                );
-              }
-            }
+        if (url === text && url.startsWith("http")) {
+          let hostname = "";
+          try {
+            hostname = new URL(url).hostname;
+          } catch {}
+          if (hostname) {
             return (
               <a
                 href={url}
                 target="_blank"
                 rel="noopener noreferrer"
                 style={{
-                  color: C.gold,
+                  display: "inline-flex",
+                  alignItems: "center",
+                  gap: "0.6rem",
+                  padding: "0.55rem 0.9rem",
+                  margin: "0.5rem 0",
+                  borderRadius: "10px",
+                  background: C.goldFaint,
+                  border: `1px solid ${C.goldFaint}`,
                   textDecoration: "none",
-                  borderBottom: "1px solid rgba(197, 160, 89, 0.4)",
-                  transition: "border-color 0.15s",
+                  boxShadow: C.cardShadow,
+                  transition: "all 0.15s ease",
+                  maxWidth: "100%",
+                }}
+                onMouseEnter={(e) => {
+                  (e.currentTarget as HTMLAnchorElement).style.transform = "translateY(-2px)";
+                  (e.currentTarget as HTMLAnchorElement).style.boxShadow = C.cardShadowHover;
+                }}
+                onMouseLeave={(e) => {
+                  (e.currentTarget as HTMLAnchorElement).style.transform = "translateY(0)";
+                  (e.currentTarget as HTMLAnchorElement).style.boxShadow = C.cardShadow;
                 }}
               >
-                {children}
+                <img
+                  src={`https://www.google.com/s2/favicons?domain=${hostname}&sz=32`}
+                  alt=""
+                  style={{ width: 22, height: 22, borderRadius: 4, flexShrink: 0 }}
+                  onError={(e) => {
+                    (e.currentTarget as HTMLImageElement).style.display = "none";
+                  }}
+                />
+                <span style={{ display: "flex", flexDirection: "column", overflow: "hidden" }}>
+                  <span
+                    style={{
+                      fontSize: "0.83rem",
+                      fontWeight: 600,
+                      color: C.charcoal,
+                      whiteSpace: "nowrap",
+                      overflow: "hidden",
+                      textOverflow: "ellipsis",
+                    }}
+                  >
+                    {hostname}
+                  </span>
+                  <span
+                    style={{
+                      fontSize: "0.72rem",
+                      color: C.charcoalLight,
+                      whiteSpace: "nowrap",
+                      overflow: "hidden",
+                      textOverflow: "ellipsis",
+                    }}
+                  >
+                    {url}
+                  </span>
+                </span>
               </a>
             );
-          },
+          }
+        }
+        return (
+          <a
+            href={url}
+            target="_blank"
+            rel="noopener noreferrer"
+            style={{
+              color: C.gold,
+              textDecoration: "none",
+              borderBottom: "1px solid rgba(197, 160, 89, 0.4)",
+              transition: "border-color 0.15s",
+            }}
+          >
+            {children}
+          </a>
+        );
+      },
 
-          // 引用
-          blockquote: ({ children }) => (
-            <blockquote
-              style={{
-                borderLeft: `3px solid ${C.gold}`,
-                margin: "1.4rem 0",
-                padding: "0.8rem 1.3rem",
-                color: C.charcoalMid,
-                fontStyle: "italic",
-                background: C.goldFaint,
-                borderRadius: "0 10px 10px 0",
-              }}
-            >
-              {children}
-            </blockquote>
-          ),
+      // 引用
+      blockquote: ({ children }) => (
+        <blockquote
+          style={{
+            borderLeft: `3px solid ${C.gold}`,
+            margin: "1.4rem 0",
+            padding: "0.8rem 1.3rem",
+            color: C.charcoalMid,
+            fontStyle: "italic",
+            background: C.goldFaint,
+            borderRadius: "0 10px 10px 0",
+          }}
+        >
+          {children}
+        </blockquote>
+      ),
 
-          // 画像（小 / 中 / 大 切り替え & 拡大）
-          img: ({ src, alt }) => (
-            <NoteImage
-              src={typeof src === "string" ? src : undefined}
-              alt={typeof alt === "string" ? alt : undefined}
-              content={content}
-              attachments={attachments}
-              onContentChange={onContentChange}
-            />
-          ),
+      // 画像（小 / 中 / 大 切り替え & 拡大）
+      img: ({ src, alt }) => (
+        <NoteImage
+          src={typeof src === "string" ? src : undefined}
+          alt={typeof alt === "string" ? alt : undefined}
+          content={content}
+          attachments={attachments}
+          onContentChange={onContentChange}
+        />
+      ),
 
-          // 水平線
-          hr: () => (
-            <hr
-              style={{
-                border: "none",
-                borderTop: "1px solid rgba(0, 0, 0, 0.08)",
-                margin: "2.4rem 0",
-              }}
-            />
-          ),
-        }}
-      >
-        {processedContent}
-      </ReactMarkdown>
+      // 水平線
+      hr: () => (
+        <hr
+          style={{
+            border: "none",
+            borderTop: "1px solid rgba(0, 0, 0, 0.08)",
+            margin: "2.4rem 0",
+          }}
+        />
+      ),
+    }),
+    [allNotes, attachments, content, onContentChange, onSelectNote]
+  );
+
+  const sections = useMemo(() => parseToggleSections(processedContent), [processedContent]);
+
+  return (
+    <div className="arca-prose">
+      {sections.map((sec, idx) => {
+        if (sec.type === "toggle") {
+          return (
+            <ToggleViewer key={idx} title={sec.title || "トグル"} defaultOpen={sec.isOpen ?? true}>
+              <ReactMarkdown
+                urlTransform={(url) => url}
+                remarkPlugins={[remarkGfm, remarkBreaks]}
+                components={markdownComponents}
+              >
+                {sec.content.trim()}
+              </ReactMarkdown>
+            </ToggleViewer>
+          );
+        }
+        if (!sec.content.trim()) return null;
+        return (
+          <ReactMarkdown
+            key={idx}
+            urlTransform={(url) => url}
+            remarkPlugins={[remarkGfm, remarkBreaks]}
+            components={markdownComponents}
+          >
+            {sec.content}
+          </ReactMarkdown>
+        );
+      })}
     </div>
   );
 }

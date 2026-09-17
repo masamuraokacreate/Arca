@@ -1,19 +1,24 @@
 /**
  * src/components/Dashboard.tsx
- * Arca — 4勤2休サイクル完全同期型ダッシュボード（Cycle Ribbon & 3カラム）
+ * Arca — 今日フォーカス型 4勤2休サイクルボード ＆ サブグリッド ダッシュボード
  *
  * 設計方針 (Core/Rules.md):
- *  - 4勤2休（出勤4日＋休日2日）に完全同期した司令塔（Cockpit）
- *  - 最上部に「4勤2休 サイクル・リボン（CycleRibbon）」
- *  - デスクトップ大画面の余白を解消した「機能別3カラム構成」
- *    - Column 1: アクション（行動）: 予定 ＆ タスク ＆ クイック追加
- *    - Column 2: ライフ（生活基盤）: 今サイクルの献立・買い物導線
- *    - Column 3: ナレッジ・ストック（知識・思考）: 最近のノート ＆ クイックメモ
+ *  - 4勤2休（出勤4日＋休日2日）に完全同期した司令塔
+ *  - 画面左右およびセクション間に上品なベース余白（max-w-[1360px] px-6 sm:px-10 py-8, mb-7〜mb-8）
+ *  - タイトル直上に「今日フォーカス型 サイクルボード（アコーディオンFlex構造）」
+ *    - 天気情報を完全排除し、生活リズムと行動の連動に特化
+ *    - フォーカス日横に前日・翌日の「＜」「＞」切替ボタンを配置
+ *  - 下段に重要度・役割に応じた差別化「サブグリッド（1.5fr : 1fr : 1.2fr）」
+ *    - 1.5fr: 今サイクルの献立 ＆ 買い物
+ *    - 1fr: 最近のノート
+ *    - 1.2fr: クイックメモ (Scratchpad)
+ *  - 英字キッカー（COCKPIT等）の完全撤廃
  *  - 絵文字完全排除（Lucide React SVGアイコンのみ）
- *  - 境界線排除、微細二重シャドウ、Apple HIG準拠の余白とタイポグラフィ
+ *  - 境界線排除、微細多層シャドウ、Apple HIG準拠の余白とタイポグラフィ
+ *  - iOS実機（375px〜390px）横ブレ完全防止（appearance-none, overflow-x-hidden）
  */
 
-import { useState, useEffect, useCallback, useMemo, useRef } from "react";
+import { useState, useEffect, useCallback, useMemo } from "react";
 import {
   collection,
   query,
@@ -24,9 +29,10 @@ import {
   addDoc,
   serverTimestamp,
 } from "firebase/firestore";
+import { ChevronLeft, ChevronRight } from "lucide-react";
 import { db } from "../lib/firebase";
-import type { CalendarEvent, TaskItem, NoteItem, TaskListCategory, SyncStatus } from "../types";
-import type { PMSettings, PMTemplateItem } from "../types/pm";
+import type { CalendarEvent, TaskItem, NoteItem, SyncStatus } from "../types";
+import type { PMSettings } from "../types/pm";
 import type { Recipe } from "../types/recipe";
 import { subscribeRecipes } from "../lib/recipeStorage";
 import {
@@ -34,20 +40,19 @@ import {
   saveShiftOverride,
   DEFAULT_PM_SETTINGS,
   calculateFourTwoCycleRange,
+  getCycleDateRangeLabel,
+  getAdjacentCycleAnchor,
 } from "../services/pmCycleService";
 import { useGoogleAuth } from "../hooks/useGoogleAuth";
 import {
   syncGoogleCalendarToArca,
   createGoogleCalendarEvent,
 } from "../services/googleCalendarSync";
-import { getTaskLists, type GTaskList } from "../lib/googleTasks";
 import { ShiftOverrideModal } from "./calendar/ShiftOverrideModal";
 import { ShiftBadge } from "./calendar/ShiftBadge";
-import { CycleRibbon } from "./dashboard/CycleRibbon";
-import { CycleEventsCard, UpcomingTasksCard } from "./dashboard/ActionColumn";
-import { CycleMenuCard, ShoppingListCard } from "./dashboard/LifeFinanceColumn";
-import { RecentNotesCard, QuickMemoCard } from "./dashboard/KnowledgeColumn";
 import { AddEventModal } from "./dashboard/AddEventModal";
+import { CycleBoard } from "./dashboard/CycleBoard";
+import { SubGrid } from "./dashboard/SubGrid";
 
 // ---------- ユーティリティ ----------
 function toDateStr(y: number, m: number, d: number): string {
@@ -68,6 +73,7 @@ export interface DashboardProps {
 
 export default function Dashboard({ onNavigate, onSelectNote }: DashboardProps = {}) {
   const today = todayStr();
+  const [cycleAnchorDate, setCycleAnchorDate] = useState<string>(today);
   const [selectedDate, setSelectedDate] = useState<string>(today);
 
   // Google カレンダー同期
@@ -79,125 +85,11 @@ export default function Dashboard({ onNavigate, onSelectNote }: DashboardProps =
   const [tasks, setTasks] = useState<TaskItem[]>([]);
   const [notes, setNotes] = useState<NoteItem[]>([]);
   const [recipes, setRecipes] = useState<Recipe[]>([]);
-  const [pmTemplates, setPmTemplates] = useState<PMTemplateItem[]>([]);
   const [pmSettings, setPmSettings] = useState<PMSettings>(DEFAULT_PM_SETTINGS);
 
   // モーダルステート
   const [showShiftOverrideModal, setShowShiftOverrideModal] = useState(false);
   const [showAddEventModal, setShowAddEventModal] = useState(false);
-
-  // タスクグループ（メタデータ購読用）
-  const [categories, setCategories] = useState<TaskListCategory[]>([
-    { id: "default", title: "マイタスク", isDefault: true, icon: "sparkle" },
-    { id: "shopping", title: "買い物リスト", icon: "cart" },
-  ]);
-  const listMetaMapRef = useRef<Record<string, { icon?: string }>>({});
-
-  // ─── Firestore task_lists 購読 ───
-  useEffect(() => {
-    const unsub = onSnapshot(collection(db, "task_lists"), (snapshot) => {
-      const metaMap: Record<string, { icon?: string }> = {};
-      snapshot.docs.forEach((d) => {
-        const data = d.data();
-        if (data.icon) {
-          metaMap[d.id] = { icon: data.icon };
-        }
-      });
-      listMetaMapRef.current = metaMap;
-
-      setCategories((prev) =>
-        prev.map((c) => {
-          const m = metaMap[c.id];
-          return m?.icon ? { ...c, icon: m.icon } : c;
-        })
-      );
-    });
-
-    return () => unsub();
-  }, []);
-
-  // カテゴリ用アイコン決定ヘルパー
-  const getCategoryIcon = useCallback((catId: string, isShop: boolean, isMyTasks: boolean): string => {
-    const saved = listMetaMapRef.current[catId]?.icon;
-    if (saved) return saved;
-    if (isShop) return "cart";
-    if (isMyTasks) return "sparkle";
-    return "folder";
-  }, []);
-
-  // Google Tasks リスト同期
-  useEffect(() => {
-    if (!isSignedIn || !accessToken) return;
-    let isCancelled = false;
-
-    async function initGoogleLists() {
-      try {
-        const gLists: GTaskList[] = await getTaskLists(accessToken!);
-        if (isCancelled || !gLists || gLists.length === 0) return;
-
-        const mappedCategories: TaskListCategory[] = [];
-        for (const gl of gLists) {
-          const isMyTasks = gl.title === "My Tasks" || gl.title === "マイタスク" || gl.id === "@default";
-          const isShop = gl.title === "買い物リスト" || gl.title === "買い物" || gl.title === "Shopping List";
-
-          if (isMyTasks) {
-            mappedCategories.push({
-              id: "default",
-              title: "マイタスク",
-              googleListId: gl.id,
-              isDefault: true,
-              icon: getCategoryIcon("default", false, true),
-            });
-          } else if (isShop) {
-            mappedCategories.push({
-              id: "shopping",
-              title: gl.title,
-              googleListId: gl.id,
-              icon: getCategoryIcon("shopping", true, false),
-            });
-          } else {
-            mappedCategories.push({
-              id: gl.id,
-              title: gl.title,
-              googleListId: gl.id,
-              icon: getCategoryIcon(gl.id, false, false),
-            });
-          }
-        }
-
-        const uniqueCategories: TaskListCategory[] = [];
-        for (const cat of mappedCategories) {
-          if (!uniqueCategories.some((u) => u.id === cat.id)) {
-            uniqueCategories.push(cat);
-          }
-        }
-        if (!uniqueCategories.some((u) => u.id === "default")) {
-          uniqueCategories.unshift({
-            id: "default",
-            title: "マイタスク",
-            isDefault: true,
-            icon: getCategoryIcon("default", false, true),
-          });
-        }
-        if (!uniqueCategories.some((u) => u.id === "shopping")) {
-          uniqueCategories.push({
-            id: "shopping",
-            title: "買い物リスト",
-            icon: getCategoryIcon("shopping", true, false),
-          });
-        }
-
-        setCategories(uniqueCategories);
-      } catch (err) {
-        console.error("Dashboard Google Tasks list sync error:", err);
-      }
-    }
-
-    initGoogleLists();
-    return () => {
-      isCancelled = true;
-    };
-  }, [isSignedIn, accessToken, getCategoryIcon]);
 
   // 手動同期ハンドラ
   const handleManualSync = useCallback(async () => {
@@ -273,14 +165,6 @@ export default function Dashboard({ onNavigate, onSelectNote }: DashboardProps =
     return () => unsub();
   }, []);
 
-  // pm_templates
-  useEffect(() => {
-    const unsub = onSnapshot(collection(db, "pm_templates"), (snap) => {
-      setPmTemplates(snap.docs.map((d) => ({ id: d.id, ...d.data() } as PMTemplateItem)));
-    });
-    return unsub;
-  }, []);
-
   // shift_settings
   useEffect(() => {
     const unsubSettings = onSnapshot(doc(db, "shift_settings", "main"), (snap) => {
@@ -299,8 +183,31 @@ export default function Dashboard({ onNavigate, onSelectNote }: DashboardProps =
 
   // 4勤2休サイクル（6日間）の計算
   const cycleRange = useMemo(() => {
-    return calculateFourTwoCycleRange(today, events, pmSettings);
-  }, [today, events, pmSettings]);
+    return calculateFourTwoCycleRange(cycleAnchorDate, events, pmSettings);
+  }, [cycleAnchorDate, events, pmSettings]);
+
+  // サイクル日付範囲ラベル (MM/DD〜MM/DD)
+  const cycleDateRangeLabel = useMemo(() => {
+    return getCycleDateRangeLabel(cycleRange);
+  }, [cycleRange]);
+
+  // サイクル切り替えハンドラ (6日単位)
+  const handlePrevCycle = useCallback(() => {
+    setCycleAnchorDate((prev) => getAdjacentCycleAnchor(prev, -1));
+  }, []);
+
+  const handleNextCycle = useCallback(() => {
+    setCycleAnchorDate((prev) => getAdjacentCycleAnchor(prev, 1));
+  }, []);
+
+  // サイクル変更時に selectedDate がそのサイクルに含まれない場合はサイクルの開始日を選択
+  useEffect(() => {
+    const isInCycle = cycleRange.days.some((d) => d.date === selectedDate);
+    if (!isInCycle && cycleRange.days.length > 0) {
+      const todayInCycle = cycleRange.days.find((d) => d.date === today);
+      setSelectedDate(todayInCycle ? today : cycleRange.days[0].date);
+    }
+  }, [cycleRange, selectedDate, today]);
 
   // タスク完了トグル
   const toggleTask = useCallback(async (id: string, current: boolean) => {
@@ -387,37 +294,57 @@ export default function Dashboard({ onNavigate, onSelectNote }: DashboardProps =
     [today]
   );
 
-  // 日付の和風フォーマット（例「9月13日(日)」）
-  const displayFullDate = new Date().toLocaleDateString("ja-JP", {
-    month: "long",
-    day: "numeric",
-    weekday: "short",
-  });
-
   return (
-    <div className="w-full max-w-[1360px] mx-auto px-4 sm:px-6 lg:px-8 py-6 min-h-screen box-border flex flex-col">
-      {/* ─── 最上部ヘッダー: 日付 & 出勤ステータスバッジ ─── */}
-      <div className="flex items-center justify-between mb-5 px-1 flex-wrap gap-3">
-        <div>
-          <p className="text-[0.68rem] font-bold tracking-widest text-charcoal-light uppercase m-0">
-            COCKPIT
-          </p>
-          <h1 className="text-2xl sm:text-3xl font-extrabold text-charcoal m-0 tracking-tight">
+    <div className="w-full max-w-[1140px] mx-auto px-4 sm:px-8 lg:px-12 py-8 min-h-screen box-border flex flex-col overflow-x-hidden">
+      {/* ─── ヘッダー ＆ サイクルナビゲーション（英字キッカー完全撤廃） ─── */}
+      <div className="flex items-center justify-between mb-7 px-1 flex-wrap gap-3">
+        <div className="flex items-center gap-3.5 flex-wrap">
+          <h1 className="text-2xl sm:text-3xl font-extrabold text-stone-800 dark:text-stone-100 m-0 tracking-tight">
             ダッシュボード
           </h1>
-        </div>
-
-        {/* 日付・勤務ステータス表示（視認性を高めた一回り大きいサイズ） */}
-        <div className="flex items-center gap-3.5 flex-wrap">
-          <span className="text-xl sm:text-2xl font-bold text-charcoal tracking-tight">
-            {displayFullDate}
-          </span>
           <ShiftBadge
             shift={currentShift}
             onClick={() => setShowShiftOverrideModal(true)}
             testId="dashboard-shift-badge"
             size="md"
           />
+        </div>
+
+        {/* 中央〜右側: サイクル切り替え ＆ シフト調整ボタン */}
+        <div className="flex items-center gap-2.5 sm:gap-4 flex-wrap">
+          {/* サイクル切り替えボタン（左側に独立配置） */}
+          <div className="flex items-center gap-0.5 bg-white dark:bg-stone-900 rounded-xl p-1 shadow-xs border-none">
+            <button
+              type="button"
+              aria-label="前のサイクル"
+              onClick={handlePrevCycle}
+              className="appearance-none p-1.5 text-stone-500 hover:text-stone-800 dark:text-stone-400 dark:hover:text-stone-100 hover:bg-stone-100 dark:hover:bg-stone-800 cursor-pointer bg-transparent border-none rounded-lg transition-colors"
+            >
+              <ChevronLeft size={18} strokeWidth={2.5} />
+            </button>
+            <button
+              type="button"
+              aria-label="次のサイクル"
+              onClick={handleNextCycle}
+              className="appearance-none p-1.5 text-stone-500 hover:text-stone-800 dark:text-stone-400 dark:hover:text-stone-100 hover:bg-stone-100 dark:hover:bg-stone-800 cursor-pointer bg-transparent border-none rounded-lg transition-colors"
+            >
+              <ChevronRight size={18} strokeWidth={2.5} />
+            </button>
+          </div>
+
+          {/* (MM/DD〜MM/DD) のみ表示 ＆ 元のサイズに復元 */}
+          <span className="text-xl sm:text-2xl font-bold text-stone-800 dark:text-stone-100 tracking-tight select-none">
+            {cycleDateRangeLabel}
+          </span>
+
+          {/* シフト調整ボタン */}
+          <button
+            type="button"
+            onClick={() => setShowShiftOverrideModal(true)}
+            className="appearance-none text-xs sm:text-sm font-semibold px-3 py-2 rounded-xl bg-white dark:bg-stone-900 text-stone-600 dark:text-stone-300 hover:text-amber-800 dark:hover:text-amber-300 hover:bg-amber-500/10 shadow-xs cursor-pointer border-none transition-colors"
+          >
+            シフト調整
+          </button>
         </div>
       </div>
 
@@ -443,62 +370,31 @@ export default function Dashboard({ onNavigate, onSelectNote }: DashboardProps =
         onAdd={handleAddEvent}
       />
 
-      {/* ─── 4勤2休 サイクル・リボン (Cycle Ribbon) ─── */}
-      <CycleRibbon
+      {/* ─── メイン: 4勤2休 サイクルボード（今日フォーカス型展開アコーディオン） ─── */}
+      <CycleBoard
         cycleRange={cycleRange}
         selectedDate={selectedDate}
+        today={today}
         onSelectDate={setSelectedDate}
-        pmTemplates={pmTemplates}
         events={events}
-        settings={pmSettings}
-        onOpenShiftModal={() => setShowShiftOverrideModal(true)}
+        tasks={tasks}
+        onToggleTask={toggleTask}
+        onAddTask={handleAddTask}
+        onAddEvent={(date) => {
+          setSelectedDate(date);
+          setShowAddEventModal(true);
+        }}
       />
 
-      {/* ─── 3×2 均等グリッド構成 (PC: 上段 250px / 下段 290px、程よい高さで整列) ─── */}
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 lg:grid-rows-[250px_290px] gap-5 items-stretch flex-1 pb-4">
-        {/* 【上段 1: 今サイクルの予定】 */}
-        <CycleEventsCard
-          cycleRange={cycleRange}
-          events={events}
-          onNavigate={onNavigate}
-          onAddEvent={() => setShowAddEventModal(true)}
-        />
-
-        {/* 【上段 2: 今サイクルの献立】 */}
-        <CycleMenuCard
-          recipes={recipes}
-          onNavigate={onNavigate}
-        />
-
-        {/* 【上段 3: 最近のノート】 */}
-        <RecentNotesCard
-          notes={notes}
-          onNavigate={onNavigate}
-          onSelectNote={onSelectNote}
-        />
-
-        {/* 【下段 1: 期限の近いタスク】 */}
-        <UpcomingTasksCard
-          cycleRange={cycleRange}
-          tasks={tasks}
-          taskLists={categories}
-          selectedDate={selectedDate}
-          onToggleTask={toggleTask}
-          onAddTask={handleAddTask}
-          onNavigate={onNavigate}
-        />
-
-        {/* 【下段 2: 買い物リスト】 */}
-        <ShoppingListCard
-          tasks={tasks}
-          onToggleTask={toggleTask}
-          onAddTask={handleAddTask}
-          onNavigate={onNavigate}
-        />
-
-        {/* 【下段 3: クイックメモ】 */}
-        <QuickMemoCard />
-      </div>
+      {/* ─── サブグリッド: 下段3カラム差別化レイアウト (1.5fr : 1fr : 1.2fr) ─── */}
+      <SubGrid
+        recipes={recipes}
+        tasks={tasks}
+        notes={notes}
+        currentShift={currentShift}
+        onNavigate={onNavigate}
+        onSelectNote={onSelectNote}
+      />
     </div>
   );
 }

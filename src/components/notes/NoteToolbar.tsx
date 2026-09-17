@@ -110,10 +110,32 @@ const CodeIcon = () => (
   </svg>
 );
 
+const ToggleIcon = () => (
+  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0 }}>
+    <polyline points="9 18 15 12 9 6" />
+  </svg>
+);
+
+const PinIcon = ({ isPinned }: { isPinned?: boolean }) => (
+  <svg width="14" height="14" viewBox="0 0 24 24" fill={isPinned ? "currentColor" : "none"} stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0 }}>
+    <line x1="12" y1="17" x2="12" y2="22" />
+    <path d="M5 17h14v-1.76a2 2 0 0 0-1.11-1.79l-1.78-.9A2 2 0 0 1 15 10.76V6h1a2 2 0 0 0 0-4H8a2 2 0 0 0 0 4h1v4.76a2 2 0 0 1-1.11 1.79l-1.78.9A2 2 0 0 0 5 15.24Z" />
+  </svg>
+);
+
 export interface NoteToolbarProps {
+  leftSlot?: React.ReactNode;
   onBack?: () => void;
   onMoveNote?: () => void;
   onInsertImage?: () => void;
+  onInsertToggle?: () => void;
+  isPinned?: boolean;
+  onTogglePin?: () => void;
+  onChangeIcon?: () => void;
+  onUndo?: () => void;
+  onRedo?: () => void;
+  canUndo?: boolean;
+  canRedo?: boolean;
   onExtract: () => void;
   isExtracting: boolean;
   canExtract: boolean;
@@ -130,9 +152,18 @@ export interface NoteToolbarProps {
 }
 
 export function NoteToolbar({
+  leftSlot,
   onBack: _onBack,
   onMoveNote,
   onInsertImage,
+  onInsertToggle,
+  isPinned = false,
+  onTogglePin,
+  onChangeIcon: _onChangeIcon,
+  onUndo: _onUndo,
+  onRedo: _onRedo,
+  canUndo: _canUndo = true,
+  canRedo: _canRedo = true,
   onExtract,
   isExtracting,
   canExtract,
@@ -149,8 +180,15 @@ export function NoteToolbar({
 }: NoteToolbarProps) {
   return (
     <header className="arca-toolbar">
+      {/* ── 左側: パンくずリスト / サイドバー展開スロット ── */}
+      {leftSlot && (
+        <div className="flex items-center min-w-0 flex-1 overflow-x-auto no-scrollbar mr-2 py-0.5">
+          {leftSlot}
+        </div>
+      )}
+
       {/* ── 右側: コントロール群 ── */}
-      <div style={{ display: "flex", alignItems: "center", gap: "0.35rem", flexShrink: 0, marginLeft: "auto" }}>
+      <div style={{ display: "flex", alignItems: "center", gap: "0.35rem", flexShrink: 0, marginLeft: leftSlot ? "auto" : "auto" }}>
         {/* ✦ Aether 抽出ボタン */}
         <button
           onClick={onExtract}
@@ -197,6 +235,34 @@ export function NoteToolbar({
           >
             <ImageIcon />
             <span className="arca-btn-label-desktop">画像</span>
+          </button>
+        )}
+
+        {/* トグル（折りたたみブロック）挿入ボタン */}
+        {onInsertToggle && (
+          <button
+            onClick={onInsertToggle}
+            className="arca-tb-btn"
+            title="折りたたみトグルブロックを挿入"
+          >
+            <ToggleIcon />
+            <span className="arca-btn-label-desktop">トグル</span>
+          </button>
+        )}
+
+        {/* ピン留めボタン */}
+        {onTogglePin && (
+          <button
+            onClick={onTogglePin}
+            className={`arca-tb-btn ${isPinned ? "active" : ""}`}
+            title={isPinned ? "ピン留めを解除" : "ピン留め"}
+            style={{
+              color: isPinned ? C.goldDark : undefined,
+              background: isPinned ? C.goldFaint : undefined,
+            }}
+          >
+            <PinIcon isPinned={isPinned} />
+            <span className="arca-btn-label-desktop">{isPinned ? "ピン解除" : "ピン留め"}</span>
           </button>
         )}
 

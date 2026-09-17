@@ -724,7 +724,7 @@ function App() {
 
     let isMounted = true;
     let retryCount = 0;
-    const maxRetries = 6;
+    const maxRetries = 2;
 
     const tryAutoSync = async () => {
       let token = getSavedToken();
@@ -758,7 +758,7 @@ function App() {
         }
       } else if (retryCount < maxRetries) {
         retryCount++;
-        // GISスクリプト初期化待機等を考慮して500ms毎に最大6回再試行
+        // GISスクリプト初期化待機等を考慮して500ms毎に最大2回まで再試行
         setTimeout(tryAutoSync, 500);
       }
     };
