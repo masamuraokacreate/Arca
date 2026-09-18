@@ -56,6 +56,7 @@ import { TaskDetailModal } from "./tasks/TaskDetailModal";
 import { ConfirmModal } from "./notes/ConfirmModal";
 import { ListIcon, ListIconPicker, type ListIconId } from "./common/ListIcon";
 import { ChevronDown, ChevronRight, Plus, X } from "lucide-react";
+import { logger } from "../services/loggerService";
 
 export interface TasksProps {
   initialTab?: string;
@@ -1141,6 +1142,12 @@ export default function Tasks({ initialTab = "default" }: TasksProps = {}) {
         subtasks: [],
         createdAt: serverTimestamp(),
       });
+      logger.info("firestore", `Tasks: Created task "${finalTitle}"`, {
+        id: docId,
+        dueDate: finalDue,
+        priority: finalPriority,
+        listId: targetListId,
+      });
 
       setTitleInput("");
       setDueInput("");
@@ -1180,6 +1187,10 @@ export default function Tasks({ initialTab = "default" }: TasksProps = {}) {
       }
 
       await updateDoc(doc(db, "tasks", task.id), updateData);
+      logger.info("firestore", `Tasks: Toggled task "${task.title}" (${next ? "completed" : "pending"})`, {
+        id: task.id,
+        completed: next,
+      });
 
       if (isSignedIn && accessToken && task.googleTaskId) {
         const cat = categories.find((c) => c.id === (task.listId || "default"));
@@ -1418,6 +1429,7 @@ export default function Tasks({ initialTab = "default" }: TasksProps = {}) {
     async (task: Task) => {
       try {
         await deleteDoc(doc(db, "tasks", task.id));
+        logger.info("firestore", `Tasks: Deleted task "${task.title}" (${task.id})`);
 
         if (isSignedIn && accessToken && task.googleTaskId) {
           const cat = categories.find((c) => c.id === (task.listId || "default"));
@@ -1435,7 +1447,7 @@ export default function Tasks({ initialTab = "default" }: TasksProps = {}) {
           message: `「${task.title}」を削除しました`,
           item: task,
           onUndo: async (restoredTask) => {
-            await addDoc(collection(db, "tasks"), {
+            const newRef = await addDoc(collection(db, "tasks"), {
               title: restoredTask.title,
               dueDate: restoredTask.dueDate || null,
               priority: restoredTask.priority || "medium",
@@ -1446,6 +1458,7 @@ export default function Tasks({ initialTab = "default" }: TasksProps = {}) {
               googleListId: restoredTask.googleListId || null,
               createdAt: serverTimestamp(),
             });
+            logger.info("firestore", `Tasks: Restored task "${restoredTask.title}" (${newRef.id})`);
           },
         });
       } catch (e) {
@@ -1492,6 +1505,7 @@ export default function Tasks({ initialTab = "default" }: TasksProps = {}) {
         { merge: true }
       );
       listMetaMapRef.current[newId] = { icon: chosenIcon };
+      logger.info("firestore", `Tasks: Created task list "${title}" (${newId})`);
     } catch (err) {
       console.warn("Failed to persist task list metadata:", err);
     }
@@ -1534,6 +1548,7 @@ export default function Tasks({ initialTab = "default" }: TasksProps = {}) {
         { merge: true }
       );
       listMetaMapRef.current[editingCategory.id] = { icon: finalIcon };
+      logger.info("firestore", `Tasks: Updated task list "${finalTitle}" (${editingCategory.id})`);
     } catch (err) {
       console.warn("Failed to update task list metadata:", err);
     }
@@ -1573,8 +1588,9 @@ export default function Tasks({ initialTab = "default" }: TasksProps = {}) {
     try {
       await deleteDoc(doc(db, "task_lists", listIdToDelete));
       delete listMetaMapRef.current[listIdToDelete];
+      logger.info("firestore", `Tasks: Deleted task list "${editingCategory.title}" (${listIdToDelete}), removed ${tasksToDelete.length} tasks`);
     } catch (err) {
-      console.warn("Failed to delete task list metadata:", err);
+      console.warn("Failed to delete task list metadata from Firestore:", err);
     }
 
     // 4. カテゴリState更新

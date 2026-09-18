@@ -35,6 +35,7 @@ import type {
   PMDayResolution,
   CalendarEvent,
 } from "../types";
+import { SHIFT_TIMING_LABELS } from "../types";
 
 // ═══════════════════════════════════════════════════════════
 // SECTION A: 定数 & デフォルト
@@ -46,10 +47,28 @@ export const DEFAULT_CYCLE_LENGTH = 6;
 /** 勤務系キーワード正規表現（「仕事」「出勤」「早番」「遅番」「日勤」「夜勤」「当直」「勤務」「シフト」「work」「shift」など） */
 export const WORK_SHIFT_KEYWORDS = /(仕事|出勤|早番|遅番|日勤|夜勤|当直|勤務|シフト|work|shift)/i;
 
+/** 早番キーワード正規表現 */
+export const EARLY_SHIFT_KEYWORDS = /早番/i;
+
+/** 遅番キーワード正規表現 */
+export const LATE_SHIFT_KEYWORDS = /遅番/i;
+
 /** イベント名が出勤予定かどうかを判定（勤務系キーワードにマッチすれば true） */
 export function isWorkEvent(title?: string | null): boolean {
   if (!title) return false;
   return WORK_SHIFT_KEYWORDS.test(title.trim());
+}
+
+/** イベント名・シフト名が早番かどうかを判定 */
+export function isEarlyShiftEvent(title?: string | null): boolean {
+  if (!title) return false;
+  return EARLY_SHIFT_KEYWORDS.test(title.trim());
+}
+
+/** イベント名・シフト名が遅番かどうかを判定 */
+export function isLateShiftEvent(title?: string | null): boolean {
+  if (!title) return false;
+  return LATE_SHIFT_KEYWORDS.test(title.trim());
 }
 
 /** 休日系キーワード正規表現（公休、休み、有休、休暇等） */
@@ -258,20 +277,42 @@ export function getTodayPMItems(
   return getDayPMItems(settings, templates, todayDateStr());
 }
 
-/** 互換: カレンダー用 date → dayIndex マップ */
+/** カレンダー用 date → dayIndex/有無 マップ */
 export function buildCalendarPMDates(
   settings: PMSettings | null | undefined,
   templates: PMTemplateItem[],
   fromDate: string,
   toDate: string,
-  includeRestDays = false
+  includeRestDays = false,
+  events: CalendarEvent[] = []
 ): Map<string, number> {
   const result = new Map<string, number>();
   const safeSettings = settings ?? DEFAULT_PM_SETTINGS;
-  if (!safeSettings.manualAnchorDate) return result;
 
   const fromEpoch = dateStrToEpochDays(fromDate);
   const toEpoch = dateStrToEpochDays(toDate);
+
+  // シフト連動タスク（timing または timingCategory があるタスク）が存在するか、またはカレンダーイベントがある場合
+  const hasShiftTimingTasks = templates.some((t) => t.timing || t.timingCategory);
+
+  if (hasShiftTimingTasks || events.length > 0) {
+    for (let epoch = fromEpoch; epoch <= toEpoch; epoch++) {
+      const dateStr = epochDaysToDateStr(epoch);
+      const activeTasks = getActivePMTasksForDate(dateStr, templates, events, safeSettings);
+      if (activeTasks.length > 0) {
+        result.set(dateStr, activeTasks[0].timingDay || activeTasks[0].dayIndex || 1);
+      } else if (includeRestDays) {
+        const shiftInfo = resolveDateShiftInfo(dateStr, events, safeSettings);
+        if (shiftInfo.isRestDay) {
+          result.set(dateStr, 0);
+        }
+      }
+    }
+    return result;
+  }
+
+  // 従来の後方互換フォールバック（manualAnchorDate 未設定時は空）
+  if (!safeSettings.manualAnchorDate) return result;
   const activeDayIndexes = new Set(templates.map((t) => t.dayIndex));
 
   for (let epoch = fromEpoch; epoch <= toEpoch; epoch++) {
@@ -576,6 +617,50 @@ export function resolveShiftInfo(
     }
   }
 
+  // 早番・遅番および種別ごとの連続日数の判定
+  const shiftTitle = result.shiftName || "";
+  const isEarlyShift = result.type === "work" && isEarlyShiftEvent(shiftTitle);
+  const isLateShift = result.type === "work" && isLateShiftEvent(shiftTitle);
+
+  let earlyStreakIndex: number | undefined;
+  let lateStreakIndex: number | undefined;
+  const targetEpoch = dateStrToEpochDays(targetDate);
+
+  if (isEarlyShift) {
+    earlyStreakIndex = 1;
+    let cursorEpoch = targetEpoch - 1;
+    while (earlyStreakIndex < 30) {
+      const prevDateStr = epochDaysToDateStr(cursorEpoch);
+      const prevStatus = getDayShiftStatus(prevDateStr, events, safeSettings);
+      if (prevStatus.isWork && isEarlyShiftEvent(prevStatus.shiftName)) {
+        earlyStreakIndex++;
+        cursorEpoch--;
+      } else {
+        break;
+      }
+    }
+  }
+
+  if (isLateShift) {
+    lateStreakIndex = 1;
+    let cursorEpoch = targetEpoch - 1;
+    while (lateStreakIndex < 30) {
+      const prevDateStr = epochDaysToDateStr(cursorEpoch);
+      const prevStatus = getDayShiftStatus(prevDateStr, events, safeSettings);
+      if (prevStatus.isWork && isLateShiftEvent(prevStatus.shiftName)) {
+        lateStreakIndex++;
+        cursorEpoch--;
+      } else {
+        break;
+      }
+    }
+  }
+
+  result.isEarlyShift = isEarlyShift;
+  result.isLateShift = isLateShift;
+  result.earlyStreakIndex = earlyStreakIndex;
+  result.lateStreakIndex = lateStreakIndex;
+
   return result;
 }
 
@@ -642,33 +727,111 @@ export function resolveDateShiftInfo(
     isFirstDayOfStreak,
     isLastDayOfStreak,
     isOverridden: shift.isOverridden,
+    isEarlyShift: shift.isEarlyShift,
+    isLateShift: shift.isLateShift,
+    earlyStreakIndex: shift.earlyStreakIndex,
+    lateStreakIndex: shift.lateStreakIndex,
   };
 }
 
 /**
- * テンプレートが指定日のシフト条件に合致するか判定
+ * 基準アンカー日からの通算サイクル番号（0-based）を算出する
+ *
+ * @param targetDate 対象日 "YYYY-MM-DD"
+ * @param events カレンダーイベント一覧
+ * @param settings PMSettings
+ * @returns 通算サイクル番号 (例: 0, 1, 2, ...)
+ */
+export function calculateCycleIndex(
+  targetDate: string,
+  events: CalendarEvent[] = [],
+  settings?: PMSettings | null
+): number {
+  const safeSettings = settings ?? DEFAULT_PM_SETTINGS;
+  const cycleRange = calculateFourTwoCycleRange(targetDate, events, safeSettings);
+  const cycleLength = safeSettings.cycleLength || DEFAULT_CYCLE_LENGTH;
+
+  const detectedAnchor = events.length > 0 ? detectAnchorFromEvents(events, targetDate)?.anchorDate : undefined;
+  const baseAnchorDate = safeSettings.manualAnchorDate || detectedAnchor || cycleRange.startDate;
+
+  const diffDays = getDaysDifference(baseAnchorDate, cycleRange.startDate);
+  return Math.floor(diffDays / cycleLength);
+}
+
+/**
+ * テンプレートが指定日のシフト条件およびサイクル頻度（毎サイクル / 隔週）に合致するか判定
  */
 export function isTemplateActiveForDate(
   template: PMTemplateItem,
   shiftInfo: DateShiftInfo,
   targetDate: string,
   settings?: PMSettings | null,
-  detectedAnchor?: string
+  detectedAnchor?: string,
+  events: CalendarEvent[] = []
 ): boolean {
   if (template.enabled === false) return false;
   const safeSettings = settings ?? DEFAULT_PM_SETTINGS;
 
-  // 1. timing が明示されている場合
+  // ── 1. サイクル頻度（毎サイクル / 2サイクルに1回 = 隔週 / Nサイクル）判定 ──
+  const cycleInterval = template.cycleInterval && template.cycleInterval > 1 ? template.cycleInterval : 1;
+  if (cycleInterval > 1) {
+    const cycleIndex = calculateCycleIndex(targetDate, events, safeSettings);
+    const offset = template.cycleIntervalOffset || 0;
+    const mod = (((cycleIndex - offset) % cycleInterval) + cycleInterval) % cycleInterval;
+    if (mod !== 0) {
+      return false; // このサイクルは実施対象外
+    }
+  }
+
+  // ── 2. タイミング種別・日数の解決 ──
+  // timingCategory + timingDay がある場合
+  if (template.timingCategory) {
+    const day = template.timingDay || 1;
+    switch (template.timingCategory) {
+      case "holiday":
+        return shiftInfo.isRestDay && shiftInfo.consecutiveIndex === day;
+      case "early_shift":
+        return shiftInfo.isWorkDay && Boolean(shiftInfo.isEarlyShift) && shiftInfo.earlyStreakIndex === day;
+      case "late_shift":
+        return shiftInfo.isWorkDay && Boolean(shiftInfo.isLateShift) && shiftInfo.lateStreakIndex === day;
+      case "work_day":
+        return shiftInfo.isWorkDay && shiftInfo.consecutiveIndex === day;
+    }
+  }
+
+  // ── 3. timing 文字列からの判定（後方互換対応） ──
   if (template.timing) {
-    switch (template.timing) {
-      case "rest_day_1":
-        return shiftInfo.isRestDay && shiftInfo.consecutiveIndex === 1;
-      case "rest_day_2":
-        return shiftInfo.isRestDay && shiftInfo.consecutiveIndex === 2;
+    // early_shift_N パターン
+    const earlyMatch = /^early_shift_(\d+)$/.exec(template.timing);
+    if (earlyMatch) {
+      const targetStreak = parseInt(earlyMatch[1], 10);
+      return shiftInfo.isWorkDay && Boolean(shiftInfo.isEarlyShift) && shiftInfo.earlyStreakIndex === targetStreak;
+    }
+
+    // late_shift_N パターン
+    const lateMatch = /^late_shift_(\d+)$/.exec(template.timing);
+    if (lateMatch) {
+      const targetStreak = parseInt(lateMatch[1], 10);
+      return shiftInfo.isWorkDay && Boolean(shiftInfo.isLateShift) && shiftInfo.lateStreakIndex === targetStreak;
+    }
+
+    // work_day_N パターン
+    const workMatch = /^work_day_(\d+)$/.exec(template.timing);
+    if (workMatch) {
+      const targetStreak = parseInt(workMatch[1], 10);
+      return shiftInfo.isWorkDay && shiftInfo.consecutiveIndex === targetStreak;
+    }
+
+    // rest_day_N パターン
+    const restMatch = /^rest_day_(\d+)$/.exec(template.timing);
+    if (restMatch) {
+      const targetStreak = parseInt(restMatch[1], 10);
+      return shiftInfo.isRestDay && shiftInfo.consecutiveIndex === targetStreak;
+    }
+
+    switch (template.timing as string) {
       case "rest_all":
         return shiftInfo.isRestDay;
-      case "work_day_1":
-        return shiftInfo.isWorkDay && shiftInfo.isFirstDayOfStreak;
       case "work_last_day":
         return shiftInfo.isWorkDay && shiftInfo.isLastDayOfStreak;
       case "work_all":
@@ -687,7 +850,7 @@ export function isTemplateActiveForDate(
     }
   }
 
-  // 2. timing 未指定で dayIndex のみある場合（後方互換）
+  // ── 4. timing 未指定で dayIndex のみある場合（後方互換） ──
   if (template.dayIndex != null) {
     const dayInfo = calculateDayIndex(targetDate, safeSettings, detectedAnchor);
     return !dayInfo.isRestDay && dayInfo.dayIndex === template.dayIndex;
@@ -710,12 +873,66 @@ export function getActivePMTasksForDate(
   const detectedAnchor = detectAnchorFromEvents(events, targetDate)?.anchorDate;
 
   return templates
-    .filter((t) => isTemplateActiveForDate(t, shiftInfo, targetDate, safeSettings, detectedAnchor))
+    .filter((template) => {
+      if (template.enabled === false) return false;
+      return isTemplateActiveForDate(template, shiftInfo, targetDate, safeSettings, detectedAnchor, events);
+    })
     .sort((a, b) => a.order - b.order);
 }
 
+/**
+ * PMタスクの実施タイミング表示用ラベルを取得する
+ */
+export function getPMTemplateTimingLabel(template: PMTemplateItem): string {
+  if (template.timingCategory) {
+    const day = template.timingDay || 1;
+    switch (template.timingCategory) {
+      case "holiday":
+        return `休日${day}日目`;
+      case "early_shift":
+        return `早番${day}日目`;
+      case "late_shift":
+        return `遅番${day}日目`;
+      case "work_day":
+        return `出勤${day}日目`;
+    }
+  }
+
+  if (template.timing) {
+    if ((SHIFT_TIMING_LABELS as Record<string, string>)[template.timing]) {
+      return (SHIFT_TIMING_LABELS as Record<string, string>)[template.timing];
+    }
+    const earlyMatch = /^early_shift_(\d+)$/.exec(template.timing);
+    if (earlyMatch) return `早番${earlyMatch[1]}日目`;
+    const lateMatch = /^late_shift_(\d+)$/.exec(template.timing);
+    if (lateMatch) return `遅番${lateMatch[1]}日目`;
+    const workMatch = /^work_day_(\d+)$/.exec(template.timing);
+    if (workMatch) return `出勤${workMatch[1]}日目`;
+    const restMatch = /^rest_day_(\d+)$/.exec(template.timing);
+    if (restMatch) return `休日${restMatch[1]}日目`;
+  }
+
+  if (template.dayIndex != null) {
+    return `Day ${template.dayIndex}`;
+  }
+
+  return "未設定";
+}
+
+/**
+ * PMタスクのサイクル頻度表示用ラベルを取得する
+ */
+export function getPMTemplateCycleLabel(template: PMTemplateItem): string {
+  const interval = template.cycleInterval || 1;
+  if (interval <= 1) {
+    return "毎サイクル";
+  }
+  const offsetLabel = template.cycleIntervalOffset === 1 ? " (グループB)" : " (グループA)";
+  return `${interval}サイクルに1回${template.cycleIntervalOffset != null ? offsetLabel : ""}`;
+}
+
 // ═══════════════════════════════════════════════════════════
-// SECTION F: デフォルト PM テンプレート
+// SECTION F: 推奨初期タスク・シードデータ投入
 // ═══════════════════════════════════════════════════════════
 
 /**
@@ -724,15 +941,16 @@ export function getActivePMTasksForDate(
 export function getDefaultPMTemplates(): Omit<PMTemplateItem, "id">[] {
   return [
     // 休日1日目（休みの初日）
-    { timing: "rest_day_1", dayIndex: 1, title: "浴室・水回り清掃", content: "床・排水口・鏡・シャワーヘッド洗浄 / 洗剤補充確認", order: 0 },
-    { timing: "rest_day_1", dayIndex: 1, title: "シーツ・枕カバー交換 & 洗濯", content: "ベッドシーツ・枕カバー洗濯 → 乾燥まで完了させる", order: 1 },
-    // 休日2日目（またはすべての休日）
-    { timing: "rest_day_2", dayIndex: 2, title: "全室床掃除 & モップがけ", content: "掃除機 → フロアモップ。家具下・カーペット下も確認", order: 0 },
-    { timing: "rest_all", dayIndex: 3, title: "キッチン・換気扇油汚れケア", content: "フィルター取り外し→つけ置き洗い / コンロ周り拭き上げ", order: 0 },
-    // 連勤初日
-    { timing: "work_day_1", dayIndex: 4, title: "デスク周り整理 & PCメンテナンス", content: "ケーブル整頓・モニター拭き・不要ファイル整理", order: 0 },
-    // 連勤最終日
-    { timing: "work_last_day", dayIndex: 5, title: "消耗品在庫点検 & バックアップ", content: "食料・日用品の在庫確認と補充、Arcaバックアップ確認", order: 0 },
+    { timingCategory: "holiday", timingDay: 1, timing: "rest_day_1", dayIndex: 1, title: "浴室・水回り清掃", content: "床・排水口・鏡・シャワーヘッド洗浄 / 洗剤補充確認", order: 0 },
+    { timingCategory: "holiday", timingDay: 1, timing: "rest_day_1", dayIndex: 1, title: "シーツ・枕カバー交換 & 洗濯", content: "ベッドシーツ・枕カバー洗濯 → 乾燥まで完了させる", order: 1 },
+    // 休日2日目
+    { timingCategory: "holiday", timingDay: 2, timing: "rest_day_2", dayIndex: 2, title: "全室床掃除 & モップがけ", content: "掃除機 → フロアモップ。家具下・カーペット下も確認", order: 0 },
+    // 早番1日目
+    { timingCategory: "early_shift", timingDay: 1, timing: "early_shift_1", dayIndex: 3, title: "キッチン・換気扇油汚れケア", content: "フィルター取り外し→つけ置き洗い / コンロ周り拭き上げ", order: 0 },
+    // 出勤1日目
+    { timingCategory: "work_day", timingDay: 1, timing: "work_day_1", dayIndex: 4, title: "デスク周り整理 & PCメンテナンス", content: "ケーブル整頓・モニター拭き・不要ファイル整理", order: 0 },
+    // 遅番1日目
+    { timingCategory: "late_shift", timingDay: 1, timing: "late_shift_1", dayIndex: 5, title: "消耗品在庫点検 & バックアップ", content: "食料・日用品の在庫確認と補充、Arcaバックアップ確認", order: 0 },
   ];
 }
 

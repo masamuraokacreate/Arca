@@ -16,24 +16,44 @@ export type ShiftType = "work" | "holiday";
 
 /** 勤務シフト連動タイミング種別 */
 export type ShiftTiming =
-  | "rest_day_1"     // 休みの初日（休日1日目）
+  | "rest_day_1"     // 休日1日目（休みの初日）
   | "rest_day_2"     // 休日2日目（連休2日目）
-  | "rest_all"       // すべての休日（休みの日ならいつでも）
-  | "work_day_1"     // 連勤初日（出勤1日目）
-  | "work_last_day"  // 連勤最終日（休日前）
-  | "work_all"       // すべての出勤日
-  | "interval_days"  // 日数指定（N日ごと）
-  | "custom_day";    // サイクル指定（Day 1〜N）
+  | "rest_day_3"     // 休日3日目
+  | "rest_day_4"     // 休日4日目
+  | "early_shift_1"  // 早番1日目
+  | "early_shift_2"  // 早番2日目
+  | "early_shift_3"  // 早番3日目
+  | "early_shift_4"  // 早番4日目
+  | "late_shift_1"   // 遅番1日目
+  | "late_shift_2"   // 遅番2日目
+  | "late_shift_3"   // 遅番3日目
+  | "late_shift_4"   // 遅番4日目
+  | "work_day_1"     // 出勤1日目（連勤初日）
+  | "work_day_2"     // 出勤2日目
+  | "work_day_3"     // 出勤3日目
+  | "work_day_4"     // 出勤4日目
+  | "work_day_5"     // 出勤5日目
+  | "work_day_6";    // 出勤6日目
 
 export const SHIFT_TIMING_LABELS: Record<ShiftTiming, string> = {
-  rest_day_1: "休みの初日（休日1日目）",
+  rest_day_1: "休日1日目（休みの初日）",
   rest_day_2: "休日2日目（連休2日目）",
-  rest_all: "すべての休日",
-  work_day_1: "連勤初日（出勤1日目）",
-  work_last_day: "連勤最終日（休日前）",
-  work_all: "すべての出勤日",
-  interval_days: "日数指定（N日ごと）",
-  custom_day: "Day番号指定",
+  rest_day_3: "休日3日目",
+  rest_day_4: "休日4日目",
+  early_shift_1: "早番1日目",
+  early_shift_2: "早番2日目",
+  early_shift_3: "早番3日目",
+  early_shift_4: "早番4日目",
+  late_shift_1: "遅番1日目",
+  late_shift_2: "遅番2日目",
+  late_shift_3: "遅番3日目",
+  late_shift_4: "遅番4日目",
+  work_day_1: "出勤1日目（連勤初日）",
+  work_day_2: "出勤2日目",
+  work_day_3: "出勤3日目",
+  work_day_4: "出勤4日目",
+  work_day_5: "出勤5日目",
+  work_day_6: "出勤6日目",
 };
 
 // ─────────────────────────────────────────
@@ -47,6 +67,10 @@ export interface ShiftInfo {
   streakNumber: number;      // 1, 2, 3... 連続何日目か
   shiftName?: string;        // 例: "早番", "遅番", "出勤", "日勤", "当直"
   isOverridden: boolean;     // 手動上書きされたデータかどうか
+  isEarlyShift?: boolean;    // 早番かどうか
+  isLateShift?: boolean;     // 遅番かどうか
+  earlyStreakIndex?: number; // 早番の連続何日目か (1-based)
+  lateStreakIndex?: number;  // 遅番の連続何日目か (1-based)
 }
 
 /** 手動シフトオーバーライド設定 */
@@ -68,6 +92,10 @@ export interface DateShiftInfo {
   isFirstDayOfStreak: boolean; // 連勤・連休の初日か
   isLastDayOfStreak: boolean;  // 連勤・連休の最終日か
   isOverridden?: boolean;    // 手動上書きされたかどうか
+  isEarlyShift?: boolean;    // 早番かどうか
+  isLateShift?: boolean;     // 遅番かどうか
+  earlyStreakIndex?: number; // 早番の連続何日目か (1-based)
+  lateStreakIndex?: number;  // 遅番の連続何日目か (1-based)
 }
 
 /** 勤務シフト全体設定 */

@@ -68,6 +68,7 @@ import {
 import { C } from "../lib/designSystem";
 import { useUndoToast } from "../hooks/useUndoToast";
 import { UndoToast } from "./common/UndoToast";
+import { logger } from "../services/loggerService";
 import { extractActionableItems } from "../lib/aetherCore";
 import { AetherExtractModal } from "./notes/AetherExtractModal";
 import { NoteEditor, type NoteEditorHandles } from "./notes/NoteEditor";
@@ -2941,6 +2942,9 @@ export default function Notes({
             updateDoc(doc(db, "notes", dId), { isDeleted: true })
           )
         );
+        logger.info("firestore", `Notes: Moved note to trash "${target.title || "Untitled"}" (${target.id})`, {
+          descendantCount: descendantIds.length,
+        });
 
         // 親ノートが存在する場合、親ノート本文から該当子ページリンク（[child-page:id] 等）を除去
         const parentId = target.parentId;
@@ -2981,6 +2985,7 @@ export default function Notes({
                 updateDoc(doc(db, "notes", dId), { isDeleted: false })
               )
             );
+            logger.info("firestore", `Notes: Restored note "${target.title || "Untitled"}"`);
           } catch (e) {
             console.error("Undo failed", e);
           }
@@ -3069,6 +3074,7 @@ export default function Notes({
         isDeleted: false,
         parentId: null,
       });
+      logger.info("firestore", `Notes: Created memo (ID: ${docRef.id})`);
       setEditingMemo({
         id: docRef.id,
         title: "",
@@ -3099,6 +3105,7 @@ export default function Notes({
           isDeleted: false,
           parentId: parentId || null,
         });
+        logger.info("firestore", `Notes: Created note (ID: ${docRef.id}, space: ${spaceType})`);
 
         // 親ノートが指定されている場合、親ノートの本文末尾に子ページボタンを追加して保存
         if (parentId) {

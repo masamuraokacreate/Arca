@@ -22,8 +22,6 @@ import {
 import {
   collection,
   getDocs,
-  writeBatch,
-  doc,
 } from "firebase/firestore";
 import { db } from "../lib/firebase";
 import {
@@ -758,13 +756,22 @@ export async function cleanupDuplicateExpenses(
   fallbackTransactions?: ExpenseTransaction[]
 ): Promise<CleanupDuplicateResult> {
   try {
-    let allDocs: Array<{ id: string; emailMessageId?: string; createdAt?: string }> = [];
+    let allDocs: Array<{
+      id: string;
+      emailMessageId?: string;
+      createdAt?: string;
+      hasItems?: boolean;
+      isReconciled?: boolean;
+    }> = [];
 
     try {
       const snap = await getDocs(collection(db, "finance_transactions"));
       if (!snap.empty) {
         snap.docs.forEach((d) => {
           const data = d.data() as any;
+          // 論理削除済みのドキュメントは重複クリーンアップの対象外（最重要）
+          if (data.isDeleted) return;
+
           let cAt = "";
           if (typeof data.createdAt === "string") {
             cAt = data.createdAt;
@@ -775,6 +782,8 @@ export async function cleanupDuplicateExpenses(
             id: d.id,
             emailMessageId: data.emailMessageId,
             createdAt: cAt,
+            hasItems: Array.isArray(data.items) && data.items.length > 0,
+            isReconciled: Boolean(data.isReconciled),
           });
         });
       }
@@ -784,11 +793,15 @@ export async function cleanupDuplicateExpenses(
 
     // fallbackTransactions が渡されており、allDocs が空の場合はフォールバックを使用
     if (allDocs.length === 0 && fallbackTransactions && fallbackTransactions.length > 0) {
-      allDocs = fallbackTransactions.map((t) => ({
-        id: t.id,
-        emailMessageId: t.emailMessageId,
-        createdAt: typeof t.createdAt === "string" ? t.createdAt : "",
-      }));
+      allDocs = fallbackTransactions
+        .filter((t) => !t.isDeleted) // 論理削除されたものは除外
+        .map((t) => ({
+          id: t.id,
+          emailMessageId: t.emailMessageId,
+          createdAt: typeof t.createdAt === "string" ? t.createdAt : "",
+          hasItems: Array.isArray(t.items) && t.items.length > 0,
+          isReconciled: Boolean(t.isReconciled),
+        }));
     }
 
     if (allDocs.length === 0) {
@@ -796,14 +809,14 @@ export async function cleanupDuplicateExpenses(
     }
 
     // emailMessageId ごとにグルーピング
-    const groupedByEmail = new Map<string, Array<{ id: string; createdAt: string }>>();
+    const groupedByEmail = new Map<string, typeof allDocs>();
 
     for (const docItem of allDocs) {
       const emailId = docItem.emailMessageId;
       if (typeof emailId === "string" && emailId.trim() !== "") {
         const key = emailId.trim();
         const list = groupedByEmail.get(key) || [];
-        list.push({ id: docItem.id, createdAt: docItem.createdAt || "" });
+        list.push(docItem);
         groupedByEmail.set(key, list);
       }
     }
@@ -813,8 +826,16 @@ export async function cleanupDuplicateExpenses(
     for (const [_emailId, items] of groupedByEmail.entries()) {
       if (items.length <= 1) continue;
 
-      // createdAt 昇順ソート（最古が index 0）
+      // 優先順位ソート:
+      // 1. 品目（items）を持っている方を優先して残す
+      // 2. 照合済み（isReconciled）を優先
+      // 3. createdAt が古い方を優先
       items.sort((a, b) => {
+        if (a.hasItems && !b.hasItems) return -1;
+        if (!a.hasItems && b.hasItems) return 1;
+        if (a.isReconciled && !b.isReconciled) return -1;
+        if (!a.isReconciled && b.isReconciled) return 1;
+
         if (!a.createdAt && !b.createdAt) return a.id.localeCompare(b.id);
         if (!a.createdAt) return 1;
         if (!b.createdAt) return -1;
@@ -823,7 +844,7 @@ export async function cleanupDuplicateExpenses(
         return a.id.localeCompare(b.id);
       });
 
-      // index 1 以降を重複削除対象に
+      // index 1 以降（優先度の低い側）を重複削除対象に
       for (let i = 1; i < items.length; i++) {
         duplicateIds.push(items[i].id);
       }
@@ -833,15 +854,9 @@ export async function cleanupDuplicateExpenses(
       return { deletedCount: 0, duplicateIds: [] };
     }
 
-    // writeBatch で一括物理削除 (450件区切り)
-    const BATCH_SIZE = 450;
-    for (let i = 0; i < duplicateIds.length; i += BATCH_SIZE) {
-      const batch = writeBatch(db);
-      const chunk = duplicateIds.slice(i, i + BATCH_SIZE);
-      chunk.forEach((id) => {
-        batch.delete(doc(db, "finance_transactions", id));
-      });
-      await batch.commit();
+    // 安全のため、物理削除ではなく論理削除を実行（復元可能にする）
+    for (const id of duplicateIds) {
+      await deleteExpenseTransaction(id);
     }
 
     return {

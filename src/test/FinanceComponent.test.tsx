@@ -547,7 +547,7 @@ describe("Finance コンポーネント", () => {
     expect(paymentMethodLabel.parentElement).toHaveTextContent("Oliveカード");
     expect(screen.getByText("CSV照合済")).toBeInTheDocument();
     expect(screen.getByText("速報メール未連携")).toBeInTheDocument();
-    expect(screen.getByText("レシート品目 (2件)")).toBeInTheDocument();
+    expect(screen.getByText("レシート・手動入力")).toBeInTheDocument();
   });
 
   it("検索バーからカード名（Oliveカード）やカテゴリ（日用品）で即座に絞り込める", async () => {

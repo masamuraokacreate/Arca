@@ -135,7 +135,7 @@ describe("PMSection", () => {
     mockOnSnapshot({
       pm_templates: () => [
         { dayIndex: 1, timing: "rest_day_1", title: "浴室清掃", content: "床・排水口の洗浄", order: 0 },
-        { dayIndex: 1, timing: "rest_all", title: "周期洗濯", content: "シーツ・タオル", order: 1 },
+        { dayIndex: 1, timing: "rest_day_1", title: "周期洗濯", content: "シーツ・タオル", order: 1 },
         { dayIndex: 2, timing: "rest_day_2", title: "全室床掃除", content: "掃除機とモップ", order: 0 },
       ],
       pm_logs: () => [],

@@ -24,9 +24,15 @@ import {
   DEFAULT_PM_SETTINGS,
   WORK_SHIFT_KEYWORDS,
   isWorkEvent,
+  isEarlyShiftEvent,
+  isLateShiftEvent,
   resolveDateShiftInfo,
   resolveShiftInfo,
+  calculateCycleIndex,
+  isTemplateActiveForDate,
   getActivePMTasksForDate,
+  getPMTemplateTimingLabel,
+  getPMTemplateCycleLabel,
   calculateFourTwoCycleRange,
   getFourDayWorkBlock,
 } from "./pmCycleService";
@@ -585,7 +591,7 @@ describe("resolveDateShiftInfo & getActivePMTasksForDate (Sprint 9 改修)", () 
     const templates: PMTemplateItem[] = [
       { id: "t1", title: "水回り掃除", content: "", timing: "rest_day_1", order: 0 },
       { id: "t2", title: "PCメンテ", content: "", timing: "work_day_1", order: 0 },
-      { id: "t3", title: "すべての休日タスク", content: "", timing: "rest_all", order: 1 },
+      { id: "t3", title: "休日1日目追加タスク", content: "", timing: "rest_day_1", order: 1 },
     ];
     const settings: PMSettings = { cycleLength: 6 };
 
@@ -989,11 +995,201 @@ describe("resolveDateShiftInfo & getActivePMTasksForDate (Sprint 9 改修)", () 
       // getActivePMTasksForDate with templates
       const templates: PMTemplateItem[] = [
         { id: "t1", title: "タスク1", content: "", timing: "rest_day_1", order: 0, enabled: true },
-        { id: "t2", title: "カスタムタスク", content: "", timing: "custom_day", dayIndex: 1, order: 1, enabled: true },
+        { id: "t2", title: "カスタムタスク", content: "", timing: "work_day_1", dayIndex: 1, order: 1, enabled: true },
         { id: "t3", title: "レガシータスク", content: "", dayIndex: 2, order: 2, enabled: true },
       ];
       expect(() => getActivePMTasksForDate("2026-09-03", templates, [], null)).not.toThrow();
       expect(() => getActivePMTasksForDate("2026-09-03", templates, [], undefined)).not.toThrow();
+    });
+  });
+
+  // ═══════════════════════════════════════════════════════════
+  // J. 実施タイミング（休日/早番/遅番/出勤の何日目）＆ 隔週（サイクル頻度）機能テスト
+  // ═══════════════════════════════════════════════════════════
+  describe("実施タイミング（休日/早番/遅番/出勤の何日目）＆ 隔週機能", () => {
+    // 4勤2休ローテーションイベント（早番2日 → 遅番2日 → 休日2日）
+    // サイクル0: 2026-09-01(早番1), 09-02(早番2), 09-03(遅番1), 09-04(遅番2), 09-05(公休1), 09-06(公休2)
+    // サイクル1: 2026-09-07(早番1), 09-08(早番2), 09-09(遅番1), 09-10(遅番2), 09-11(公休1), 09-12(公休2)
+    const rotationEvents: CalendarEvent[] = [
+      // サイクル0
+      makeEvent("早番", "2026-09-01"),
+      makeEvent("早番", "2026-09-02"),
+      makeEvent("遅番", "2026-09-03"),
+      makeEvent("遅番", "2026-09-04"),
+      makeEvent("公休", "2026-09-05"),
+      makeEvent("公休", "2026-09-06"),
+      // サイクル1
+      makeEvent("早番", "2026-09-07"),
+      makeEvent("早番", "2026-09-08"),
+      makeEvent("遅番", "2026-09-09"),
+      makeEvent("遅番", "2026-09-10"),
+      makeEvent("公休", "2026-09-11"),
+      makeEvent("公休", "2026-09-12"),
+    ];
+
+    const cycleSettings: PMSettings = {
+      cycleLength: 6,
+      manualAnchorDate: "2026-09-01",
+      manualAnchorDay: 1,
+    };
+
+    it("早番・遅番の判定関数（isEarlyShiftEvent / isLateShiftEvent）が正確に判定できること", () => {
+      expect(isEarlyShiftEvent("早番")).toBe(true);
+      expect(isEarlyShiftEvent("早番 8:30-17:00")).toBe(true);
+      expect(isEarlyShiftEvent("遅番")).toBe(false);
+      expect(isEarlyShiftEvent("日勤")).toBe(false);
+      expect(isEarlyShiftEvent(null)).toBe(false);
+
+      expect(isLateShiftEvent("遅番")).toBe(true);
+      expect(isLateShiftEvent("遅番 11:00-19:30")).toBe(true);
+      expect(isLateShiftEvent("早番")).toBe(false);
+      expect(isLateShiftEvent("当直")).toBe(false);
+      expect(isLateShiftEvent(undefined)).toBe(false);
+    });
+
+    it("4勤2休ローテーションの各日で早番/遅番の連続日数が正確に解決されること", () => {
+      // 9/1: 早番1日目, 出勤1日目
+      const d1 = resolveDateShiftInfo("2026-09-01", rotationEvents, cycleSettings);
+      expect(d1.isWorkDay).toBe(true);
+      expect(d1.isEarlyShift).toBe(true);
+      expect(d1.earlyStreakIndex).toBe(1);
+      expect(d1.consecutiveIndex).toBe(1); // 出勤1日目
+
+      // 9/2: 早番2日目, 出勤2日目
+      const d2 = resolveDateShiftInfo("2026-09-02", rotationEvents, cycleSettings);
+      expect(d2.isWorkDay).toBe(true);
+      expect(d2.isEarlyShift).toBe(true);
+      expect(d2.earlyStreakIndex).toBe(2);
+      expect(d2.consecutiveIndex).toBe(2); // 出勤2日目
+
+      // 9/3: 遅番1日目, 出勤3日目
+      const d3 = resolveDateShiftInfo("2026-09-03", rotationEvents, cycleSettings);
+      expect(d3.isWorkDay).toBe(true);
+      expect(d3.isLateShift).toBe(true);
+      expect(d3.lateStreakIndex).toBe(1);
+      expect(d3.consecutiveIndex).toBe(3); // 出勤3日目
+
+      // 9/4: 遅番2日目, 出勤4日目
+      const d4 = resolveDateShiftInfo("2026-09-04", rotationEvents, cycleSettings);
+      expect(d4.isWorkDay).toBe(true);
+      expect(d4.isLateShift).toBe(true);
+      expect(d4.lateStreakIndex).toBe(2);
+      expect(d4.consecutiveIndex).toBe(4); // 出勤4日目
+
+      // 9/5: 休日1日目
+      const d5 = resolveDateShiftInfo("2026-09-05", rotationEvents, cycleSettings);
+      expect(d5.isRestDay).toBe(true);
+      expect(d5.consecutiveIndex).toBe(1); // 休日1日目
+
+      // 9/6: 休日2日目
+      const d6 = resolveDateShiftInfo("2026-09-06", rotationEvents, cycleSettings);
+      expect(d6.isRestDay).toBe(true);
+      expect(d6.consecutiveIndex).toBe(2); // 休日2日目
+    });
+
+    it("「早番何日目」「遅番何日目」「出勤何日目」「休日何日目」のタスクが該当日のみ抽出されること", () => {
+      const timingTemplates: PMTemplateItem[] = [
+        { id: "t-early-1", title: "早番1日目タスク", content: "", timingCategory: "early_shift", timingDay: 1, order: 0 },
+        { id: "t-early-2", title: "早番2日目タスク", content: "", timingCategory: "early_shift", timingDay: 2, order: 1 },
+        { id: "t-late-1", title: "遅番1日目タスク", content: "", timingCategory: "late_shift", timingDay: 1, order: 2 },
+        { id: "t-late-2", title: "遅番2日目タスク", content: "", timingCategory: "late_shift", timingDay: 2, order: 3 },
+        { id: "t-work-3", title: "出勤3日目タスク", content: "", timingCategory: "work_day", timingDay: 3, order: 4 },
+        { id: "t-rest-1", title: "休日1日目タスク", content: "", timingCategory: "holiday", timingDay: 1, order: 5 },
+        { id: "t-rest-2", title: "休日2日目タスク", content: "", timingCategory: "holiday", timingDay: 2, order: 6 },
+      ];
+
+      // 9/1 (早番1日目)
+      const tasks1 = getActivePMTasksForDate("2026-09-01", timingTemplates, rotationEvents, cycleSettings);
+      expect(tasks1.map((t) => t.id)).toEqual(["t-early-1"]);
+
+      // 9/2 (早番2日目)
+      const tasks2 = getActivePMTasksForDate("2026-09-02", timingTemplates, rotationEvents, cycleSettings);
+      expect(tasks2.map((t) => t.id)).toEqual(["t-early-2"]);
+
+      // 9/3 (遅番1日目 ＆ 出勤3日目)
+      const tasks3 = getActivePMTasksForDate("2026-09-03", timingTemplates, rotationEvents, cycleSettings);
+      expect(tasks3.map((t) => t.id)).toEqual(["t-late-1", "t-work-3"]);
+
+      // 9/4 (遅番2日目)
+      const tasks4 = getActivePMTasksForDate("2026-09-04", timingTemplates, rotationEvents, cycleSettings);
+      expect(tasks4.map((t) => t.id)).toEqual(["t-late-2"]);
+
+      // 9/5 (休日1日目)
+      const tasks5 = getActivePMTasksForDate("2026-09-05", timingTemplates, rotationEvents, cycleSettings);
+      expect(tasks5.map((t) => t.id)).toEqual(["t-rest-1"]);
+
+      // 9/6 (休日2日目)
+      const tasks6 = getActivePMTasksForDate("2026-09-06", timingTemplates, rotationEvents, cycleSettings);
+      expect(tasks6.map((t) => t.id)).toEqual(["t-rest-2"]);
+    });
+
+    it("後方互換形式の timing 文字列（early_shift_1, late_shift_2 等）でも同様に正しくマッチすること", () => {
+      const legacyTimingTemplates: PMTemplateItem[] = [
+        { id: "t-leg-early-1", title: "早番1文字列", content: "", timing: "early_shift_1", order: 0 },
+        { id: "t-leg-late-2", title: "遅番2文字列", content: "", timing: "late_shift_2", order: 1 },
+      ];
+
+      // 9/1 は early_shift_1
+      const res1 = getActivePMTasksForDate("2026-09-01", legacyTimingTemplates, rotationEvents, cycleSettings);
+      expect(res1.map((t) => t.id)).toEqual(["t-leg-early-1"]);
+
+      // 9/4 は late_shift_2
+      const res4 = getActivePMTasksForDate("2026-09-04", legacyTimingTemplates, rotationEvents, cycleSettings);
+      expect(res4.map((t) => t.id)).toEqual(["t-leg-late-2"]);
+    });
+
+    it("isTemplateActiveForDate: 単一テンプレートに対する直接の判定が正確に動作すること", () => {
+      const d1 = resolveDateShiftInfo("2026-09-01", rotationEvents, cycleSettings);
+      const earlyTpl: PMTemplateItem = { id: "e1", title: "早番", content: "", timingCategory: "early_shift", timingDay: 1, order: 0 };
+      const lateTpl: PMTemplateItem = { id: "l1", title: "遅番", content: "", timingCategory: "late_shift", timingDay: 1, order: 0 };
+
+      expect(isTemplateActiveForDate(earlyTpl, d1, "2026-09-01", cycleSettings, undefined, rotationEvents)).toBe(true);
+      expect(isTemplateActiveForDate(lateTpl, d1, "2026-09-01", cycleSettings, undefined, rotationEvents)).toBe(false);
+    });
+
+    it("calculateCycleIndex: 通算サイクル番号が正確に算出されること", () => {
+      // サイクル0（2026-09-01〜09-06）
+      expect(calculateCycleIndex("2026-09-01", rotationEvents, cycleSettings)).toBe(0);
+      expect(calculateCycleIndex("2026-09-06", rotationEvents, cycleSettings)).toBe(0);
+
+      // サイクル1（2026-09-07〜09-12）
+      expect(calculateCycleIndex("2026-09-07", rotationEvents, cycleSettings)).toBe(1);
+      expect(calculateCycleIndex("2026-09-12", rotationEvents, cycleSettings)).toBe(1);
+    });
+
+    it("隔週機能（cycleInterval = 2）: 毎サイクル実施と隔週実施（グループA / グループB）が正確に動作すること", () => {
+      const biWeeklyTemplates: PMTemplateItem[] = [
+        // 毎サイクルの早番1日目
+        { id: "t-every", title: "毎サイクル早番1", content: "", timingCategory: "early_shift", timingDay: 1, cycleInterval: 1, order: 0 },
+        // 2サイクルに1回 (グループA: cycleIndex % 2 === 0)
+        { id: "t-bi-a", title: "隔週A早番1", content: "", timingCategory: "early_shift", timingDay: 1, cycleInterval: 2, cycleIntervalOffset: 0, order: 1 },
+        // 2サイクルに1回 (グループB: cycleIndex % 2 === 1)
+        { id: "t-bi-b", title: "隔週B早番1", content: "", timingCategory: "early_shift", timingDay: 1, cycleInterval: 2, cycleIntervalOffset: 1, order: 2 },
+      ];
+
+      // サイクル0の早番1日目（2026-09-01）
+      // cycleIndex = 0 → 毎サイクル + 隔週A が抽出される
+      const cycle0Tasks = getActivePMTasksForDate("2026-09-01", biWeeklyTemplates, rotationEvents, cycleSettings);
+      expect(cycle0Tasks.map((t) => t.id)).toEqual(["t-every", "t-bi-a"]);
+
+      // サイクル1の早番1日目（2026-09-07）
+      // cycleIndex = 1 → 毎サイクル + 隔週B が抽出される（隔週Aはスキップされる）
+      const cycle1Tasks = getActivePMTasksForDate("2026-09-07", biWeeklyTemplates, rotationEvents, cycleSettings);
+      expect(cycle1Tasks.map((t) => t.id)).toEqual(["t-every", "t-bi-b"]);
+    });
+
+    it("表示用ラベル生成関数（getPMTemplateTimingLabel / getPMTemplateCycleLabel）が適切なテキストを返すこと", () => {
+      expect(getPMTemplateTimingLabel({ id: "1", title: "", content: "", timingCategory: "early_shift", timingDay: 2, order: 0 })).toBe("早番2日目");
+      expect(getPMTemplateTimingLabel({ id: "2", title: "", content: "", timingCategory: "late_shift", timingDay: 1, order: 0 })).toBe("遅番1日目");
+      expect(getPMTemplateTimingLabel({ id: "3", title: "", content: "", timingCategory: "holiday", timingDay: 1, order: 0 })).toBe("休日1日目");
+      expect(getPMTemplateTimingLabel({ id: "4", title: "", content: "", timingCategory: "work_day", timingDay: 4, order: 0 })).toBe("出勤4日目");
+      expect(getPMTemplateTimingLabel({ id: "5", title: "", content: "", timing: "early_shift_1", order: 0 })).toBe("早番1日目");
+
+      expect(getPMTemplateCycleLabel({ id: "1", title: "", content: "", cycleInterval: 1, order: 0 })).toBe("毎サイクル");
+      expect(getPMTemplateCycleLabel({ id: "2", title: "", content: "", cycleInterval: 2, cycleIntervalOffset: 0, order: 0 })).toBe("2サイクルに1回 (グループA)");
+      expect(getPMTemplateCycleLabel({ id: "3", title: "", content: "", cycleInterval: 2, cycleIntervalOffset: 1, order: 0 })).toBe("2サイクルに1回 (グループB)");
+      expect(getPMTemplateCycleLabel({ id: "4", title: "", content: "", cycleInterval: 3, order: 0 })).toBe("3サイクルに1回");
+      expect(getPMTemplateCycleLabel({ id: "5", title: "", content: "", cycleInterval: 3, cycleIntervalOffset: 1, order: 0 })).toBe("3サイクルに1回 (グループB)");
     });
   });
 });

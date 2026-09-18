@@ -21,8 +21,8 @@ import {
   serverTimestamp,
 } from "firebase/firestore";
 import { db } from "../../lib/firebase";
-import type { PMSettings, PMTemplateItem, PMShiftTiming } from "../../types/pm";
-import { PM_TIMING_LABELS } from "../../types/pm";
+import type { PMSettings, PMTemplateItem, PMShiftTiming, PMTimingCategory } from "../../types/pm";
+import { getPMTemplateTimingLabel, getPMTemplateCycleLabel } from "../../services/pmCycleService";
 import { C } from "../../lib/designSystem";
 
 // ─────────────────────────────────────────
@@ -91,9 +91,14 @@ export function PMSettingsModal({
   const [editingId, setEditingId] = useState<string | null>(null);
   const [taskTitle, setTaskTitle] = useState("");
   const [taskContent, setTaskContent] = useState("");
-  const [taskTiming, setTaskTiming] = useState<PMShiftTiming>("rest_day_1");
-  const [intervalDays, setIntervalDays] = useState<number>(7);
-  const [customDay, setCustomDay] = useState<number>(1);
+  
+  // タイミング設定
+  const [timingCategory, setTimingCategory] = useState<PMTimingCategory>("holiday");
+  const [timingDay, setTimingDay] = useState<number>(1);
+
+  // 隔週・サイクル頻度設定
+  const [cycleInterval, setCycleInterval] = useState<number>(1);
+  const [cycleIntervalOffset, setCycleIntervalOffset] = useState<number>(0);
 
   const [isSaving, setIsSaving] = useState(false);
   const [toastMsg, setToastMsg] = useState<string | null>(null);
@@ -147,9 +152,39 @@ export function PMSettingsModal({
     setEditingId(item.id);
     setTaskTitle(item.title);
     setTaskContent(item.content || "");
-    setTaskTiming(item.timing || (item.dayIndex ? "custom_day" : "rest_day_1"));
-    setIntervalDays(item.intervalDays || 7);
-    setCustomDay(item.dayIndex || 1);
+    
+    // タイミングカテゴリと日数の復元
+    if (item.timingCategory && ["holiday", "early_shift", "late_shift", "work_day"].includes(item.timingCategory)) {
+      setTimingCategory(item.timingCategory);
+      setTimingDay(item.timingDay || 1);
+    } else if (item.timing) {
+      const earlyMatch = /^early_shift_(\d+)$/.exec(item.timing);
+      const lateMatch = /^late_shift_(\d+)$/.exec(item.timing);
+      const workMatch = /^work_day_(\d+)$/.exec(item.timing);
+      const restMatch = /^rest_day_(\d+)$/.exec(item.timing);
+      if (earlyMatch) {
+        setTimingCategory("early_shift");
+        setTimingDay(parseInt(earlyMatch[1], 10));
+      } else if (lateMatch) {
+        setTimingCategory("late_shift");
+        setTimingDay(parseInt(lateMatch[1], 10));
+      } else if (workMatch) {
+        setTimingCategory("work_day");
+        setTimingDay(parseInt(workMatch[1], 10));
+      } else if (restMatch) {
+        setTimingCategory("holiday");
+        setTimingDay(parseInt(restMatch[1], 10));
+      } else {
+        setTimingCategory("holiday");
+        setTimingDay(1);
+      }
+    } else {
+      setTimingCategory("holiday");
+      setTimingDay(1);
+    }
+
+    setCycleInterval(item.cycleInterval || 1);
+    setCycleIntervalOffset(item.cycleIntervalOffset || 0);
     setIsFormOpen(true);
   };
 
@@ -158,9 +193,10 @@ export function PMSettingsModal({
     setEditingId(null);
     setTaskTitle("");
     setTaskContent("");
-    setTaskTiming("rest_day_1");
-    setIntervalDays(7);
-    setCustomDay(1);
+    setTimingCategory("holiday");
+    setTimingDay(1);
+    setCycleInterval(1);
+    setCycleIntervalOffset(0);
     setIsFormOpen(true);
   };
 
@@ -178,12 +214,26 @@ export function PMSettingsModal({
     setIsSaving(true);
 
     try {
+      // 後方互換用 timing 文字列の導出
+      let legacyTiming: PMShiftTiming;
+      if (timingCategory === "holiday") {
+        legacyTiming = `rest_day_${timingDay}` as PMShiftTiming;
+      } else if (timingCategory === "early_shift") {
+        legacyTiming = `early_shift_${timingDay}` as PMShiftTiming;
+      } else if (timingCategory === "late_shift") {
+        legacyTiming = `late_shift_${timingDay}` as PMShiftTiming;
+      } else {
+        legacyTiming = `work_day_${timingDay}` as PMShiftTiming;
+      }
+
       const templateData: Omit<PMTemplateItem, "id"> = {
         title: taskTitle.trim(),
         content: taskContent.trim(),
-        timing: taskTiming,
-        intervalDays: taskTiming === "interval_days" ? intervalDays : undefined,
-        dayIndex: taskTiming === "custom_day" ? customDay : undefined,
+        timing: legacyTiming,
+        timingCategory,
+        timingDay,
+        cycleInterval,
+        cycleIntervalOffset: cycleInterval > 1 ? cycleIntervalOffset : 0,
         order: editingId
           ? (localTemplates.find((t) => t.id === editingId)?.order ?? 0)
           : localTemplates.length,
@@ -385,81 +435,155 @@ export function PMSettingsModal({
                 <label style={{ fontSize: "0.78rem", fontWeight: 650, color: C.charcoal, display: "block", marginBottom: "0.35rem" }}>
                   実施タイミング（勤務シフト連動 / 周期）
                 </label>
-                <select
-                  value={taskTiming}
-                  onChange={(e) => setTaskTiming(e.target.value as PMShiftTiming)}
-                  style={{
-                    width: "100%",
-                    boxSizing: "border-box",
-                    border: "1px solid var(--border-subtle)",
-                    borderRadius: "10px",
-                    padding: "0.6rem 0.8rem",
-                    fontSize: "0.85rem",
-                    fontWeight: 550,
-                    color: C.charcoal,
-                    background: C.white,
-                    boxShadow: "0 1px 4px rgba(0,0,0,0.04)",
-                    outline: "none",
-                    cursor: "pointer",
-                  }}
-                >
-                  <option value="rest_day_1">{PM_TIMING_LABELS.rest_day_1}</option>
-                  <option value="rest_day_2">{PM_TIMING_LABELS.rest_day_2}</option>
-                  <option value="rest_all">{PM_TIMING_LABELS.rest_all}</option>
-                  <option value="work_day_1">{PM_TIMING_LABELS.work_day_1}</option>
-                  <option value="work_last_day">{PM_TIMING_LABELS.work_last_day}</option>
-                  <option value="work_all">{PM_TIMING_LABELS.work_all}</option>
-                  <option value="interval_days">{PM_TIMING_LABELS.interval_days}</option>
-                  <option value="custom_day">{PM_TIMING_LABELS.custom_day}</option>
-                </select>
-
-                {/* インターバル日数設定 */}
-                {taskTiming === "interval_days" && (
-                  <div style={{ marginTop: "0.6rem", display: "flex", alignItems: "center", gap: "0.5rem" }}>
-                    <input
-                      type="number"
-                      min={1}
-                      max={365}
-                      value={intervalDays}
-                      onChange={(e) => setIntervalDays(Math.max(1, parseInt(e.target.value, 10) || 1))}
-                      style={{
-                        width: "80px",
-                        padding: "0.45rem 0.6rem",
-                        borderRadius: "8px",
-                        border: "1px solid var(--border-subtle)",
-                        background: C.white,
-                        color: C.charcoal,
-                        fontSize: "0.85rem",
-                        outline: "none",
+                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "0.6rem" }}>
+                  {/* タイミング種別 */}
+                  <div>
+                    <span style={{ fontSize: "0.7rem", color: C.charcoalMid, display: "block", marginBottom: "0.2rem" }}>種別</span>
+                    <select
+                      value={timingCategory}
+                      onChange={(e) => {
+                        const cat = e.target.value as PMTimingCategory;
+                        setTimingCategory(cat);
+                        if (cat !== "work_day" && timingDay > 4) {
+                          setTimingDay(1);
+                        }
                       }}
-                    />
-                    <span style={{ fontSize: "0.8rem", color: C.charcoalMid }}>日ごとに実施</span>
-                  </div>
-                )}
-
-                {/* Day番号設定 */}
-                {taskTiming === "custom_day" && (
-                  <div style={{ marginTop: "0.6rem", display: "flex", alignItems: "center", gap: "0.5rem" }}>
-                    <input
-                      type="number"
-                      min={1}
-                      max={24}
-                      value={customDay}
-                      onChange={(e) => setCustomDay(Math.max(1, parseInt(e.target.value, 10) || 1))}
                       style={{
-                        width: "80px",
-                        padding: "0.45rem 0.6rem",
-                        borderRadius: "8px",
+                        width: "100%",
+                        boxSizing: "border-box",
                         border: "1px solid var(--border-subtle)",
-                        background: C.white,
-                        color: C.charcoal,
+                        borderRadius: "10px",
+                        padding: "0.6rem 0.8rem",
                         fontSize: "0.85rem",
+                        fontWeight: 550,
+                        color: C.charcoal,
+                        background: C.white,
+                        boxShadow: "0 1px 4px rgba(0,0,0,0.04)",
                         outline: "none",
+                        cursor: "pointer",
                       }}
-                    />
-                    <span style={{ fontSize: "0.8rem", color: C.charcoalMid }}>番目のDayに実施</span>
+                    >
+                      <option value="holiday">休日</option>
+                      <option value="early_shift">早番</option>
+                      <option value="late_shift">遅番</option>
+                      <option value="work_day">出勤</option>
+                    </select>
                   </div>
-                )}
+
+                  {/* 何日目か */}
+                  <div>
+                    <span style={{ fontSize: "0.7rem", color: C.charcoalMid, display: "block", marginBottom: "0.2rem" }}>何日目</span>
+                    <select
+                      value={timingDay}
+                      onChange={(e) => setTimingDay(parseInt(e.target.value, 10))}
+                      style={{
+                        width: "100%",
+                        boxSizing: "border-box",
+                        border: "1px solid var(--border-subtle)",
+                        borderRadius: "10px",
+                        padding: "0.6rem 0.8rem",
+                        fontSize: "0.85rem",
+                        fontWeight: 550,
+                        color: C.charcoal,
+                        background: C.white,
+                        boxShadow: "0 1px 4px rgba(0,0,0,0.04)",
+                        outline: "none",
+                        cursor: "pointer",
+                      }}
+                    >
+                      <option value={1}>1日目</option>
+                      <option value={2}>2日目</option>
+                      <option value={3}>3日目</option>
+                      <option value={4}>4日目</option>
+                      {timingCategory === "work_day" && (
+                        <>
+                          <option value={5}>5日目</option>
+                          <option value={6}>6日目</option>
+                        </>
+                      )}
+                    </select>
+                  </div>
+                </div>
+              </div>
+
+              {/* 実施頻度（サイクル / 隔週設定） */}
+              <div
+                style={{
+                  background: "rgba(197, 160, 89, 0.08)",
+                  borderRadius: "12px",
+                  padding: "0.9rem 1rem",
+                  display: "flex",
+                  flexDirection: "column",
+                  gap: "0.5rem",
+                }}
+              >
+                <label style={{ fontSize: "0.78rem", fontWeight: 700, color: C.charcoal, display: "flex", alignItems: "center", gap: "0.35rem" }}>
+                  <span style={{ color: C.goldDark }}>✦</span> 実施頻度（サイクル設定）
+                </label>
+
+                <div style={{ display: "grid", gridTemplateColumns: cycleInterval > 1 ? "1fr 1fr" : "1fr", gap: "0.6rem" }}>
+                  <div>
+                    <span style={{ fontSize: "0.7rem", color: C.charcoalMid, display: "block", marginBottom: "0.2rem" }}>頻度</span>
+                    <select
+                      value={cycleInterval}
+                      onChange={(e) => setCycleInterval(parseInt(e.target.value, 10))}
+                      style={{
+                        width: "100%",
+                        boxSizing: "border-box",
+                        border: "1px solid var(--border-subtle)",
+                        borderRadius: "10px",
+                        padding: "0.55rem 0.75rem",
+                        fontSize: "0.85rem",
+                        fontWeight: 550,
+                        color: C.charcoal,
+                        background: C.white,
+                        boxShadow: "0 1px 4px rgba(0,0,0,0.04)",
+                        outline: "none",
+                        cursor: "pointer",
+                      }}
+                    >
+                      <option value={1}>毎サイクル（毎回行う）</option>
+                      <option value={2}>2サイクルに1回</option>
+                      <option value={3}>3サイクルに1回</option>
+                      <option value={4}>4サイクルに1回</option>
+                    </select>
+                  </div>
+
+                  {cycleInterval > 1 && (
+                    <div>
+                      <span style={{ fontSize: "0.7rem", color: C.charcoalMid, display: "block", marginBottom: "0.2rem" }}>実施グループ</span>
+                      <select
+                        value={cycleIntervalOffset}
+                        onChange={(e) => setCycleIntervalOffset(parseInt(e.target.value, 10))}
+                        style={{
+                          width: "100%",
+                          boxSizing: "border-box",
+                          border: "1px solid var(--border-subtle)",
+                          borderRadius: "10px",
+                          padding: "0.55rem 0.75rem",
+                          fontSize: "0.85rem",
+                          fontWeight: 550,
+                          color: C.charcoal,
+                          background: C.white,
+                          boxShadow: "0 1px 4px rgba(0,0,0,0.04)",
+                          outline: "none",
+                          cursor: "pointer",
+                        }}
+                      >
+                        <option value={0}>グループA（今サイクルから）</option>
+                        <option value={1}>グループB（次サイクルから・交互）</option>
+                      </select>
+                    </div>
+                  )}
+                </div>
+
+                <p style={{ margin: 0, fontSize: "0.72rem", color: C.charcoalMid, lineHeight: 1.45 }}>
+                  {cycleInterval === 1
+                    ? "該当するシフトの日に毎サイクル提案されます。"
+                    : cycleInterval === 2
+                    ? "1サイクルおき（2サイクルに1回）に提案されます。グループAとBを使い分けると、タスクを交互に分散できます。"
+                    : `${cycleInterval}サイクルに1回のペースで定期的に提案されます。`}
+                </p>
               </div>
 
               {/* 広大な具体的な内容入力欄 */}
@@ -564,11 +688,9 @@ export function PMSettingsModal({
               </div>
             ) : (
               localTemplates.map((item) => {
-                const timingLabel = item.timing
-                  ? PM_TIMING_LABELS[item.timing]
-                  : item.dayIndex
-                  ? `Day ${item.dayIndex}`
-                  : PM_TIMING_LABELS.rest_day_1;
+                const timingLabel = getPMTemplateTimingLabel(item);
+                const cycleLabel = getPMTemplateCycleLabel(item);
+                const isCycleMulti = item.cycleInterval && item.cycleInterval > 1;
 
                 return (
                   <div
@@ -598,7 +720,7 @@ export function PMSettingsModal({
                   >
                     <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: "0.75rem" }}>
                       <div style={{ display: "flex", flexDirection: "column", gap: "0.25rem", flex: 1, minWidth: 0 }}>
-                        <div style={{ display: "flex", alignItems: "center", gap: "0.5rem", flexWrap: "wrap" }}>
+                        <div style={{ display: "flex", alignItems: "center", gap: "0.4rem", flexWrap: "wrap" }}>
                           <span
                             style={{
                               fontSize: "0.68rem",
@@ -611,6 +733,20 @@ export function PMSettingsModal({
                           >
                             ✦ {timingLabel}
                           </span>
+                          {isCycleMulti && (
+                            <span
+                              style={{
+                                fontSize: "0.68rem",
+                                fontWeight: 650,
+                                color: "#8E6E2E",
+                                background: "rgba(197, 160, 89, 0.15)",
+                                padding: "0.15rem 0.55rem",
+                                borderRadius: "9999px",
+                              }}
+                            >
+                              🔄 {cycleLabel}
+                            </span>
+                          )}
                         </div>
                         <h4 style={{ margin: "0.15rem 0 0", fontSize: "0.92rem", fontWeight: 700, color: C.charcoal }}>
                           {item.title}

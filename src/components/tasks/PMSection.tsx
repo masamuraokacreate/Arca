@@ -37,6 +37,8 @@ import {
   resolveShiftInfo,
   saveShiftOverride,
   getActivePMTasksForDate,
+  getPMTemplateTimingLabel,
+  getPMTemplateCycleLabel,
   DEFAULT_PM_SETTINGS,
 } from "../../services/pmCycleService";
 import { PMSkipReasonModal } from "./PMSkipReasonModal";
@@ -488,6 +490,34 @@ export function PMSection({ date, events }: PMSectionProps) {
 
                     {/* 中央: タイトル & 具体的な内容 */}
                     <div style={{ flex: 1, minWidth: 0 }}>
+                      <div style={{ display: "flex", alignItems: "center", gap: "0.35rem", marginBottom: "0.2rem", flexWrap: "wrap" }}>
+                        <span
+                          style={{
+                            fontSize: "0.65rem",
+                            fontWeight: 650,
+                            color: C.goldDark,
+                            background: C.goldFaint,
+                            padding: "0.08rem 0.45rem",
+                            borderRadius: "9999px",
+                          }}
+                        >
+                          ✦ {getPMTemplateTimingLabel(item)}
+                        </span>
+                        {item.cycleInterval && item.cycleInterval > 1 && (
+                          <span
+                            style={{
+                              fontSize: "0.65rem",
+                              fontWeight: 600,
+                              color: "#8E6E2E",
+                              background: "rgba(197, 160, 89, 0.12)",
+                              padding: "0.08rem 0.45rem",
+                              borderRadius: "9999px",
+                            }}
+                          >
+                            🔄 {getPMTemplateCycleLabel(item)}
+                          </span>
+                        )}
+                      </div>
                       <p
                         style={{
                           margin: 0,

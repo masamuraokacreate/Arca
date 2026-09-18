@@ -36,7 +36,6 @@ import {
 import {
   fetchAndProcessCardNoticeEmails,
   mergeExpenseTransactions,
-  cleanupDuplicateExpenses,
 } from "../../services/gmailFinanceService";
 import { useGoogleAuth } from "../../hooks/useGoogleAuth";
 import { loadSavedToken } from "../../services/googleAuth";
@@ -59,6 +58,7 @@ import { useUndoToast } from "../../hooks/useUndoToast";
 import { UndoToast } from "../common/UndoToast";
 import { C } from "../../lib/designSystem";
 import { Plus, Camera, Mail, SlidersHorizontal, X } from "lucide-react";
+import { logger } from "../../services/loggerService";
 
 export default function Finance() {
   const [transactions, setTransactions] = useState<ExpenseTransaction[]>([]);
@@ -101,23 +101,6 @@ export default function Finance() {
       unsubTx();
       unsubReconcile();
     };
-  }, []);
-
-  // ── 既存重複レコード（同一 emailMessageId）の自動一括クリーンアップ ──
-  const hasCleanedUpRef = useRef(false);
-  useEffect(() => {
-    if (hasCleanedUpRef.current) return;
-    hasCleanedUpRef.current = true;
-
-    cleanupDuplicateExpenses()
-      .then((res) => {
-        if (res.deletedCount > 0) {
-          setTransactions((prev) => prev.filter((t) => !res.duplicateIds.includes(t.id)));
-        }
-      })
-      .catch((err) => {
-        console.warn("[Finance] Duplicate cleanup skipped or failed:", err);
-      });
   }, []);
 
   // ── 起動時バックグラウンド自動同期 (直近5分以内の多重実行防止 ＆ サイレント処理) ──
@@ -275,6 +258,7 @@ export default function Finance() {
   const handleSyncGmailNotices = async () => {
     if (isFetchingEmails) return;
     setIsFetchingEmails(true);
+    logger.info("gmail_api", "Gmail: Starting card notice email sync");
     try {
       let token: string;
       try {
@@ -294,14 +278,18 @@ export default function Finance() {
         if (result.createdCount > 0) parts.push(`${result.createdCount}件の新規決済を作成`);
         if (result.linkedCount > 0) parts.push(`${result.linkedCount}件を既存レコードに紐付け`);
         setSyncToastMessage(`${parts.join("、")}しました`);
+        logger.success("gmail_api", `Gmail: Processed notice emails (${result.createdCount} created, ${result.linkedCount} linked)`, result);
       } else if (result.totalFound > 0) {
         setSyncToastMessage("今月の利用速報メールはすべて取り込み済みです");
+        logger.info("gmail_api", "Gmail: All notice emails for this month are already synced");
       } else {
         setSyncToastMessage("今月の新しい利用速報メールはありませんでした");
+        logger.info("gmail_api", "Gmail: No new card notice emails found");
       }
     } catch (err: any) {
       console.error("Gmail sync error:", err);
       setSyncToastMessage(`速報メール取得に失敗: ${err?.message || "認証エラー"}`);
+      logger.error("gmail_api", "Gmail: Error syncing notice emails", err?.message || err);
     } finally {
       setIsFetchingEmails(false);
       setTimeout(() => setSyncToastMessage(null), 4500);
@@ -428,26 +416,34 @@ export default function Finance() {
   const handleMergeTransactions = async (targetTx: ExpenseTransaction, sourceTx: ExpenseTransaction) => {
     try {
       const merged = await mergeExpenseTransactions(targetTx, sourceTx);
+      logger.info("firestore", `Finance: Merged transactions into "${merged.title}" (¥${merged.totalAmount})`, {
+        targetId: targetTx.id,
+        sourceId: sourceTx.id,
+      });
       showUndoToast({
         message: `「${merged.title}」(${formatCurrency(merged.totalAmount)}) を1件の確定レコードに統合しました`,
         item: sourceTx,
         onUndo: async (restored) => {
           await restoreExpenseTransaction(restored.id);
+          logger.info("firestore", `Finance: Restored merged transaction (ID: ${restored.id})`);
         },
       });
     } catch (err: any) {
       console.error("[Finance] Failed to merge transactions:", err);
       setSyncToastMessage(`決済の結合に失敗しました: ${err?.message || "エラー"}`);
+      logger.error("firestore", "Finance: Failed to merge transactions", err?.message || err);
       setTimeout(() => setSyncToastMessage(null), 4000);
     }
   };
 
   const handleReconcile = async (transactionId: string, csvRowId: string) => {
     await setTransactionReconciled(transactionId, true, csvRowId);
+    logger.info("firestore", `Finance: Marked transaction as reconciled (ID: ${transactionId})`, { csvRowId });
   };
 
   const handleUnreconcile = async (transactionId: string) => {
     await setTransactionReconciled(transactionId, false);
+    logger.info("firestore", `Finance: Unreconciled transaction (ID: ${transactionId})`);
   };
 
   return (

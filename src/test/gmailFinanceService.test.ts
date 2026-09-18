@@ -937,5 +937,83 @@ Muraoka Masato 様
       expect(res.deletedCount).toBe(0);
       expect(res.duplicateIds).toEqual([]);
     });
+
+    it("論理削除（isDeleted: true）されたレコードは重複判定の対象から除外される", async () => {
+      const listWithDeleted: ExpenseTransaction[] = [
+        {
+          id: "tx-deleted-source",
+          date: "2026-09-10",
+          title: "速報メール（マージ元）",
+          totalAmount: 3000,
+          category: "食料品",
+          paymentMethod: "Oliveカード",
+          items: [],
+          isReconciled: false,
+          isDeleted: true, // マージ等により論理削除済み
+          emailMessageId: "common-email-id",
+          createdAt: "2026-09-10T10:00:00Z",
+          updatedAt: "2026-09-10T10:00:00Z",
+        },
+        {
+          id: "tx-active-target",
+          date: "2026-09-10",
+          title: "レシート記録（マージ後確定データ）",
+          totalAmount: 3000,
+          category: "食料品",
+          paymentMethod: "Oliveカード",
+          items: [{ id: "it-1", name: "りんご", amount: 3000, category: "食料品" }],
+          isReconciled: true,
+          isDeleted: false,
+          emailMessageId: "common-email-id", // 同じ messageId
+          createdAt: "2026-09-10T10:30:00Z",
+          updatedAt: "2026-09-10T10:30:00Z",
+        },
+      ];
+
+      const res = await cleanupDuplicateExpenses(listWithDeleted);
+
+      // 有効なレコードは1件のみなので、重複と判定されず削除されない
+      expect(res.deletedCount).toBe(0);
+      expect(res.duplicateIds).toEqual([]);
+    });
+
+    it("品目内訳（items）を持つレコードがある場合、作成日時に関わらず内訳持ちを優先して保持する", async () => {
+      const listWithItems: ExpenseTransaction[] = [
+        {
+          id: "tx-no-items-older",
+          date: "2026-09-10",
+          title: "速報メール（品目なし）",
+          totalAmount: 1500,
+          category: "食料品",
+          paymentMethod: "Oliveカード",
+          items: [],
+          isReconciled: false,
+          isDeleted: false,
+          emailMessageId: "msg-items-test",
+          createdAt: "2026-09-10T09:00:00Z", // より古い
+          updatedAt: "2026-09-10T09:00:00Z",
+        },
+        {
+          id: "tx-with-items-newer",
+          date: "2026-09-10",
+          title: "レシートOCR（品目あり）",
+          totalAmount: 1500,
+          category: "食料品",
+          paymentMethod: "Oliveカード",
+          items: [{ id: "it-2", name: "パン", amount: 1500, category: "食料品" }],
+          isReconciled: true,
+          isDeleted: false,
+          emailMessageId: "msg-items-test",
+          createdAt: "2026-09-10T09:30:00Z", // より新しい
+          updatedAt: "2026-09-10T09:30:00Z",
+        },
+      ];
+
+      const res = await cleanupDuplicateExpenses(listWithItems);
+
+      expect(res.deletedCount).toBe(1);
+      // 内訳を持つ tx-with-items-newer が残り、内訳のない tx-no-items-older が削除される
+      expect(res.duplicateIds).toEqual(["tx-no-items-older"]);
+    });
   });
 });

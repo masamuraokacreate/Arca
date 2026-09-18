@@ -10,7 +10,7 @@ import Dashboard from "./components/Dashboard";
 import Notes from "./components/Notes";
 import Recipes from "./components/recipes/Recipes";
 import Finance from "./components/finance/Finance";
-import BackupModal from "./components/BackupModal";
+import SystemMaintenanceModal from "./components/maintenance/SystemMaintenanceModal";
 import ThemeModal from "./components/ThemeModal";
 import { C } from "./lib/designSystem";
 import { useNetworkStatus } from "./hooks/useNetworkStatus";
@@ -197,14 +197,14 @@ const NAV_ITEMS: { id: Module; label: string; sub: string }[] = [
 function NavBar({
   active,
   onChange,
-  onOpenBackup,
+  onOpenMaintenance,
   onOpenTheme,
   googleSyncStatus,
   onManualSync,
 }: {
   active: Module;
   onChange: (m: Module) => void;
-  onOpenBackup?: () => void;
+  onOpenMaintenance?: () => void;
   onOpenTheme?: () => void;
   googleSyncStatus: GoogleSyncStatus;
   onManualSync: () => void;
@@ -213,6 +213,42 @@ function NavBar({
   const navTrackRef = useRef<HTMLDivElement>(null);
   const buttonRefs = useRef<Map<Module, HTMLButtonElement>>(new Map());
   const [isMobile, setIsMobile] = useState(typeof window !== "undefined" ? window.innerWidth < 640 : false);
+
+  // ─── Arca ロゴ 2秒長押し判定（ロマントリガー） ───
+  const [isLongPressing, setIsLongPressing] = useState(false);
+  const longPressTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const hasTriggeredLongPressRef = useRef(false);
+
+  const startLongPress = useCallback(() => {
+    hasTriggeredLongPressRef.current = false;
+    setIsLongPressing(true);
+    longPressTimerRef.current = setTimeout(() => {
+      hasTriggeredLongPressRef.current = true;
+      setIsLongPressing(false);
+      if (typeof navigator !== "undefined" && navigator.vibrate) {
+        try {
+          navigator.vibrate([40, 60, 40]);
+        } catch {}
+      }
+      onOpenMaintenance?.();
+    }, 2000);
+  }, [onOpenMaintenance]);
+
+  const cancelLongPress = useCallback(() => {
+    if (longPressTimerRef.current) {
+      clearTimeout(longPressTimerRef.current);
+      longPressTimerRef.current = null;
+    }
+    setIsLongPressing(false);
+  }, []);
+
+  const handleLogoClick = useCallback(() => {
+    if (hasTriggeredLongPressRef.current) {
+      hasTriggeredLongPressRef.current = false;
+      return;
+    }
+    onChange("dashboard");
+  }, [onChange]);
 
   // 白い楕円インジケーターの位置とサイズ
   const [indicator, setIndicator] = useState<{
@@ -322,9 +358,14 @@ function NavBar({
           zIndex: 2,
         }}
       >
-        {/* ロゴ */}
+        {/* ロゴ（2秒長押しでシステム保守・診断コンソール展開） */}
         <div
-          onClick={() => onChange("dashboard")}
+          onPointerDown={startLongPress}
+          onPointerUp={cancelLongPress}
+          onPointerLeave={cancelLongPress}
+          onPointerCancel={cancelLongPress}
+          onClick={handleLogoClick}
+          title="ホーム（2秒長押しでシステム保守・診断コンソール）"
           style={{
             display: "flex",
             alignItems: "center",
@@ -333,6 +374,13 @@ function NavBar({
             userSelect: "none",
             flexShrink: 0,
             paddingRight: "0.75rem",
+            transition: isLongPressing
+              ? "transform 2s cubic-bezier(0.16, 1, 0.3, 1), filter 2s ease"
+              : "transform 0.15s ease, filter 0.15s ease",
+            transform: isLongPressing ? "scale(0.95)" : "scale(1)",
+            filter: isLongPressing
+              ? "drop-shadow(0 0 12px rgba(197, 160, 89, 0.85))"
+              : "none",
           }}
         >
           <img
@@ -390,27 +438,6 @@ function NavBar({
               </svg>
             </button>
 
-            {/* データ保護 / バックアップ */}
-            <button
-              onClick={onOpenBackup}
-              style={{
-                display: "inline-flex",
-                alignItems: "center",
-                gap: "0.22rem",
-                background: "transparent",
-                border: "none",
-                borderRadius: "8px",
-                padding: "0.25rem 0.4rem",
-                fontSize: "0.72rem",
-                color: C.charcoalLight,
-                cursor: "pointer",
-              }}
-              title="データ保護 / バックアップ"
-            >
-              <svg viewBox="0 0 24 24" fill="none" strokeWidth={1.75} stroke="currentColor" style={{ width: "0.88rem", height: "0.88rem" }}>
-                <path strokeLinecap="round" strokeLinejoin="round" d="M9 12.75 11.25 15 15 9.75m-3-7.036A11.959 11.959 0 0 1 3.598 6 11.99 11.99 0 0 0 3 9.749c0 5.592 3.824 10.29 9 11.623 5.176-1.332 9-6.03 9-11.622 0-1.31-.21-2.571-.598-3.751h-.152c-3.196 0-6.1-1.248-8.25-3.285Z" />
-              </svg>
-            </button>
 
             {/* ログアウト */}
             <button
@@ -575,38 +602,6 @@ function NavBar({
             <span className="hidden sm:inline">外観</span>
           </button>
 
-          {/* データ保護 / バックアップモーダルボタン */}
-          <button
-            onClick={onOpenBackup}
-            style={{
-              display: "inline-flex",
-              alignItems: "center",
-              gap: "0.22rem",
-              background: "transparent",
-              border: "none",
-              borderRadius: "8px",
-              padding: "0.25rem 0.45rem",
-              fontSize: "0.72rem",
-              color: C.charcoalLight,
-              cursor: "pointer",
-              transition: "all 0.15s ease",
-              userSelect: "none",
-            }}
-            title="データ保護 / バックアップ"
-            onMouseEnter={(e) => {
-              (e.currentTarget as HTMLButtonElement).style.color = C.goldDark;
-              (e.currentTarget as HTMLButtonElement).style.background = "rgba(197, 160, 89, 0.08)";
-            }}
-            onMouseLeave={(e) => {
-              (e.currentTarget as HTMLButtonElement).style.color = C.charcoalLight;
-              (e.currentTarget as HTMLButtonElement).style.background = "transparent";
-            }}
-          >
-            <svg viewBox="0 0 24 24" fill="none" strokeWidth={1.75} stroke="currentColor" style={{ width: "0.85rem", height: "0.85rem", flexShrink: 0 }}>
-              <path strokeLinecap="round" strokeLinejoin="round" d="M9 12.75 11.25 15 15 9.75m-3-7.036A11.959 11.959 0 0 1 3.598 6 11.99 11.99 0 0 0 3 9.749c0 5.592 3.824 10.29 9 11.623 5.176-1.332 9-6.03 9-11.622 0-1.31-.21-2.571-.598-3.751h-.152c-3.196 0-6.1-1.248-8.25-3.285Z" />
-            </svg>
-            <span className="hidden sm:inline">保護</span>
-          </button>
 
           {/* ログアウトボタン */}
           <button
@@ -652,7 +647,7 @@ function App() {
   const [tasksTab, setTasksTab] = useState<string>("default");
   const [selectedNoteId, setSelectedNoteId] = useState<string | null>(null);
   const [selectedRecipeId, setSelectedRecipeId] = useState<string | null>(null);
-  const [isBackupModalOpen, setIsBackupModalOpen] = useState(false);
+  const [isSystemMaintenanceOpen, setIsSystemMaintenanceOpen] = useState(false);
   const [isThemeModalOpen, setIsThemeModalOpen] = useState(false);
   const [isMobile, setIsMobile] = useState(typeof window !== "undefined" ? window.innerWidth < 640 : false);
   const [isRecipeDetailActive, setIsRecipeDetailActive] = useState(false);
@@ -795,7 +790,7 @@ function App() {
         <NavBar
           active={activeModule}
           onChange={(m) => handleNavigate(m, "tasks")}
-          onOpenBackup={() => setIsBackupModalOpen(true)}
+          onOpenMaintenance={() => setIsSystemMaintenanceOpen(true)}
           onOpenTheme={() => setIsThemeModalOpen(true)}
           googleSyncStatus={googleSyncStatus}
           onManualSync={handleManualGoogleSync}
@@ -855,10 +850,10 @@ function App() {
         </div>
       </main>
 
-      {/* データ保護 ＆ バックアップモーダル */}
-      <BackupModal
-        isOpen={isBackupModalOpen}
-        onClose={() => setIsBackupModalOpen(false)}
+      {/* システム保守・診断コンソール（Arca Inspector & Logging） */}
+      <SystemMaintenanceModal
+        isOpen={isSystemMaintenanceOpen}
+        onClose={() => setIsSystemMaintenanceOpen(false)}
       />
 
       {/* 外観 ＆ テーマ設定モーダル */}

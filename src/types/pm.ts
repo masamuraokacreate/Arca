@@ -22,12 +22,23 @@ export { SHIFT_TIMING_LABELS as PM_TIMING_LABELS } from "./shift";
 // PM テンプレート
 // ─────────────────────────────────────────
 
+/** 実施タイミングカテゴリ種別 */
+export type PMTimingCategory =
+  | "holiday"       // 休日何日目
+  | "early_shift"   // 早番何日目
+  | "late_shift"    // 遅番何日目
+  | "work_day";     // 出勤何日目
+
 /** PM計画テンプレート（個別タスク） */
 export interface PMTemplateItem {
   id: string;
   title: string;             // 例:「風呂場の掃除」「周期洗濯」「シーツ交換」
   content: string;           // 具体的な内容・手順・チェック項目・メモ（広めの記述欄）
-  timing?: PMShiftTiming;    // 実施タイミング（デフォルト: rest_day_1）
+  timing?: PMShiftTiming;    // 実施タイミング文字列 (後方互換用、例: "early_shift_1", "rest_day_1")
+  timingCategory?: PMTimingCategory; // タイミングカテゴリ (holiday, early_shift, late_shift, work_day)
+  timingDay?: number;        // 何日目か (1, 2, 3, 4...)
+  cycleInterval?: number;    // サイクル頻度 (1: 毎サイクル, 2: 2サイクルに1回, 3...)
+  cycleIntervalOffset?: number; // サイクル開始オフセット (0: グループA/今サイクル, 1: グループB/次サイクル)
   intervalDays?: number;     // interval_days の場合の日数 (例: 7)
   dayIndex?: number;         // 従来のDay番号 (1〜N、custom_day または後方互換用)
   order: number;             // 並び順

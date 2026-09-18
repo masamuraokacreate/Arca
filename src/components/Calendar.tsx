@@ -23,7 +23,9 @@ import {
 } from "firebase/firestore";
 import { db } from "../lib/firebase";
 import { useGoogleAuth } from "../hooks/useGoogleAuth";
-import { Sun, Moon, Clock, ClipboardList } from "lucide-react";
+import { Sun, Moon, Clock, ClipboardList, BookOpen } from "lucide-react";
+import { logger } from "../services/loggerService";
+import { SchemaLegendCard } from "./maintenance/SchemaLegendCard";
 import {
   syncGoogleCalendarToArca,
   createGoogleCalendarEvent,
@@ -782,6 +784,8 @@ function MonthGrid({
   onSelectDate,
   onPrevMonth,
   onNextMonth,
+  showSchemaLegend,
+  onToggleSchemaLegend,
 }: {
   year: number;
   month: number;
@@ -796,6 +800,8 @@ function MonthGrid({
   onSelectDate: (d: string) => void;
   onPrevMonth: () => void;
   onNextMonth: () => void;
+  showSchemaLegend?: boolean;
+  onToggleSchemaLegend?: () => void;
 }) {
   const { firstDay, daysInMonth, daysInPrev } = monthMeta(year, month);
 
@@ -1082,6 +1088,31 @@ function MonthGrid({
             </div>
           </>
         )}
+        {onToggleSchemaLegend && (
+          <button
+            type="button"
+            data-testid="calendar-schema-legend-btn"
+            onClick={onToggleSchemaLegend}
+            style={{
+              display: "inline-flex",
+              alignItems: "center",
+              gap: "0.25rem",
+              background: showSchemaLegend ? "rgba(197, 160, 89, 0.15)" : "rgba(0, 0, 0, 0.04)",
+              border: "none",
+              borderRadius: "4px",
+              padding: "0.18rem 0.45rem",
+              fontSize: "0.68rem",
+              fontWeight: 500,
+              color: showSchemaLegend ? C.goldDark : C.charcoalLight,
+              cursor: "pointer",
+              transition: "all 0.15s ease",
+            }}
+            title="カレンダーのデータ仕様・フィールド定義を表示"
+          >
+            <BookOpen style={{ width: "0.75rem", height: "0.75rem" }} />
+            <span>データ仕様</span>
+          </button>
+        )}
       </div>
     </div>
   );
@@ -1270,6 +1301,7 @@ export default function Calendar() {
   const [pmLogs, setPmLogs] = useState<PMLogItem[]>([]);
   const [showShiftOverrideModal, setShowShiftOverrideModal] = useState(false);
   const [showShiftEditModal, setShowShiftEditModal] = useState(false);
+  const [showSchemaLegend, setShowSchemaLegend] = useState(false);
 
   const { isReady, isSignedIn, accessToken, signIn, signOut } = useGoogleAuth();
   const { toast, showUndoToast, showMessageToast, dismissToast, triggerUndo } = useUndoToast<CalendarEvent>();
@@ -1330,14 +1362,17 @@ export default function Calendar() {
     if (!isSignedIn || !accessToken) return;
     try {
       setSyncStatus("syncing");
+      logger.info("google_api", "Google Calendar: Sync started");
       await syncGoogleCalendarToArca(accessToken, events.length > 0 ? events : undefined);
       setSyncStatus("done");
+      logger.success("google_api", "Google Calendar: Sync completed");
       setTimeout(() => {
         setSyncStatus("idle");
       }, 3000);
     } catch (err: any) {
       console.error("[Google Calendar Sync Error] 同期に失敗しました:", err);
       setSyncStatus("error");
+      logger.error("google_api", "Google Calendar: Sync failed", err?.message || err);
       const isScope = err?.status === 403 || err?.message?.includes("403") || err?.message?.includes("SCOPE");
       showMessageToast(
         isScope
@@ -1345,7 +1380,7 @@ export default function Calendar() {
           : "Googleカレンダーの同期に失敗しました。再接続をお試しください。"
       );
     }
-  }, [isSignedIn, accessToken, events]);
+  }, [isSignedIn, accessToken, events, showMessageToast]);
 
 
   // ── Firestore: tasks リアルタイム購読 ──
@@ -1382,7 +1417,7 @@ export default function Calendar() {
     const toYear = m === 11 ? y + 1 : y;
     const toMonth = m === 11 ? 0 : m + 1;
     const toDate = `${toYear}-${String(toMonth + 1).padStart(2, "0")}-${String(new Date(toYear, toMonth + 1, 0).getDate()).padStart(2, "0")}`;
-    return buildCalendarPMDates(pmSettings, pmTemplates, fromDate, toDate);
+    return buildCalendarPMDates(pmSettings, pmTemplates, fromDate, toDate, false, events);
   })();
 
   // ── 選択日のシフト情報（手動オーバーライド優先） ──
@@ -1419,6 +1454,7 @@ export default function Calendar() {
       // 2. 永続化保存
       try {
         await saveShiftOverride(selectedDate, override);
+        logger.info("firestore", `Calendar: Saved shift override for ${selectedDate}`, override);
         showMessageToast(override ? "シフト状態を手動設定しました" : "シフト状態を自動判定に戻しました");
       } catch (err) {
         console.error("Failed to save shift override from calendar:", err);
@@ -1475,6 +1511,7 @@ export default function Calendar() {
           return next;
         });
 
+        logger.info("firestore", `Calendar: Batch updated shift times: "${params.title}" (${params.dates.join(", ")})`, params);
         showMessageToast(
           params.scope === "four_day"
             ? `4連勤のシフト時間を「${params.title} (${params.startTime}〜${params.endTime})」に一括変更しました`
@@ -1501,6 +1538,7 @@ export default function Calendar() {
         title: item.title,
         status: "completed",
       });
+      logger.info("firestore", `Calendar: Logged PM completion for "${item.title}" (${selectedDate})`);
       showMessageToast(`PM「${item.title}」を完了にしました`);
     } catch (err) {
       console.error("Failed to record PM log from calendar", err);
@@ -1525,22 +1563,29 @@ export default function Calendar() {
       }
     }
 
-    await addDoc(collection(db, "events"), {
+    const docRef = await addDoc(collection(db, "events"), {
       ...data,
       googleEventId: googleEventId || null,
       createdAt: serverTimestamp(),
+    });
+    logger.info("firestore", `Calendar: Created event "${data.title}" (${data.date})`, {
+      id: docRef.id,
+      title: data.title,
+      date: data.date,
+      googleEventId: googleEventId || null,
     });
   }, [isSignedIn, accessToken]);
 
   // ── タスク追加（選択日 / 今日 を期限として保存） ──
   const handleAddTask = useCallback(async (title: string, dueDate: string) => {
     try {
-      await addDoc(collection(db, "tasks"), {
+      const docRef = await addDoc(collection(db, "tasks"), {
         title,
         dueDate,
         completed: false,
         createdAt: serverTimestamp(),
       });
+      logger.info("firestore", `Calendar: Created task "${title}" (${dueDate})`, { id: docRef.id });
       showMessageToast(`タスク「${title}」を追加しました`);
     } catch (e) {
       console.error("Failed to add task from calendar", e);
@@ -1560,6 +1605,7 @@ export default function Calendar() {
       }
 
       await deleteDoc(doc(db, "events", event.id));
+      logger.info("firestore", `Calendar: Deleted event "${event.title}" (${event.id})`);
 
       showUndoToast({
         message: `予定「${event.title}」を削除しました`,
@@ -1580,7 +1626,7 @@ export default function Calendar() {
             }
           }
 
-          await addDoc(collection(db, "events"), {
+          const docRef = await addDoc(collection(db, "events"), {
             title: restoredEvent.title,
             date: restoredEvent.date,
             startTime: restoredEvent.startTime || "",
@@ -1589,6 +1635,7 @@ export default function Calendar() {
             googleEventId: newGId || null,
             createdAt: serverTimestamp(),
           });
+          logger.info("firestore", `Calendar: Restored event "${restoredEvent.title}" (${docRef.id})`);
         },
       });
     } catch (e) {
@@ -1617,6 +1664,7 @@ export default function Calendar() {
     }
 
     await updateDoc(doc(db, "events", id), data);
+    logger.info("firestore", `Calendar: Updated event (ID: ${id})`, data);
   }, [isSignedIn, accessToken, events]);
 
   // ── 月ナビゲーション ──
@@ -1737,7 +1785,14 @@ export default function Calendar() {
             onSelectDate={setSelectedDate}
             onPrevMonth={goPrevMonth}
             onNextMonth={goNextMonth}
+            showSchemaLegend={showSchemaLegend}
+            onToggleSchemaLegend={() => setShowSchemaLegend((prev) => !prev)}
           />
+          {showSchemaLegend && (
+            <div style={{ marginTop: "1rem", animation: "arca-module-in 0.2s ease" }}>
+              <SchemaLegendCard collection="events" onClose={() => setShowSchemaLegend(false)} />
+            </div>
+          )}
         </div>
 
         {/* 右ペイン: 日別詳細パネル（予定・タスク・PM） */}

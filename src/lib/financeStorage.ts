@@ -20,6 +20,7 @@ import {
   type Unsubscribe,
 } from "firebase/firestore";
 import { db } from "./firebase";
+import { logger } from "../services/loggerService";
 import type {
   ExpenseCategory,
   ExpenseItem,
@@ -282,6 +283,13 @@ export async function createExpenseTransaction(
   });
 
   const docRef = await addDoc(collection(db, COLLECTION_NAME), sanitized);
+  logger.info("firestore", `Finance: Created transaction "${sanitized.title}" (¥${sanitized.totalAmount})`, {
+    id: docRef.id,
+    date: sanitized.date,
+    category: sanitized.category,
+    paymentMethod: sanitized.paymentMethod,
+    source: sanitized.source,
+  });
   return docRef.id;
 }
 
@@ -299,6 +307,7 @@ export async function updateExpenseTransaction(
     updatedAt: now,
   });
   await updateDoc(docRef, sanitized);
+  logger.info("firestore", `Finance: Updated transaction (ID: ${id})`, sanitized);
 }
 
 /**
@@ -324,6 +333,7 @@ export async function deleteExpenseTransaction(id: string): Promise<void> {
     isDeleted: true,
     updatedAt: new Date().toISOString(),
   });
+  logger.info("firestore", `Finance: Moved transaction to trash (ID: ${id})`);
 }
 
 /**
@@ -335,6 +345,7 @@ export async function restoreExpenseTransaction(id: string): Promise<void> {
     isDeleted: false,
     updatedAt: new Date().toISOString(),
   });
+  logger.info("firestore", `Finance: Restored transaction (ID: ${id})`);
 }
 
 /**
@@ -343,4 +354,5 @@ export async function restoreExpenseTransaction(id: string): Promise<void> {
 export async function permanentlyDeleteExpenseTransaction(id: string): Promise<void> {
   const docRef = doc(db, COLLECTION_NAME, id);
   await deleteDoc(docRef);
+  logger.info("firestore", `Finance: Permanently deleted transaction (ID: ${id})`);
 }
