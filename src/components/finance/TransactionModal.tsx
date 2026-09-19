@@ -4,7 +4,7 @@
  */
 
 import { useState, useEffect } from "react";
-import { BookOpen } from "lucide-react";
+import { BookOpen, ZoomIn, X, AlertCircle } from "lucide-react";
 import {
   EXPENSE_CATEGORIES,
   PAYMENT_METHODS,
@@ -48,6 +48,21 @@ export function TransactionModal({
   const [isAutoSum, setIsAutoSum] = useState(true);
   const [isSaving, setIsSaving] = useState(false);
   const [isGuideModalOpen, setIsGuideModalOpen] = useState(false);
+  const [isReceiptZoomOpen, setIsReceiptZoomOpen] = useState(false);
+  const [saveError, setSaveError] = useState<string | null>(null);
+
+  // レシート拡大モーダル表示中のEscキーハンドリング
+  useEffect(() => {
+    if (!isReceiptZoomOpen) return;
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === "Escape") {
+        e.stopPropagation();
+        setIsReceiptZoomOpen(false);
+      }
+    };
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [isReceiptZoomOpen]);
 
   useEffect(() => {
     if (isOpen) {
@@ -82,6 +97,7 @@ export function TransactionModal({
         setReceiptImageUrl(undefined);
         setIsAutoSum(true);
       }
+      setSaveError(null);
     }
   }, [isOpen, initialTransaction, defaultDate]);
 
@@ -97,8 +113,9 @@ export function TransactionModal({
 
   if (!isOpen) return null;
 
-  const handleAddItem = () => {
-    const emptyItem = createEmptyExpenseItem(category);
+  const handleAddItem = (categoryDefault?: unknown) => {
+    const targetCat = typeof categoryDefault === "string" ? (categoryDefault as ExpenseCategory) : category;
+    const emptyItem = createEmptyExpenseItem(targetCat);
     const newItem: FormExpenseItem = {
       ...emptyItem,
       amount: "", // 初期状態は空文字（0円の誤入力を防ぎ入力しやすくする）
@@ -109,23 +126,22 @@ export function TransactionModal({
     }
   };
 
-  const handleCategoryChange = (newCategory: ExpenseCategory) => {
-    setCategory(newCategory);
-    // 上のカテゴリを変更した際、下の品目内訳（レシート明細）のカテゴリもすべて連動して更新する
-    setItems((prev) =>
-      prev.map((item) => ({
-        ...item,
-        category: newCategory,
-      }))
-    );
-  };
-
   const handleItemChange = (index: number, patch: Partial<FormExpenseItem>) => {
     setItems((prev) => {
       const next = [...prev];
       next[index] = { ...next[index], ...patch };
       return next;
     });
+  };
+
+  const handleCategoryChange = (newCategory: ExpenseCategory) => {
+    setCategory(newCategory);
+    setItems((prev) =>
+      prev.map((item) => ({
+        ...item,
+        category: newCategory,
+      }))
+    );
   };
 
   const handleRemoveItem = (index: number) => {
@@ -140,6 +156,7 @@ export function TransactionModal({
     if (finalTotal <= 0 && itemsSum <= 0) return;
 
     setIsSaving(true);
+    setSaveError(null);
     try {
       await onSave({
         date: date || new Date().toISOString().slice(0, 10),
@@ -164,6 +181,8 @@ export function TransactionModal({
       onClose();
     } catch (err) {
       console.error("Failed to save transaction:", err);
+      const msg = err instanceof Error ? err.message : "保存処理中にエラーが発生しました";
+      setSaveError(msg);
     } finally {
       setIsSaving(false);
     }
@@ -266,6 +285,32 @@ export function TransactionModal({
               boxSizing: "border-box",
             }}
           >
+            {/* 保存エラー通知バナー */}
+            {saveError && (
+              <div
+                style={{
+                  display: "flex",
+                  alignItems: "flex-start",
+                  gap: "0.6rem",
+                  background: "rgba(192, 97, 74, 0.08)",
+                  border: "1px solid rgba(192, 97, 74, 0.25)",
+                  borderRadius: "10px",
+                  padding: "0.75rem 0.9rem",
+                  color: C.danger,
+                  animation: "arca-fade-in 0.15s ease-out",
+                }}
+              >
+                <AlertCircle size={17} style={{ flexShrink: 0, marginTop: "1px" }} />
+                <div style={{ flex: 1, fontSize: "0.78rem", lineHeight: 1.45 }}>
+                  <div style={{ fontWeight: 700, marginBottom: "0.15rem" }}>保存に失敗しました</div>
+                  <div>{saveError}</div>
+                  <div style={{ fontSize: "0.7rem", color: C.charcoalLight, marginTop: "0.25rem" }}>
+                    ※ 入力内容は保持されています。内容を確認の上、再試行してください。
+                  </div>
+                </div>
+              </div>
+            )}
+
             {/* OCR読取からの登録通知 ＆ サムネイル */}
             {receiptImageUrl && (
               <div
@@ -302,19 +347,80 @@ export function TransactionModal({
                     印字内容を抽出しました。内容をご確認・修正の上保存してください。
                   </span>
                 </div>
-                <img
-                  src={receiptImageUrl}
-                  alt="Receipt"
+                <button
+                  type="button"
+                  onClick={() => setIsReceiptZoomOpen(true)}
+                  title="クリックしてレシート写真を拡大表示"
+                  aria-label="クリックしてレシート写真を拡大表示"
                   style={{
-                    width: "36px",
-                    height: "36px",
-                    borderRadius: "6px",
-                    objectFit: "cover",
-                    boxShadow: "0 1px 3px rgba(0,0,0,0.1)",
-                    border: "1px solid rgba(0,0,0,0.08)",
+                    position: "relative",
+                    background: "transparent",
+                    border: `1.5px solid ${C.goldFaint3}`,
+                    borderRadius: "8px",
+                    padding: "2px",
+                    cursor: "pointer",
+                    display: "flex",
+                    alignItems: "center",
+                    gap: "0.35rem",
+                    transition: "all 0.18s ease-in-out",
                     flexShrink: 0,
                   }}
-                />
+                  onMouseEnter={(e) => {
+                    e.currentTarget.style.borderColor = C.gold;
+                    e.currentTarget.style.transform = "scale(1.04)";
+                    e.currentTarget.style.boxShadow = "0 2px 8px rgba(197, 160, 89, 0.25)";
+                  }}
+                  onMouseLeave={(e) => {
+                    e.currentTarget.style.borderColor = C.goldFaint3;
+                    e.currentTarget.style.transform = "scale(1)";
+                    e.currentTarget.style.boxShadow = "none";
+                  }}
+                >
+                  <div
+                    style={{
+                      position: "relative",
+                      width: "38px",
+                      height: "38px",
+                      borderRadius: "6px",
+                      overflow: "hidden",
+                    }}
+                  >
+                    <img
+                      src={receiptImageUrl}
+                      alt="Receipt"
+                      style={{
+                        width: "100%",
+                        height: "100%",
+                        objectFit: "cover",
+                        display: "block",
+                      }}
+                    />
+                    <div
+                      style={{
+                        position: "absolute",
+                        inset: 0,
+                        backgroundColor: "rgba(0, 0, 0, 0.28)",
+                        display: "flex",
+                        alignItems: "center",
+                        justifyContent: "center",
+                        color: "#fff",
+                      }}
+                    >
+                      <ZoomIn size={15} />
+                    </div>
+                  </div>
+                  <span
+                    style={{
+                      fontSize: "0.68rem",
+                      fontWeight: 650,
+                      color: C.goldDark,
+                      paddingRight: "0.25rem",
+                      whiteSpace: "nowrap",
+                    }}
+                  >
+                    拡大
+                  </span>
+                </button>
               </div>
             )}
 
@@ -851,6 +957,161 @@ export function TransactionModal({
         selectedCategory={category}
         onSelectCategory={(selected) => setCategory(selected)}
       />
+
+      {/* ── レシート写真 拡大ポップアップ（ライトボックス） ── */}
+      {isReceiptZoomOpen && receiptImageUrl && (
+        <div
+          style={{
+            position: "fixed",
+            inset: 0,
+            zIndex: 350,
+            backgroundColor: "rgba(0, 0, 0, 0.72)",
+            backdropFilter: "blur(6px)",
+            WebkitBackdropFilter: "blur(6px)",
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            padding: "1rem",
+            animation: "arca-fade-in 0.16s ease-out",
+          }}
+          onClick={() => setIsReceiptZoomOpen(false)}
+        >
+          <div
+            style={{
+              position: "relative",
+              maxWidth: "min(92vw, 560px)",
+              maxHeight: "90vh",
+              display: "flex",
+              flexDirection: "column",
+              background: "var(--bg-card-solid)",
+              borderRadius: "18px",
+              boxShadow: "0 24px 60px rgba(0, 0, 0, 0.35)",
+              border: "1px solid var(--border-subtle)",
+              overflow: "hidden",
+              animation: "arca-modal-pop 0.2s cubic-bezier(0.16, 1, 0.3, 1)",
+            }}
+            onClick={(e) => e.stopPropagation()}
+          >
+            {/* ヘッダー */}
+            <div
+              style={{
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "space-between",
+                padding: "0.85rem 1.2rem",
+                borderBottom: "1px solid var(--border-subtle)",
+                background: "var(--bg-card-solid)",
+              }}
+            >
+              <div style={{ display: "flex", alignItems: "center", gap: "0.5rem" }}>
+                <span style={{ fontSize: "1rem" }}>📷</span>
+                <span
+                  style={{
+                    fontSize: "0.88rem",
+                    fontWeight: 700,
+                    color: C.charcoal,
+                  }}
+                >
+                  レシート写真プレビュー
+                </span>
+                {title && (
+                  <span
+                    style={{
+                      fontSize: "0.74rem",
+                      color: C.charcoalLight,
+                      maxWidth: "200px",
+                      overflow: "hidden",
+                      textOverflow: "ellipsis",
+                      whiteSpace: "nowrap",
+                    }}
+                  >
+                    ({title})
+                  </span>
+                )}
+              </div>
+              <button
+                type="button"
+                onClick={() => setIsReceiptZoomOpen(false)}
+                aria-label="プレビューを閉じる"
+                style={{
+                  background: "var(--bg-nav-track)",
+                  border: "none",
+                  borderRadius: "50%",
+                  width: "28px",
+                  height: "28px",
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "center",
+                  cursor: "pointer",
+                  color: C.charcoalMid,
+                  transition: "background 0.15s",
+                }}
+              >
+                <X size={16} />
+              </button>
+            </div>
+
+            {/* 画像表示エリア */}
+            <div
+              style={{
+                padding: "1rem",
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "center",
+                overflow: "auto",
+                maxHeight: "calc(90vh - 120px)",
+                background: "rgba(0, 0, 0, 0.03)",
+              }}
+            >
+              <img
+                src={receiptImageUrl}
+                alt="レシート写真"
+                style={{
+                  maxWidth: "100%",
+                  maxHeight: "calc(90vh - 150px)",
+                  objectFit: "contain",
+                  borderRadius: "10px",
+                  boxShadow: "0 4px 20px rgba(0,0,0,0.14)",
+                }}
+              />
+            </div>
+
+            {/* フッター */}
+            <div
+              style={{
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "space-between",
+                padding: "0.7rem 1.2rem",
+                borderTop: "1px solid var(--border-subtle)",
+                background: "var(--bg-card-solid)",
+              }}
+            >
+              <span style={{ fontSize: "0.72rem", color: C.charcoalLight }}>
+                ※ Escキーまたは枠外クリックで閉じられます
+              </span>
+              <button
+                type="button"
+                onClick={() => setIsReceiptZoomOpen(false)}
+                aria-label="プレビューを閉じる"
+                style={{
+                  background: C.gold,
+                  border: "none",
+                  borderRadius: "8px",
+                  padding: "0.45rem 1.1rem",
+                  fontSize: "0.8rem",
+                  fontWeight: 650,
+                  color: "#FDFCFA",
+                  cursor: "pointer",
+                  boxShadow: "0 2px 6px rgba(197, 160, 89, 0.3)",
+                }}
+              >
+                閉じる
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

@@ -193,4 +193,15 @@ describe("financeStorage - CRUD 永続化操作", () => {
       })
     );
   });
+
+  it("ドキュメントサイズが安全上限（800KB）を超える場合、createExpenseTransaction がエラーをスローすること", async () => {
+    const hugeImage = "a".repeat(850 * 1024); // 850 KiB
+    const tx = {
+      ...createDefaultTransaction(),
+      title: "巨大レシート",
+      receiptImageUrl: `data:image/jpeg;base64,${hugeImage}`,
+    };
+
+    await expect(createExpenseTransaction(tx)).rejects.toThrow("ドキュメントサイズが安全上限を超えています");
+  });
 });

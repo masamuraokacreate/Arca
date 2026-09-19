@@ -22,14 +22,16 @@ const ENDPOINT = `https://generativelanguage.googleapis.com/v1beta/models/${MODE
 
 /**
  * レシート画像をクライアント側でリサイズ・圧縮し、Base64文字列とDataURLを生成
+ * Firestore 1MB制限を絶対に超えないよう、安全なサイズ（通常70〜150KB）に最適化
+ * 
  * @param file アップロード・撮影された画像ファイル
- * @param maxDimension 最大幅または高さ（px, デフォルト: 1600）
- * @param quality JPEG品質 (0.0〜1.0, デフォルト: 0.82)
+ * @param maxDimension 最大幅または高さ（px, デフォルト: 900）
+ * @param quality JPEG品質 (0.0〜1.0, デフォルト: 0.68)
  */
 export async function compressReceiptImage(
   file: File,
-  maxDimension = 1600,
-  quality = 0.82
+  maxDimension = 900,
+  quality = 0.68
 ): Promise<{ base64: string; mimeType: string; dataUrl: string }> {
   return new Promise((resolve, reject) => {
     if (!file.type.startsWith("image/")) {
@@ -41,41 +43,59 @@ export async function compressReceiptImage(
     reader.onload = (e) => {
       const img = new Image();
       img.onload = () => {
-        let width = img.width;
-        let height = img.height;
+        const renderCanvas = (targetMaxDim: number, targetQuality: number) => {
+          let width = img.width;
+          let height = img.height;
 
-        // アスペクト比を維持して長辺を maxDimension に収める
-        if (width > height) {
-          if (width > maxDimension) {
-            height = Math.round((height * maxDimension) / width);
-            width = maxDimension;
+          if (width > height) {
+            if (width > targetMaxDim) {
+              height = Math.round((height * targetMaxDim) / width);
+              width = targetMaxDim;
+            }
+          } else {
+            if (height > targetMaxDim) {
+              width = Math.round((width * targetMaxDim) / height);
+              height = targetMaxDim;
+            }
           }
-        } else {
-          if (height > maxDimension) {
-            width = Math.round((width * maxDimension) / height);
-            height = maxDimension;
+
+          const canvas = document.createElement("canvas");
+          canvas.width = width;
+          canvas.height = height;
+
+          const ctx = canvas.getContext("2d");
+          if (!ctx) {
+            throw new Error("Canvasコンテキストを取得できませんでした");
           }
+
+          ctx.imageSmoothingEnabled = true;
+          ctx.imageSmoothingQuality = "high";
+          ctx.drawImage(img, 0, 0, width, height);
+
+          const mimeType = "image/jpeg";
+          const dataUrl = canvas.toDataURL(mimeType, targetQuality);
+          const base64 = dataUrl.replace(/^data:image\/[a-z]+;base64,/, "");
+
+          return { base64, mimeType, dataUrl };
+        };
+
+        try {
+          // 1次圧縮（デフォルト: 900px, 0.68）
+          let result = renderCanvas(maxDimension, quality);
+
+          // セーフガード: 万が一 Base64 サイズが 300KB (約300,000文字) を超える場合は自動で再圧縮
+          const MAX_SAFE_CHARS = 300 * 1024;
+          if (result.dataUrl.length > MAX_SAFE_CHARS) {
+            console.warn(
+              `[ReceiptOCR] レシート画像サイズが大きいため再圧縮します: ${Math.round(result.dataUrl.length / 1024)}KB -> 目標<200KB`
+            );
+            result = renderCanvas(Math.min(maxDimension, 680), 0.55);
+          }
+
+          resolve(result);
+        } catch (err) {
+          reject(err instanceof Error ? err : new Error(String(err)));
         }
-
-        const canvas = document.createElement("canvas");
-        canvas.width = width;
-        canvas.height = height;
-
-        const ctx = canvas.getContext("2d");
-        if (!ctx) {
-          reject(new Error("Canvasコンテキストを取得できませんでした"));
-          return;
-        }
-
-        ctx.imageSmoothingEnabled = true;
-        ctx.imageSmoothingQuality = "high";
-        ctx.drawImage(img, 0, 0, width, height);
-
-        const mimeType = "image/jpeg";
-        const dataUrl = canvas.toDataURL(mimeType, quality);
-        const base64 = dataUrl.replace(/^data:image\/[a-z]+;base64,/, "");
-
-        resolve({ base64, mimeType, dataUrl });
       };
 
       img.onerror = () => reject(new Error("画像の読み込みに失敗しました"));

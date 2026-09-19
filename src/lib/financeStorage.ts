@@ -34,7 +34,7 @@ const COLLECTION_NAME = "finance_transactions";
  * 過去の旧カテゴリ名を新12分類に安全にマイグレーションする (Sprint 10.13)
  */
 export function migrateLegacyCategory(legacyCategory: string | undefined): ExpenseCategory {
-  if (!legacyCategory) return "その他";
+  if (!legacyCategory || typeof legacyCategory !== "string") return "その他";
   const cat = legacyCategory.trim();
 
   switch (cat) {
@@ -268,6 +268,30 @@ export function subscribeExpenseTransactions(
 }
 
 /**
+ * Firestoreドキュメントの概算サイズ（バイト数）を算出・検証する
+ * @throws Error ドキュメントが安全なサイズ（800KB）を超えている場合
+ */
+function validateFirestoreDocSize(data: Record<string, unknown>, operation: string): void {
+  try {
+    const jsonStr = JSON.stringify(data);
+    // UTF-8 バイト数の概算
+    const approxBytes = new Blob([jsonStr]).size;
+    const MAX_SAFE_BYTES = 800 * 1024; // 800 KiB (Firestore上限 1,048,576 バイトに対する安全マージン)
+    
+    if (approxBytes > MAX_SAFE_BYTES) {
+      const kb = Math.round(approxBytes / 1024);
+      const errMsg = `ドキュメントサイズが安全上限を超えています（推定 ${kb}KB / 上限 800KB）。レシート画像サイズを調整してください。`;
+      logger.error("firestore", `Finance: Document size exceeded safety limit during ${operation}`, { approxBytes });
+      throw new Error(errMsg);
+    }
+  } catch (e: any) {
+    if (e?.message?.includes("安全上限")) {
+      throw e;
+    }
+  }
+}
+
+/**
  * 支出取引を新規作成する
  */
 export async function createExpenseTransaction(
@@ -281,6 +305,8 @@ export async function createExpenseTransaction(
     updatedAt: now,
     isDeleted: false,
   });
+
+  validateFirestoreDocSize(sanitized, "create");
 
   const docRef = await addDoc(collection(db, COLLECTION_NAME), sanitized);
   logger.info("firestore", `Finance: Created transaction "${sanitized.title}" (¥${sanitized.totalAmount})`, {
@@ -306,6 +332,9 @@ export async function updateExpenseTransaction(
     ...patch,
     updatedAt: now,
   });
+
+  validateFirestoreDocSize(sanitized, "update");
+
   await updateDoc(docRef, sanitized);
   logger.info("firestore", `Finance: Updated transaction (ID: ${id})`, sanitized);
 }

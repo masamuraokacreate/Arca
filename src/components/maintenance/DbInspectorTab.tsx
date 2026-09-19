@@ -14,6 +14,8 @@ import {
   query,
   orderBy,
   limit,
+  doc,
+  updateDoc,
 } from "firebase/firestore";
 import { db } from "../../lib/firebase";
 import { C } from "../../lib/designSystem";
@@ -28,6 +30,8 @@ import {
   FileCode,
   AlertCircle,
   BookOpen,
+  RotateCcw,
+  Trash2,
 } from "lucide-react";
 import { logger } from "../../services/loggerService";
 import { SchemaLegendCard } from "./SchemaLegendCard";
@@ -50,6 +54,8 @@ export function DbInspectorTab() {
   const [expandedDocIds, setExpandedDocIds] = useState<Set<string>>(new Set());
   const [copiedDocId, setCopiedDocId] = useState<string | null>(null);
   const [showSchemaLegend, setShowSchemaLegend] = useState(false);
+  const [updatingDocId, setUpdatingDocId] = useState<string | null>(null);
+  const [actionToast, setActionToast] = useState<string | null>(null);
 
   // コレクションのリアルタイム購読
   useEffect(() => {
@@ -161,8 +167,72 @@ export function DbInspectorTab() {
     }
   };
 
+  // isDeleted フラグのトグル（復元 ⇔ 論理削除）
+  const handleToggleIsDeleted = async (item: DbDocItem) => {
+    if (updatingDocId) return;
+    const currentStatus = Boolean(item.data.isDeleted);
+    const nextStatus = !currentStatus;
+    const docRef = doc(db, selectedCol, item.id);
+    const now = new Date().toISOString();
+
+    setUpdatingDocId(item.id);
+    try {
+      await updateDoc(docRef, {
+        isDeleted: nextStatus,
+        updatedAt: now,
+      });
+      const titleStr = String(item.data.title || item.data.name || item.id);
+      const actionLabel = nextStatus ? "論理削除 (isDeleted: true)" : "復元 (isDeleted: false)";
+      logger.success("firestore", `DbInspector: ${actionLabel} - ${titleStr} (${item.id})`);
+      setActionToast(`「${titleStr}」を ${nextStatus ? "論理削除" : "復元"} しました`);
+      setTimeout(() => setActionToast(null), 3000);
+    } catch (err: any) {
+      console.error("[DbInspector] Failed to toggle isDeleted:", err);
+      logger.error("firestore", `DbInspector: Failed to toggle isDeleted for ${item.id}`, err?.message || err);
+      setActionToast(`エラー: 更新に失敗しました (${err?.message || "通信エラー"})`);
+      setTimeout(() => setActionToast(null), 4000);
+    } finally {
+      setUpdatingDocId(null);
+    }
+  };
+
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: "0.85rem", width: "100%" }}>
+      {/* 操作フィードバック通知トースト */}
+      {actionToast && (
+        <div
+          style={{
+            background: C.charcoal,
+            color: "#FFF",
+            fontSize: "0.78rem",
+            fontWeight: 650,
+            padding: "0.6rem 1rem",
+            borderRadius: "10px",
+            boxShadow: "0 4px 16px rgba(0, 0, 0, 0.2)",
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "space-between",
+            gap: "0.8rem",
+            animation: "arca-fade-in 0.15s ease-out",
+          }}
+        >
+          <span>{actionToast}</span>
+          <button
+            onClick={() => setActionToast(null)}
+            style={{
+              background: "transparent",
+              border: "none",
+              color: "rgba(255, 255, 255, 0.7)",
+              cursor: "pointer",
+              fontSize: "0.72rem",
+              padding: "0.1rem 0.3rem",
+            }}
+          >
+            ✕
+          </button>
+        </div>
+      )}
+
       {/* ── コレクション切り替えセグメント ── */}
       <div
         style={{
@@ -526,8 +596,43 @@ export function DbInspectorTab() {
                     </div>
                   </div>
 
-                  {/* 展開アイコン & コピー */}
-                  <div style={{ display: "flex", alignItems: "center", gap: "0.35rem", flexShrink: 0 }}>
+                  {/* 展開アイコン & アクションボタングループ */}
+                  <div style={{ display: "flex", alignItems: "center", gap: "0.4rem", flexShrink: 0 }}>
+                    {/* isDeleted トグルボタン */}
+                    <button
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        handleToggleIsDeleted(item);
+                      }}
+                      disabled={updatingDocId === item.id}
+                      title={isDeleted ? "クリックして復元（isDeleted: false に設定）" : "クリックして論理削除（isDeleted: true に設定）"}
+                      aria-label={isDeleted ? "復元する" : "削除する"}
+                      style={{
+                        display: "inline-flex",
+                        alignItems: "center",
+                        gap: "0.28rem",
+                        padding: "0.32rem 0.62rem",
+                        borderRadius: "8px",
+                        border: "none",
+                        fontSize: "0.72rem",
+                        fontWeight: 700,
+                        cursor: updatingDocId === item.id ? "not-allowed" : "pointer",
+                        transition: "all 0.15s ease",
+                        background: isDeleted ? C.sage : "rgba(0, 0, 0, 0.05)",
+                        color: isDeleted ? "#FFF" : C.charcoalMid,
+                        boxShadow: isDeleted ? "0 1px 4px rgba(82, 121, 111, 0.28)" : "none",
+                      }}
+                    >
+                      {isDeleted ? <RotateCcw size={12} /> : <Trash2 size={12} />}
+                      <span>
+                        {updatingDocId === item.id
+                          ? "更新中..."
+                          : isDeleted
+                          ? "復元する"
+                          : "削除"}
+                      </span>
+                    </button>
+
                     <button
                       onClick={(e) => {
                         e.stopPropagation();
@@ -603,23 +708,44 @@ export function DbInspectorTab() {
                         Firestore Raw Document
                       </span>
 
-                      <button
-                        onClick={() => handleCopyJson(item)}
-                        style={{
-                          display: "inline-flex",
-                          alignItems: "center",
-                          gap: "0.25rem",
-                          background: "transparent",
-                          border: "none",
-                          fontSize: "0.68rem",
-                          fontWeight: 650,
-                          color: C.goldDark,
-                          cursor: "pointer",
-                        }}
-                      >
-                        {isCopied ? <Check size={11} /> : <Copy size={11} />}
-                        <span>{isCopied ? "コピー完了" : "JSONコピー"}</span>
-                      </button>
+                      <div style={{ display: "flex", alignItems: "center", gap: "0.6rem" }}>
+                        <button
+                          onClick={() => handleToggleIsDeleted(item)}
+                          disabled={updatingDocId === item.id}
+                          style={{
+                            display: "inline-flex",
+                            alignItems: "center",
+                            gap: "0.25rem",
+                            background: "transparent",
+                            border: "none",
+                            fontSize: "0.68rem",
+                            fontWeight: 650,
+                            color: isDeleted ? C.sage : C.danger,
+                            cursor: "pointer",
+                          }}
+                        >
+                          {isDeleted ? <RotateCcw size={11} /> : <Trash2 size={11} />}
+                          <span>{isDeleted ? "復元 (isDeleted: false)" : "論理削除 (isDeleted: true)"}</span>
+                        </button>
+
+                        <button
+                          onClick={() => handleCopyJson(item)}
+                          style={{
+                            display: "inline-flex",
+                            alignItems: "center",
+                            gap: "0.25rem",
+                            background: "transparent",
+                            border: "none",
+                            fontSize: "0.68rem",
+                            fontWeight: 650,
+                            color: C.goldDark,
+                            cursor: "pointer",
+                          }}
+                        >
+                          {isCopied ? <Check size={11} /> : <Copy size={11} />}
+                          <span>{isCopied ? "コピー完了" : "JSONコピー"}</span>
+                        </button>
+                      </div>
                     </div>
 
                     <pre

@@ -226,6 +226,64 @@ describe("システム保守・診断コンソール (System Maintenance)", () =
       expect(screen.getByText("ランチ定食")).toBeInTheDocument();
       expect(screen.queryByText("スーパー買い物")).not.toBeInTheDocument();
     });
+
+    it("ドキュメントの isDeleted フラグをトグル（復元・論理削除）できること", async () => {
+      const mockDocs = [
+        {
+          id: "tx-deleted",
+          data: () => ({
+            title: "削除された決済",
+            totalAmount: 1200,
+            isDeleted: true,
+          }),
+        },
+        {
+          id: "tx-active",
+          data: () => ({
+            title: "有効な決済",
+            totalAmount: 2400,
+            isDeleted: false,
+          }),
+        },
+      ];
+
+      vi.spyOn(firestore, "onSnapshot").mockImplementation((_query: unknown, callback: unknown) => {
+        if (typeof callback === "function") {
+          callback({
+            docs: mockDocs,
+            size: mockDocs.length,
+            forEach: (fn: (d: unknown) => void) => mockDocs.forEach(fn),
+          });
+        }
+        return vi.fn() as any;
+      });
+
+      const updateDocSpy = vi.spyOn(firestore, "updateDoc").mockResolvedValue(undefined as any);
+      const user = userEvent.setup();
+      render(<DbInspectorTab />);
+
+      // isDeleted: true のアイテムには「復元する」ボタンが表示される
+      const restoreBtn = await screen.findByRole("button", { name: "復元する" });
+      expect(restoreBtn).toBeInTheDocument();
+
+      // 「復元する」をクリックすると updateDoc で isDeleted: false が送信される
+      await user.click(restoreBtn);
+      expect(updateDocSpy).toHaveBeenCalledWith(
+        expect.anything(),
+        expect.objectContaining({ isDeleted: false })
+      );
+
+      // isDeleted: false のアイテムには「削除」ボタンが表示される
+      const deleteBtn = screen.getByRole("button", { name: "削除する" });
+      expect(deleteBtn).toBeInTheDocument();
+
+      // 「削除」をクリックすると updateDoc で isDeleted: true が送信される
+      await user.click(deleteBtn);
+      expect(updateDocSpy).toHaveBeenCalledWith(
+        expect.anything(),
+        expect.objectContaining({ isDeleted: true })
+      );
+    });
   });
 
   // ─────────────────────────────────────────
