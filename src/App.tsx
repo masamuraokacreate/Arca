@@ -220,14 +220,16 @@ function NavBar({
   const hasTriggeredLongPressRef = useRef(false);
 
   const startLongPress = useCallback(() => {
+    if (longPressTimerRef.current) return;
     hasTriggeredLongPressRef.current = false;
     setIsLongPressing(true);
     longPressTimerRef.current = setTimeout(() => {
       hasTriggeredLongPressRef.current = true;
       setIsLongPressing(false);
-      if (typeof navigator !== "undefined" && navigator.vibrate) {
+      longPressTimerRef.current = null;
+      if (typeof navigator !== "undefined" && "vibrate" in navigator) {
         try {
-          navigator.vibrate([40, 60, 40]);
+          navigator.vibrate([30]);
         } catch {}
       }
       onOpenMaintenance?.();
@@ -364,42 +366,60 @@ function NavBar({
           onPointerUp={cancelLongPress}
           onPointerLeave={cancelLongPress}
           onPointerCancel={cancelLongPress}
+          onTouchStart={startLongPress}
+          onTouchEnd={cancelLongPress}
+          onTouchMove={cancelLongPress}
+          onTouchCancel={cancelLongPress}
+          onContextMenu={(e) => e.preventDefault()}
           onClick={handleLogoClick}
           title="ホーム（2秒長押しでシステム保守・診断コンソール）"
+          className="select-none touch-none [-webkit-touch-callout:none]"
           style={{
             display: "flex",
             alignItems: "center",
             gap: "0.5rem",
             cursor: "pointer",
             userSelect: "none",
+            WebkitUserSelect: "none",
+            WebkitTouchCallout: "none",
+            touchAction: "none",
             flexShrink: 0,
             paddingRight: "0.75rem",
-            transition: isLongPressing
-              ? "transform 2s cubic-bezier(0.16, 1, 0.3, 1), filter 2s ease"
-              : "transform 0.15s ease, filter 0.15s ease",
+            transition: "transform 0.2s cubic-bezier(0.16, 1, 0.3, 1), filter 0.2s ease",
             transform: isLongPressing ? "scale(0.95)" : "scale(1)",
             filter: isLongPressing
-              ? "drop-shadow(0 0 12px rgba(197, 160, 89, 0.85))"
+              ? "drop-shadow(0 0 10px rgba(197, 160, 89, 0.75))"
               : "none",
           }}
         >
           <img
             src="/Arca_logo.png"
             alt="Arca"
+            draggable={false}
+            className="select-none touch-none pointer-events-none [-webkit-touch-callout:none]"
             style={{
               width: "24px",
               height: "24px",
               borderRadius: "6px",
               boxShadow: "0 1px 3px rgba(0, 0, 0, 0.08)",
               objectFit: "cover",
+              userSelect: "none",
+              WebkitUserSelect: "none",
+              WebkitTouchCallout: "none",
+              touchAction: "none",
+              pointerEvents: "none",
             }}
           />
           <span
+            className="select-none pointer-events-none"
             style={{
               fontSize: "0.95rem",
               fontWeight: 700,
               letterSpacing: "0.14em",
               color: C.gold,
+              userSelect: "none",
+              WebkitUserSelect: "none",
+              pointerEvents: "none",
             }}
           >
             Arca

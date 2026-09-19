@@ -5,7 +5,7 @@
 ## [2026-09-19] システム保守・診断コンソール（Arca Inspector ＆ Loggingモード）完全実装・ログ追跡バッジ縦整列＆全面英語化・UIミニマリズム最適化
 
 - **日付**: 2026年9月19日
-- **ステータス**: 全体タスク完了（システム保守・診断コンソール新規実装・Firestore生データ閲覧＆JSONコピー・スキーマ凡例カード・100件リングバッファLog Tracer・全操作ロギングフック統合・ログ英語化統一・ロゴ2秒長押し安全起動・全586テスト100%パス・型エラー0件・本番デプロイ完了）
+- **ステータス**: 全体タスク完了（システム保守・診断コンソール新規実装・Firestore生データ閲覧＆JSONコピー・スキーマ凡例カード・100件リングバッファLog Tracer・全操作ロギングフック統合・ログ英語化統一・ロゴ2秒長押し安全起動＆iOS長押しメニュー完全抑止＆Tapticフィードバック・全589テスト100%パス・型エラー0件・本番デプロイ完了）
 
 ---
 
@@ -17,6 +17,9 @@
   - ウィンドウサイズを画面データ量にかかわらず `maxWidth: 960px`, `height: 90vh`（上限920px・下限560px）で固定化し、安定したプロ仕様の操作感を提供。
   - セグメントピル切替タブにより「データベース」「ログ追跡」「バックアップ」をシームレスに操作可能。
   - ヘッダーのノイズを排除するため、グローバルナビゲーションの「保守」ボタンを完全削除し、左上 **Arca ロゴの 2 秒長押し** による隠しコマンド安全起動に一本化。
+- **iOS Safari / PWA 長押し標準メニュー完全抑止 ＆ Taptic触覚フィードバック (`src/App.tsx`)**:
+  - iPhone（Safari / PWA実機）でロゴを長押しした際に発生する画像保存吹き出しやテキスト選択（青いハイライト）を、`select-none`, `touch-none`, `[-webkit-touch-callout:none]`, `draggable={false}`, `pointer-events-none` および `onContextMenu={(e) => e.preventDefault()}` により完全遮断。
+  - 押し込みアニメーション（`scale-95 duration-200`）および長押し2000ms到達時の `navigator.vibrate([30])` による微弱な触覚フィードバック（Taptic Engine連動）を実装。指の移動や離脱時にはタイマーをリセットし、誤爆を防止。
 
 #### 2. 🔍 データベース・インスペクター ＆ スキーマ凡例カードの実装
 - **Firestore 生データ閲覧 ＆ JSON コピー (`src/components/maintenance/DbInspectorTab.tsx`)**:
@@ -47,9 +50,9 @@
 
 #### 5. 🧪 網羅的テスト ＆ 品質保証
 - **単体・統合テストの新規作成 (`src/test/SystemMaintenance.test.tsx`)**:
-  - LoggerService 単体テスト、DbInspectorTab、LogTracerTab、SchemaLegendCard、Appヘッダーロゴ長押し連携、支出作成/削除ログフック検証を含む 20 件のテストを全件パス。
+  - LoggerService 単体テスト、DbInspectorTab、LogTracerTab、SchemaLegendCard、Appヘッダーロゴ長押し連携（iOS長押しメニュー抑止・触覚フィードバック含む）、支出作成/削除ログフック検証を含む 23 件のテストを全件パス。
 - **全体品質検証**:
-  - 全 37 テストスイート・**586 件の全テスト 100% 合格**。
+  - 全 37 テストスイート・**589 件の全テスト 100% 合格**。
   - TypeScript 型エラー 0 件、本番 Vite ビルド成功。
 
 ---

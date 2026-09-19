@@ -344,6 +344,88 @@ describe("システム保守・診断コンソール (System Maintenance)", () =
       }
     });
 
+    it("Arca ロゴ長押し完了時に navigator.vibrate([30]) による触覚フィードバックが実行されること", async () => {
+      vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+      const vibrateMock = vi.fn();
+      Object.defineProperty(navigator, "vibrate", {
+        value: vibrateMock,
+        configurable: true,
+        writable: true,
+      });
+
+      try {
+        render(
+          <ThemeProvider>
+            <App />
+          </ThemeProvider>
+        );
+
+        const logo = screen.getByTitle("ホーム（2秒長押しでシステム保守・診断コンソール）");
+        fireEvent.pointerDown(logo);
+
+        act(() => {
+          vi.advanceTimersByTime(2100);
+        });
+
+        expect(vibrateMock).toHaveBeenCalledWith([30]);
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+
+    it("Arca ロゴコンテナおよび画像が iOS 標準メニュー抑止用のスタイルを持ち、contextmenu が preventDefault されること", () => {
+      render(
+        <ThemeProvider>
+          <App />
+        </ThemeProvider>
+      );
+
+      const logo = screen.getByTitle("ホーム（2秒長押しでシステム保守・診断コンソール）");
+      expect(logo).toHaveClass("select-none");
+      expect(logo).toHaveClass("touch-none");
+      expect(logo.className).toContain("[-webkit-touch-callout:none]");
+
+      // 画像のドラッグ抑止・ポインターイベント透過
+      const img = screen.getByAltText("Arca");
+      expect(img).toHaveAttribute("draggable", "false");
+      expect(img).toHaveClass("pointer-events-none");
+
+      // コンテキストメニュー抑止
+      const event = new MouseEvent("contextmenu", { bubbles: true, cancelable: true });
+      const defaultPrevented = !logo.dispatchEvent(event);
+      expect(defaultPrevented).toBe(true);
+    });
+
+    it("タッチ操作（onTouchStart / onTouchEnd / onTouchMove）でもタイマーが正しく制御されること", async () => {
+      vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+      try {
+        render(
+          <ThemeProvider>
+            <App />
+          </ThemeProvider>
+        );
+
+        const logo = screen.getByTitle("ホーム（2秒長押しでシステム保守・診断コンソール）");
+
+        // onTouchStart -> onTouchMove (指が動いた) -> キャンセル
+        fireEvent.touchStart(logo);
+        fireEvent.touchMove(logo);
+        act(() => {
+          vi.advanceTimersByTime(2100);
+        });
+        expect(screen.queryByText("システム保守・診断コンソール")).not.toBeInTheDocument();
+
+        // onTouchStart -> 2000ms 到達 -> モーダルオープン
+        fireEvent.touchStart(logo);
+        act(() => {
+          vi.advanceTimersByTime(2100);
+        });
+        expect(screen.getByText("システム保守・診断コンソール")).toBeInTheDocument();
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+
     it("Arca ロゴを短時間タップしたときはダッシュボード遷移のみが行われ、長押しタイマーは解除されること", async () => {
       render(
         <ThemeProvider>
