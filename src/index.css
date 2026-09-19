@@ -20,6 +20,8 @@
   --color-charcoal-mid: var(--text-mid);
   --color-charcoal-light: var(--text-muted);
   --color-charcoal-xlight: var(--text-xmuted);
+  --font-logo: 'Cormorant Garamond', serif;
+  --font-serif: 'Cormorant Garamond', serif;
 }
 
 :root {
@@ -27,6 +29,16 @@
   --sar: env(safe-area-inset-right, 0px);
   --sab: env(safe-area-inset-bottom, 0px);
   --sal: env(safe-area-inset-left, 0px);
+  --font-logo: 'Cormorant Garamond', serif;
+  --font-serif: 'Cormorant Garamond', serif;
+}
+
+.font-logo {
+  font-family: var(--font-logo);
+}
+
+.font-serif {
+  font-family: var(--font-serif);
 }
 
 /* ── 1. Ivory (Light / デフォルト) ── */

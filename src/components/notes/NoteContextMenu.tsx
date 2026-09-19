@@ -11,7 +11,7 @@
 
 import React, { useEffect, useRef } from "react";
 import type { NoteItem } from "../../types";
-import { Edit3, Plus, FolderInput, Trash2, Smile } from "lucide-react";
+import { Edit3, Plus, FolderInput, Trash2, Smile, ArrowUp, ArrowDown } from "lucide-react";
 
 export interface NoteContextMenuProps {
   x: number;
@@ -22,6 +22,10 @@ export interface NoteContextMenuProps {
   onChangeIcon?: (note: NoteItem) => void;
   onCreateChild: (noteId: string) => void;
   onMove: (note: NoteItem) => void;
+  onMoveUp?: (note: NoteItem) => void;
+  onMoveDown?: (note: NoteItem) => void;
+  canMoveUp?: boolean;
+  canMoveDown?: boolean;
   onDelete: (note: NoteItem) => void;
 }
 
@@ -34,6 +38,10 @@ export const NoteContextMenu: React.FC<NoteContextMenuProps> = ({
   onChangeIcon,
   onCreateChild,
   onMove,
+  onMoveUp,
+  onMoveDown,
+  canMoveUp = false,
+  canMoveDown = false,
   onDelete,
 }) => {
   const menuRef = useRef<HTMLDivElement>(null);
@@ -61,7 +69,7 @@ export const NoteContextMenu: React.FC<NoteContextMenuProps> = ({
 
   // 画面端のオーバーフロー防止
   const menuWidth = 190;
-  const menuHeight = 175;
+  const menuHeight = 245;
   const adjustedX = typeof window !== "undefined" && x + menuWidth > window.innerWidth
     ? Math.max(10, window.innerWidth - menuWidth - 12)
     : x;
@@ -152,6 +160,38 @@ export const NoteContextMenu: React.FC<NoteContextMenuProps> = ({
         <FolderInput size={14} className="text-charcoal-light shrink-0" />
         <span>移動...</span>
       </button>
+
+      {/* メニューアイテム: 上へ移動 */}
+      {onMoveUp && canMoveUp && (
+        <button
+          type="button"
+          role="menuitem"
+          onClick={() => {
+            onMoveUp(note);
+            onClose();
+          }}
+          className="w-full flex items-center gap-2.5 px-3 py-2 rounded-xl text-xs font-medium text-charcoal hover:bg-black/[0.04] dark:hover:bg-white/[0.06] transition-colors cursor-pointer border-none bg-transparent text-left"
+        >
+          <ArrowUp size={14} className="text-charcoal-light shrink-0" />
+          <span>上へ移動</span>
+        </button>
+      )}
+
+      {/* メニューアイテム: 下へ移動 */}
+      {onMoveDown && canMoveDown && (
+        <button
+          type="button"
+          role="menuitem"
+          onClick={() => {
+            onMoveDown(note);
+            onClose();
+          }}
+          className="w-full flex items-center gap-2.5 px-3 py-2 rounded-xl text-xs font-medium text-charcoal hover:bg-black/[0.04] dark:hover:bg-white/[0.06] transition-colors cursor-pointer border-none bg-transparent text-left"
+        >
+          <ArrowDown size={14} className="text-charcoal-light shrink-0" />
+          <span>下へ移動</span>
+        </button>
+      )}
 
       {/* 区切り線 */}
       <div className="my-1 border-t border-black/[0.04] dark:border-white/[0.06]" />

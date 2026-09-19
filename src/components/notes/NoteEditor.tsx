@@ -642,18 +642,26 @@ export const NoteEditor = forwardRef<NoteEditorHandles, NoteEditorProps>(functio
   const fileInputRef = useRef<HTMLInputElement>(null);
   const sourceTextareaRef = useRef<HTMLTextAreaElement>(null);
 
-  // ソースモード時: コンテンツ量に合わせて高さを自動リサイズ & カーソル位置復元
+  // ソースモード時: 画面全体の残り高さを全画面表示スペースとして確保し、コンテンツ量に応じて自動リサイズ & カーソル位置復元
   useEffect(() => {
-    if (isSourceMode && sourceTextareaRef.current) {
+    if (!isSourceMode || !sourceTextareaRef.current) return;
+
+    const updateHeight = () => {
+      if (!sourceTextareaRef.current) return;
       sourceTextareaRef.current.style.height = "auto";
       const scrollH = sourceTextareaRef.current.scrollHeight;
-      sourceTextareaRef.current.style.height = `${Math.max(480, scrollH + 20)}px`;
+      const viewportAvailableH = typeof window !== "undefined" ? Math.max(360, window.innerHeight - 240) : 480;
+      sourceTextareaRef.current.style.height = `${Math.max(viewportAvailableH, scrollH)}px`;
 
       if (cursorPositionRef.current) {
         const { start, end } = cursorPositionRef.current;
         sourceTextareaRef.current.setSelectionRange(start, end);
       }
-    }
+    };
+
+    updateHeight();
+    window.addEventListener("resize", updateHeight);
+    return () => window.removeEventListener("resize", updateHeight);
   }, [content, isSourceMode]);
 
   // Tiptap エディタ初期化
@@ -1053,10 +1061,10 @@ export const NoteEditor = forwardRef<NoteEditorHandles, NoteEditorProps>(functio
         style={{
           position: "relative",
           width: "100%",
-          paddingBottom: "2rem",
+          paddingBottom: "0.5rem",
         }}
       >
-        <div className="flex items-center justify-between mb-2.5">
+        <div className="flex items-center justify-between mb-2.5 shrink-0">
           <div
             style={{
               fontSize: "0.72rem",
@@ -1081,20 +1089,20 @@ export const NoteEditor = forwardRef<NoteEditorHandles, NoteEditorProps>(functio
           value={content}
           onChange={handleSourceChange}
           placeholder={placeholder || "Markdownで書き始める…"}
-          className="arca-scroll w-full flex-1"
+          className="arca-scroll w-full flex-1 resize-none min-h-[320px]"
           style={{
             display: "block",
             width: "100%",
-            minHeight: "480px",
+            minHeight: "calc(100dvh - 240px)",
             background: "transparent",
             border: "none",
             outline: "none",
-            resize: "none",
             fontSize: "0.95rem",
             lineHeight: 1.85,
             color: "var(--text-main)",
             fontFamily: `"SF Mono", Menlo, Monaco, Consolas, monospace`,
             padding: 0,
+            paddingBottom: "calc(30vh + 3rem)",
             boxSizing: "border-box",
           }}
         />
@@ -1108,7 +1116,7 @@ export const NoteEditor = forwardRef<NoteEditorHandles, NoteEditorProps>(functio
         position: "relative",
         width: "100%",
         minHeight: "120px",
-        paddingBottom: "1.5rem",
+        paddingBottom: "calc(25vh + 3rem)",
       }}
       onClick={() => {
         if (editor && !editor.isFocused) {

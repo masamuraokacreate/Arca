@@ -42,7 +42,13 @@ export const JournalSpace: React.FC<JournalSpaceProps> = ({
   spaceCounts: _spaceCounts,
 }) => {
   return (
-    <div className="w-full max-w-4xl mx-auto px-4 py-5 pb-28">
+    <div className="w-full max-w-4xl mx-auto px-4 py-5 pb-28 space-y-4">
+      {/* ── ページタイトル ── */}
+      <div className="flex items-center justify-between pt-1">
+        <h2 className="text-2xl sm:text-[1.75rem] font-[750] tracking-[-0.03em] leading-tight text-charcoal dark:text-stone-100">
+          日記
+        </h2>
+      </div>
       <JournalTimeline
         childNotes={notes}
         allNotes={allNotes}

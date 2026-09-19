@@ -10,10 +10,10 @@
  * 4. tiptap-markdown と完全連携し、インライン [child-page:pageId] 構文での入出力をサポート
  */
 
-import React, { useContext, useEffect } from "react";
+import React, { useContext, useEffect, useState, useRef } from "react";
 import { Node, mergeAttributes } from "@tiptap/core";
 import { ReactNodeViewRenderer, NodeViewWrapper, type NodeViewProps } from "@tiptap/react";
-import { FileText, ChevronRight } from "lucide-react";
+import { FileText, ChevronRight, GripVertical } from "lucide-react";
 import { NoteEditorContext } from "../NoteEditorContext";
 import { NoteIcon } from "../NoteIconPickerModal";
 
@@ -23,6 +23,9 @@ export const ChildPageComponent: React.FC<NodeViewProps> = (props) => {
   const targetNote = allNotes.find((n) => n.id === pageId);
   const title = targetNote?.title?.trim() || "無題のページ";
 
+  const [isDragging, setIsDragging] = useState(false);
+  const dragTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
   // 有効なノート一覧が存在し、targetNote が見つからない（削除済み）場合はエディタからノードを除去
   useEffect(() => {
     if (allNotes.length > 0 && !targetNote && props.deleteNode) {
@@ -30,12 +33,39 @@ export const ChildPageComponent: React.FC<NodeViewProps> = (props) => {
     }
   }, [allNotes.length, targetNote, props.deleteNode]);
 
+  useEffect(() => {
+    return () => {
+      if (dragTimeoutRef.current) clearTimeout(dragTimeoutRef.current);
+    };
+  }, []);
+
   // 削除済みまたは存在しない子ページは画面上にゴースト表示しない
   if (allNotes.length > 0 && !targetNote) {
     return null;
   }
 
+  const handleDragStart = (e: React.DragEvent) => {
+    setIsDragging(true);
+    // サイドバーやエディタ内へのドロップ連携用
+    e.dataTransfer.setData("text/arca-note-id", pageId);
+    e.dataTransfer.setData("text/plain", `[child-page:${pageId}]`);
+    e.dataTransfer.effectAllowed = "move";
+  };
+
+  const handleDragEnd = () => {
+    // ドラッグ直後の誤クリック（画面遷移）を防止
+    if (dragTimeoutRef.current) clearTimeout(dragTimeoutRef.current);
+    dragTimeoutRef.current = setTimeout(() => {
+      setIsDragging(false);
+    }, 150);
+  };
+
   const handleClick = (e: React.MouseEvent) => {
+    if (isDragging) {
+      e.preventDefault();
+      e.stopPropagation();
+      return;
+    }
     e.preventDefault();
     e.stopPropagation();
     if (pageId && onSelectNote) {
@@ -46,8 +76,14 @@ export const ChildPageComponent: React.FC<NodeViewProps> = (props) => {
   return (
     <NodeViewWrapper
       as="span"
-      className="inline-flex items-center align-middle mx-1 my-1 select-none"
+      className={`inline-flex items-center align-middle mx-1 my-1 select-none transition-all duration-150 group/node ${
+        isDragging ? "opacity-40 scale-95" : ""
+      }`}
       data-child-page-node={pageId}
+      data-drag-handle
+      draggable="true"
+      onDragStart={handleDragStart}
+      onDragEnd={handleDragEnd}
     >
       <span
         role="button"
@@ -60,10 +96,27 @@ export const ChildPageComponent: React.FC<NodeViewProps> = (props) => {
             handleClick(e as any);
           }
         }}
-        className="group inline-flex items-center justify-between w-64 sm:w-72 h-[42px] px-3.5 rounded-xl bg-stone-100/80 dark:bg-stone-800/80 hover:bg-stone-200/90 dark:hover:bg-stone-700/90 border border-black/[0.04] dark:border-white/[0.06] transition-all duration-150 cursor-pointer shadow-2xs hover:shadow-xs select-none align-middle"
+        className="group inline-flex items-center justify-between w-64 sm:w-72 h-[42px] pl-1.5 pr-3.5 rounded-xl bg-stone-100/80 dark:bg-stone-800/80 hover:bg-stone-200/90 dark:hover:bg-stone-700/90 border border-black/[0.04] dark:border-white/[0.06] transition-all duration-150 cursor-pointer shadow-2xs hover:shadow-xs select-none align-middle"
         title="子ページを開く"
       >
-        <span className="flex items-center gap-2.5 min-w-0 flex-1 mr-2">
+        <span className="flex items-center gap-1.5 min-w-0 flex-1 mr-2">
+          {/* ドラッグハンドルグリップ */}
+          <span
+            data-drag-handle
+            draggable="true"
+            onDragStart={handleDragStart}
+            onDragEnd={handleDragEnd}
+            className="w-4 h-6 flex items-center justify-center text-stone-400/50 group-hover:text-stone-500 dark:group-hover:text-stone-300 cursor-grab active:cursor-grabbing hover:bg-black/5 dark:hover:bg-white/10 rounded transition-colors shrink-0"
+            title="ドラッグして別の場所に移動"
+            aria-label="ドラッグして別の場所に移動"
+            onClick={(e) => {
+              e.preventDefault();
+              e.stopPropagation();
+            }}
+          >
+            <GripVertical className="w-3.5 h-3.5" />
+          </span>
+
           <span className="w-6 h-6 rounded-lg bg-amber-500/10 text-[#B58D3D] flex items-center justify-center shrink-0">
             <NoteIcon
               icon={targetNote?.icon}

@@ -70,7 +70,7 @@ export const ExplorerHomeView: React.FC<ExplorerHomeViewProps> = ({
         {/* ── 1. ウェルカム / アクションヘッダー ── */}
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-2 border-b border-black/[0.04] dark:border-white/[0.05]">
           <div>
-            <h1 className="text-xl sm:text-2xl font-bold tracking-tight text-charcoal">
+            <h1 className="text-2xl sm:text-[1.75rem] font-[750] tracking-[-0.03em] leading-tight text-charcoal dark:text-stone-100">
               ホーム
             </h1>
           </div>

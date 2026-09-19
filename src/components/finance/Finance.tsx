@@ -482,15 +482,8 @@ export default function Finance() {
           {/* アプリ名・見出し */}
           <div>
             <h1
-              style={{
-                fontSize: "1.35rem",
-                fontWeight: 750,
-                color: C.charcoal,
-                margin: 0,
-                letterSpacing: "-0.02em",
-                lineHeight: 1.2,
-              }}
-              className="sm:text-2xl"
+              className="text-2xl sm:text-[1.75rem] font-[750] tracking-[-0.03em] leading-tight text-charcoal dark:text-stone-100"
+              style={{ margin: 0 }}
             >
               家計・支出管理
             </h1>

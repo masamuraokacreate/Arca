@@ -178,77 +178,42 @@ export function NoteToolbar({
   onToggleSourceMode,
 }: NoteToolbarProps) {
   return (
-    <header className="sticky top-0 z-50 w-full bg-[var(--bg-surface-glass)] backdrop-blur-xl -webkit-backdrop-blur-xl border-b border-black/[0.06] dark:border-white/[0.08] flex flex-col">
-      {/* ── 1. 上部ヘッダー（ナビゲーション ＆ タイトル・ステータス ＆ 目次） ── */}
-      <div className="flex items-center justify-between px-2 sm:px-4 h-11 w-full gap-2 border-b border-black/[0.03] dark:border-white/[0.04]">
-        {/* 左端: タブのアイコン（サイドバー展開） ＆ 戻るボタン ＆ パンくずスロット */}
-        <div className="flex items-center gap-1 min-w-0 flex-1">
-          {sidebarToggleSlot && (
-            <div className="shrink-0 flex items-center">
-              {sidebarToggleSlot}
-            </div>
-          )}
-          {onBack && (
-            <button
-              type="button"
-              onClick={onBack}
-              aria-label="一覧に戻る"
-              title="一覧に戻る"
-              className="w-11 h-11 -ml-1 sm:ml-0 rounded-xl flex items-center justify-center text-charcoal-light hover:text-charcoal hover:bg-black/5 dark:hover:bg-white/5 active:scale-95 transition-all cursor-pointer border-none bg-transparent shrink-0"
-            >
-              <ChevronLeft className="w-5 h-5 text-[#B58D3D]" />
-            </button>
-          )}
-          {leftSlot && (
-            <div className="flex items-center min-w-0 flex-1 overflow-x-auto no-scrollbar py-0.5">
-              {leftSlot}
-            </div>
-          )}
-        </div>
-
-        {/* 中央: 控えめな保存ステータス（保存中・保存済みのアニメーション通知のみ） */}
-        <div className="flex items-center justify-center min-w-0 px-2 select-none">
-          {saveStatus && saveStatus !== "idle" && (
-            <span className="text-[11px] font-medium text-charcoal-light flex items-center gap-1.5 shrink-0 animate-pulse">
-              <span className="w-1.5 h-1.5 rounded-full bg-[#B58D3D]" />
-              {saveStatus === "saving" ? "保存中…" : "保存済み"}
-            </span>
-          )}
-        </div>
-
-        {/* 右端: 目次アクション ＆ ごみ箱（赤文字） */}
-        <div className="flex items-center gap-1 shrink-0">
-          {/* 目次はPC・タブレットのみ表示（スマホでは非表示） */}
+    <header className="sticky top-0 z-50 w-full bg-[var(--bg-surface-glass)] backdrop-blur-xl -webkit-backdrop-blur-xl border-b border-black/[0.06] dark:border-white/[0.08] flex items-center justify-between px-2 sm:px-4 h-12 w-full gap-2">
+      {/* ── 左端: タブのアイコン（サイドバー展開） ＆ 戻るボタン ＆ パンくずスロット ── */}
+      <div className="flex items-center gap-1 min-w-0 flex-1 overflow-hidden">
+        {sidebarToggleSlot && (
+          <div className="shrink-0 flex items-center">
+            {sidebarToggleSlot}
+          </div>
+        )}
+        {onBack && (
           <button
             type="button"
-            onClick={onToggleToc}
-            className={`w-9 h-9 rounded-lg !hidden sm:!flex items-center justify-center transition-colors cursor-pointer border-none ${
-              showToc
-                ? "bg-amber-500/15 text-[#B58D3D]"
-                : "text-charcoal-light hover:text-charcoal hover:bg-black/5 dark:hover:bg-white/5 bg-transparent"
-            }`}
-            title={showToc ? "目次を非表示" : "目次を表示"}
-            aria-label="目次"
+            onClick={onBack}
+            aria-label="一覧に戻る"
+            title="一覧に戻る"
+            className="w-9 h-9 -ml-1 sm:ml-0 rounded-xl flex items-center justify-center text-charcoal-light hover:text-charcoal hover:bg-black/5 dark:hover:bg-white/5 active:scale-95 transition-all cursor-pointer border-none bg-transparent shrink-0"
           >
-            <TocIcon />
+            <ChevronLeft className="w-5 h-5 text-[#B58D3D]" />
           </button>
-          {/* ごみ箱ボタン（パンくず右端に赤文字で配置） */}
-          <button
-            type="button"
-            onClick={onDelete}
-            className="h-9 px-2 rounded-lg flex items-center gap-1 text-red-500 hover:text-red-600 hover:bg-red-500/10 active:scale-95 transition-all cursor-pointer border-none bg-transparent text-xs font-medium shrink-0"
-            title="このノートを削除"
-            aria-label="削除"
-          >
-            <TrashIcon />
-            <span className="arca-btn-label-desktop">削除</span>
-            <span className="arca-btn-label-mobile">ごみ箱</span>
-          </button>
-        </div>
+        )}
+        {leftSlot && (
+          <div className="flex items-center min-w-0 flex-1 overflow-x-auto no-scrollbar py-0.5">
+            {leftSlot}
+          </div>
+        )}
       </div>
 
-      {/* ── 2. 書式・挿入ツールバー（PCでは文字表示、狭い画面やスマホではアイコン化） ── */}
-      <div className="flex flex-row items-center gap-1 sm:gap-1.5 overflow-x-auto no-scrollbar py-1.5 px-3 bg-[var(--bg-surface-glass)]/60">
+      {/* ── 右端: 保存ステータス ＆ 書式・挿入ツールバー ＆ 目次 ＆ ごみ箱（右詰め統合） ── */}
+      <div className="flex flex-row items-center justify-end gap-1 sm:gap-1.5 overflow-x-auto no-scrollbar shrink-0 ml-auto py-0.5">
+        {/* 中央: 控えめな保存ステータス（保存中・保存済みのアニメーション通知のみ） */}
+        {saveStatus && saveStatus !== "idle" && (
+          <span className="text-[11px] font-medium text-charcoal-light flex items-center gap-1.5 shrink-0 animate-pulse mr-1">
+            <span className="w-1.5 h-1.5 rounded-full bg-[#B58D3D]" />
+            {saveStatus === "saving" ? "保存中…" : "保存済み"}
+          </span>
+        )}
+
         {/* ✦ Aether 抽出ボタン */}
         <button
           type="button"
@@ -407,6 +372,39 @@ export function NoteToolbar({
         >
           {isFullWidth ? <ShrinkIcon /> : <ExpandIcon />}
           <span className="arca-btn-label-desktop ml-1">{isFullWidth ? "標準幅" : "全画面"}</span>
+        </button>
+
+        {/* 目次アクション（「目次」文字つき、PCのみ表示） */}
+        <button
+          type="button"
+          onClick={onToggleToc}
+          className={`arca-tb-btn arca-tb-btn-desktop-only shrink-0 h-9 min-w-[36px] min-h-[36px] px-2 sm:px-2.5 !hidden sm:!inline-flex items-center justify-center ${
+            showToc ? "active" : ""
+          }`}
+          title={showToc ? "目次を非表示" : "目次を表示"}
+          aria-label="目次"
+          style={{
+            color: showToc ? C.goldDark : undefined,
+            background: showToc ? C.goldFaint : undefined,
+          }}
+        >
+          <TocIcon />
+          <span className="arca-btn-label-desktop ml-1">目次</span>
+        </button>
+
+        <div className="arca-tb-divider shrink-0 !hidden sm:!block" />
+
+        {/* ごみ箱ボタン（赤文字） */}
+        <button
+          type="button"
+          onClick={onDelete}
+          className="h-9 px-2 rounded-lg flex items-center gap-1 text-red-500 hover:text-red-600 hover:bg-red-500/10 active:scale-95 transition-all cursor-pointer border-none bg-transparent text-xs font-medium shrink-0"
+          title="このノートを削除"
+          aria-label="削除"
+        >
+          <TrashIcon />
+          <span className="arca-btn-label-desktop">削除</span>
+          <span className="arca-btn-label-mobile">ごみ箱</span>
         </button>
       </div>
     </header>

@@ -291,14 +291,8 @@ export default function Recipes({ onNavigateToLists, onDetailViewChange, initial
           >
             <div>
               <h1
-                style={{
-                  fontSize: "1.75rem",
-                  fontWeight: 750,
-                  color: C.charcoal,
-                  margin: 0,
-                  letterSpacing: "-0.03em",
-                  lineHeight: 1.2,
-                }}
+                className="text-2xl sm:text-[1.75rem] font-[750] tracking-[-0.03em] leading-tight text-charcoal dark:text-stone-100"
+                style={{ margin: 0 }}
               >
                 料理レシピ
               </h1>

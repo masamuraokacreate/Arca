@@ -1703,7 +1703,10 @@ export default function Tasks({ initialTab = "default" }: TasksProps = {}) {
       {/* ─── ヘッダー ─── */}
       <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", marginBottom: "1.5rem", padding: "0 0.25rem" }}>
         <div>
-          <h1 style={{ fontSize: "1.75rem", fontWeight: 750, color: C.charcoal, margin: 0, letterSpacing: "-0.03em" }}>
+          <h1
+            className="text-2xl sm:text-[1.75rem] font-[750] tracking-[-0.03em] leading-tight text-charcoal dark:text-stone-100"
+            style={{ margin: 0 }}
+          >
             {categories.find((c) => c.id === activeListId)?.title || "タスク"}
           </h1>
         </div>

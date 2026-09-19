@@ -215,20 +215,25 @@ export default function AuthGate({ children }: { children: ReactNode }) {
 
         {/* ブランド名・説明 */}
         <h1
+          className="font-logo"
           style={{
-            fontSize: "1.65rem",
-            fontWeight: 750,
-            letterSpacing: "0.14em",
+            fontFamily: "var(--font-logo)",
+            fontSize: "2.3rem",
+            fontWeight: 650,
+            letterSpacing: "0.04em",
             color: C.charcoal,
             margin: "0 0 0.4rem",
+            lineHeight: 1.1,
           }}
         >
           Arca
         </h1>
         <p
+          className="font-serif"
           style={{
-            fontSize: "0.78rem",
-            letterSpacing: "0.08em",
+            fontFamily: "var(--font-serif)",
+            fontSize: "0.86rem",
+            letterSpacing: "0.12em",
             textTransform: "uppercase",
             color: C.charcoalLight,
             margin: "0 0 2.2rem",

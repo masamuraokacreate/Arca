@@ -183,6 +183,8 @@ export interface NoteItem {
   childViewMode?: NoteChildViewMode;
   /** ノートのカスタムSVGアイコン名またはSVG識別子 */
   icon?: string;
+  /** 目次（TOC）を表示するかどうかのフラグ */
+  showToc?: boolean;
   /** 手動ドラッグ＆ドロップ並び替え用インデックス */
   order?: number;
 

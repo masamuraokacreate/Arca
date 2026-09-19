@@ -434,15 +434,17 @@ function NavBar({
             }}
           />
           <span
-            className="select-none pointer-events-none"
+            className="select-none pointer-events-none font-logo"
             style={{
-              fontSize: "0.95rem",
-              fontWeight: 700,
-              letterSpacing: "0.14em",
+              fontFamily: "var(--font-logo)",
+              fontSize: "1.18rem",
+              fontWeight: 650,
+              letterSpacing: "0.03em",
               color: C.gold,
               userSelect: "none",
               WebkitUserSelect: "none",
               pointerEvents: "none",
+              lineHeight: 1,
             }}
           >
             Arca
@@ -751,7 +753,7 @@ function App() {
 
     let isMounted = true;
     let retryCount = 0;
-    const maxRetries = 2;
+    const maxRetries = 1;
 
     const tryAutoSync = async () => {
       let token = getSavedToken();
@@ -785,7 +787,7 @@ function App() {
         }
       } else if (retryCount < maxRetries) {
         retryCount++;
-        // GISスクリプト初期化待機等を考慮して500ms毎に最大2回まで再試行
+        // GISスクリプト初期化待機等を考慮して500ms毎に最大1回まで再試行（合計2回試行）
         setTimeout(tryAutoSync, 500);
       }
     };

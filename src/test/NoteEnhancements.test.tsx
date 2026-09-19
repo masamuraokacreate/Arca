@@ -5,13 +5,16 @@
 
 import React from "react";
 import { describe, it, expect, vi } from "vitest";
-import { render, screen, act } from "@testing-library/react";
+import { render, screen, act, fireEvent } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { NoteIcon, NoteIconPickerModal } from "../components/notes/NoteIconPickerModal";
 import { NoteToolbar } from "../components/notes/NoteToolbar";
+import { NoteEditor } from "../components/notes/NoteEditor";
 import { ChildPageComponent } from "../components/notes/extensions/ChildPageNode";
 import { DocumentTreeSidebar } from "../components/notes/DocumentTreeSidebar";
 import { ExplorerHomeView } from "../components/notes/ExplorerHomeView";
+import { MemoSpace } from "../components/notes/MemoSpace";
+import { JournalSpace } from "../components/notes/JournalSpace";
 import { NoteEditorContext } from "../components/notes/NoteEditorContext";
 import type { NoteItem } from "../types";
 
@@ -223,6 +226,50 @@ describe("NoteEnhancements: ChildPageNode インライン化 & アイコン対�
     expect(btn.className).toContain("h-[42px]");
     const titleSpan = screen.getByText(longTitle);
     expect(titleSpan.className).toContain("truncate");
+  });
+
+  it("ChildPageComponent: ドラッグハンドルが存在し、draggable属性およびdata-drag-handleを持ち、ドラッグ開始時に転送データがセットされる", () => {
+    const mockNotes: NoteItem[] = [
+      {
+        id: "child-drag-test",
+        title: "ドラッグテストページ",
+        content: "本文",
+        tags: [],
+        createdAt: "2026-09-17T00:00:00Z",
+        updatedAt: "2026-09-17T00:00:00Z",
+      },
+    ];
+
+    const mockProps: any = {
+      node: { attrs: { pageId: "child-drag-test" } },
+      updateAttributes: vi.fn(),
+      deleteNode: vi.fn(),
+    };
+
+    render(
+      <NoteEditorContext.Provider value={{ allNotes: mockNotes, onSelectNote: vi.fn() }}>
+        <ChildPageComponent {...mockProps} />
+      </NoteEditorContext.Provider>
+    );
+
+    // ドラッグハンドルグリップが存在すること
+    const dragHandle = screen.getByTitle("ドラッグして別の場所に移動");
+    expect(dragHandle).toBeInTheDocument();
+    expect(dragHandle).toHaveAttribute("data-drag-handle");
+    expect(dragHandle).toHaveAttribute("draggable", "true");
+
+    // dragstart イベントの発火と dataTransfer へのデータ設定
+    const setDataMock = vi.fn();
+    const dragEvent = {
+      dataTransfer: {
+        setData: setDataMock,
+        effectAllowed: "",
+      },
+    };
+    fireEvent.dragStart(dragHandle, dragEvent);
+
+    expect(setDataMock).toHaveBeenCalledWith("text/arca-note-id", "child-drag-test");
+    expect(setDataMock).toHaveBeenCalledWith("text/plain", "[child-page:child-drag-test]");
   });
 });
 
@@ -817,6 +864,55 @@ describe("NoteEnhancements: パンくずPages削除、最近使用したペー�
       expect(screen.getByText("✦ Aether 抽出")).toHaveClass("arca-btn-label-desktop");
       expect(screen.getByText("エクスポート")).toHaveClass("arca-btn-label-desktop");
       expect(screen.getByText("削除")).toHaveClass("arca-btn-label-desktop");
+      expect(screen.getByText("目次")).toHaveClass("arca-btn-label-desktop");
+
+      // 編集タブ（書式・挿入ツールバー）が右詰め（justify-end）になっていること
+      const toolbarRow = screen.getByText("抽出").closest("div");
+      expect(toolbarRow).toHaveClass("justify-end");
+    });
+
+    it("MemoSpace と JournalSpace の一番上に題名（「メモ」「日記」）が表示されること", () => {
+      const { unmount } = render(
+        <MemoSpace
+          notes={[]}
+          onOpenMemo={vi.fn()}
+          onNewMemo={vi.fn()}
+          onDeleteNote={vi.fn()}
+          onTogglePin={vi.fn()}
+          onDownloadNote={vi.fn()}
+          onTriggerImport={vi.fn()}
+          onOpenTrash={vi.fn()}
+        />
+      );
+      expect(screen.getByRole("heading", { level: 2, name: "メモ" })).toBeInTheDocument();
+      unmount();
+
+      render(
+        <JournalSpace
+          notes={[]}
+          allNotes={[]}
+          onSelectNote={vi.fn()}
+          onNewJournalNote={vi.fn()}
+          onDeleteNote={vi.fn()}
+          onDownloadNote={vi.fn()}
+        />
+      );
+      expect(screen.getByRole("heading", { level: 2, name: "日記" })).toBeInTheDocument();
+    });
+
+    it("NoteEditor: ソースモード時に全画面表示スペース（calc(100dvh - 240px)）とスリム化された余白が適用されること", () => {
+      const { container } = render(
+        <NoteEditor
+          content={"# テストノート\n\nソース編集時のテスト文章"}
+          onChange={vi.fn()}
+          isSourceMode={true}
+        />
+      );
+
+      const textarea = container.querySelector("textarea");
+      expect(textarea).toBeInTheDocument();
+      expect(textarea).toHaveClass("w-full", "flex-1", "resize-none");
+      expect(textarea?.style.minHeight).toBe("calc(100dvh - 240px)");
     });
 
     it("DocumentTreeSidebar: 「ピン留め」と「ノート一覧」の見出しが表示されること", () => {
@@ -885,6 +981,232 @@ describe("NoteEnhancements: パンくずPages削除、最近使用したペー�
       expect(container?.className).toContain("dark:bg-white/[0.08]");
     });
   });
+
+  describe("Arca ロゴフォント & 各画面題名（見出し）スタイル統一", () => {
+    it("グローバルヘッダーの Arca ロゴに font-logo クラスと var(--font-logo) が指定されていること", async () => {
+      const App = (await import("../App")).default;
+      const { ThemeProvider } = await import("../context/ThemeContext");
+      render(
+        <ThemeProvider>
+          <App />
+        </ThemeProvider>
+      );
+
+      const arcaLogoTexts = screen.getAllByText("Arca");
+      const headerLogo = arcaLogoTexts.find((el) => el.classList.contains("font-logo"));
+      expect(headerLogo).toBeDefined();
+      expect(headerLogo?.style.fontFamily).toContain("var(--font-logo)");
+    });
+
+    it("MemoSpace と JournalSpace の見出しが統一規格クラス text-2xl sm:text-[1.75rem] font-[750] を持つこと", async () => {
+      const { MemoSpace } = await import("../components/notes/MemoSpace");
+      const { JournalSpace } = await import("../components/notes/JournalSpace");
+
+      const { unmount: unmountMemo } = render(
+        <MemoSpace
+          notes={[]}
+          onOpenMemo={vi.fn()}
+          onNewMemo={vi.fn()}
+          onDeleteNote={vi.fn()}
+          onTogglePin={vi.fn()}
+          onDownloadNote={vi.fn()}
+          onTriggerImport={vi.fn()}
+          onOpenTrash={vi.fn()}
+        />
+      );
+      const memoHeading = screen.getByRole("heading", { level: 2, name: "メモ" });
+      expect(memoHeading).toHaveClass("text-2xl");
+      expect(memoHeading).toHaveClass("sm:text-[1.75rem]");
+      expect(memoHeading).toHaveClass("font-[750]");
+      expect(memoHeading).toHaveClass("tracking-[-0.03em]");
+      unmountMemo();
+
+      render(
+        <JournalSpace
+          notes={[]}
+          allNotes={[]}
+          onSelectNote={vi.fn()}
+          onNewJournalNote={vi.fn()}
+          onDeleteNote={vi.fn()}
+          onDownloadNote={vi.fn()}
+        />
+      );
+      const journalHeading = screen.getByRole("heading", { level: 2, name: "日記" });
+      expect(journalHeading).toHaveClass("text-2xl");
+      expect(journalHeading).toHaveClass("sm:text-[1.75rem]");
+      expect(journalHeading).toHaveClass("font-[750]");
+      expect(journalHeading).toHaveClass("tracking-[-0.03em]");
+    });
+  });
+
+  describe("DocumentTreeSidebar: ノートの前後並び替えと永続化保持", () => {
+    it("ノート行にドラッグハンドル（data-drag-handle）が存在すること", () => {
+      const mockNotes: NoteItem[] = [
+        {
+          id: "page-1",
+          title: "ページ1",
+          content: "",
+          tags: [],
+          order: 0,
+          createdAt: "2026-09-18T00:00:00Z",
+          updatedAt: "2026-09-18T00:00:00Z",
+        },
+      ];
+
+      const { container } = render(
+        <DocumentTreeSidebar
+          notes={mockNotes}
+          activeNoteId={null}
+          onSelectNote={vi.fn()}
+          onCreateRootNote={vi.fn()}
+          onCreateChildNote={vi.fn()}
+          onMoveNote={vi.fn()}
+        />
+      );
+
+      const dragHandle = container.querySelector("[data-drag-handle]");
+      expect(dragHandle).toBeInTheDocument();
+      expect(dragHandle).toHaveAttribute("title", "ドラッグして並び替え");
+    });
+
+    it("上部ドラッグで before 判定となり onReorderNotes が正しく呼び出されること", async () => {
+      const handleReorder = vi.fn();
+      const mockNotes: NoteItem[] = [
+        {
+          id: "page-1",
+          title: "ページ1",
+          content: "",
+          tags: [],
+          order: 0,
+          createdAt: "2026-09-18T00:00:00Z",
+          updatedAt: "2026-09-18T00:00:00Z",
+        },
+        {
+          id: "page-2",
+          title: "ページ2",
+          content: "",
+          tags: [],
+          order: 1,
+          createdAt: "2026-09-18T01:00:00Z",
+          updatedAt: "2026-09-18T01:00:00Z",
+        },
+      ];
+
+      const { container } = render(
+        <DocumentTreeSidebar
+          notes={mockNotes}
+          activeNoteId={null}
+          onSelectNote={vi.fn()}
+          onCreateRootNote={vi.fn()}
+          onCreateChildNote={vi.fn()}
+          onMoveNote={vi.fn()}
+          onReorderNotes={handleReorder}
+        />
+      );
+
+      const items = container.querySelectorAll("div.select-none > div[draggable='true']");
+      expect(items.length).toBe(2);
+
+      // page-2 をドラッグ開始
+      const dataTransfer = {
+        setData: vi.fn(),
+        getData: vi.fn().mockReturnValue("page-2"),
+        effectAllowed: "move",
+        dropEffect: "none",
+      };
+
+      vi.spyOn(items[0], "getBoundingClientRect").mockReturnValue({
+        top: 100,
+        bottom: 142,
+        height: 42,
+        left: 0,
+        right: 200,
+        width: 200,
+        x: 0,
+        y: 100,
+        toJSON: () => {},
+      });
+
+      await act(async () => {
+        fireEvent.dragStart(items[1], { dataTransfer });
+      });
+
+      await act(async () => {
+        const dragOverEvt = new MouseEvent("dragover", { bubbles: true, cancelable: true });
+        Object.defineProperty(dragOverEvt, "clientY", { value: 105 });
+        Object.defineProperty(dragOverEvt, "dataTransfer", { value: dataTransfer });
+        fireEvent(items[0], dragOverEvt);
+      });
+
+      // ドロップ
+      await act(async () => {
+        const dropEvt = new MouseEvent("drop", { bubbles: true, cancelable: true });
+        Object.defineProperty(dropEvt, "clientY", { value: 105 });
+        Object.defineProperty(dropEvt, "dataTransfer", { value: dataTransfer });
+        fireEvent(items[0], dropEvt);
+      });
+
+      // page-2 が page-1 の前（インデックス0）に挿入されて呼ばれること
+      expect(handleReorder).toHaveBeenCalledWith(["page-2", "page-1"], null);
+    });
+
+    it("右クリックメニューに「上へ移動」「下へ移動」が存在し、クリックで動作すること", async () => {
+      const { NoteContextMenu } = await import("../components/notes/NoteContextMenu");
+      const handleMoveUp = vi.fn();
+      const handleMoveDown = vi.fn();
+
+      const note: NoteItem = {
+        id: "note-mid",
+        title: "中間ノート",
+        content: "",
+        tags: [],
+        createdAt: "2026-09-18T00:00:00Z",
+        updatedAt: "2026-09-18T00:00:00Z",
+      };
+
+      render(
+        <NoteContextMenu
+          x={100}
+          y={100}
+          note={note}
+          onClose={vi.fn()}
+          onRename={vi.fn()}
+          onCreateChild={vi.fn()}
+          onMove={vi.fn()}
+          onMoveUp={handleMoveUp}
+          onMoveDown={handleMoveDown}
+          canMoveUp={true}
+          canMoveDown={true}
+          onDelete={vi.fn()}
+        />
+      );
+
+      const upBtn = screen.getByText("上へ移動");
+      const downBtn = screen.getByText("下へ移動");
+      expect(upBtn).toBeInTheDocument();
+      expect(downBtn).toBeInTheDocument();
+
+      fireEvent.click(upBtn);
+      expect(handleMoveUp).toHaveBeenCalledWith(note);
+
+      fireEvent.click(downBtn);
+      expect(handleMoveDown).toHaveBeenCalledWith(note);
+    });
+
+    it("NoteEditor: ソースモードの textarea に最下部余白（calc(30vh + 3rem)）が確保されていること", () => {
+      const { container } = render(
+        <NoteEditor
+          content={"長文テスト"}
+          onChange={vi.fn()}
+          isSourceMode={true}
+        />
+      );
+      const textarea = container.querySelector("textarea");
+      expect(textarea).toBeInTheDocument();
+      expect(textarea?.style.paddingBottom).toBe("calc(30vh + 3rem)");
+    });
+  });
 });
+
 
 

@@ -695,6 +695,7 @@ export function NoteViewer({
   onContextSnapshotChange,
   onIconChange,
   onTogglePin,
+  onToggleToc,
   isDocumentSpace = false,
 }: {
   note: NoteItem;
@@ -726,9 +727,10 @@ export function NoteViewer({
   onContextSnapshotChange?: (snapshot: NoteContextSnapshot) => void;
   onIconChange?: (icon: string | null) => void;
   onTogglePin?: () => void;
+  onToggleToc?: (showToc: boolean) => void;
   isDocumentSpace?: boolean;
 }) {
-  const [showToc, setShowToc] = useState(false);
+  const [showToc, setShowToc] = useState(() => Boolean(note.showToc));
   const [isSourceMode, setIsSourceMode] = useState(false);
   const [tagInput, setTagInput] = useState("");
   const [showGuide, setShowGuide] = useState(false);
@@ -736,6 +738,12 @@ export function NoteViewer({
   const [isIconPickerOpen, setIsIconPickerOpen] = useState(false);
   const editorRef = useRef<NoteEditorHandles>(null);
   const imageFileInputRef = useRef<HTMLInputElement>(null);
+
+  const handleToggleToc = useCallback(() => {
+    const next = !showToc;
+    setShowToc(next);
+    onToggleToc?.(next);
+  }, [showToc, onToggleToc]);
 
   const docSpace = useDocumentSpace();
 
@@ -927,9 +935,9 @@ export function NoteViewer({
   // ノート切替時のリセット
   useEffect(() => {
     setTagInput("");
-    setShowToc(false);
+    setShowToc(Boolean(note.showToc));
     setExtractedData(null);
-  }, [note.id]);
+  }, [note.id, note.showToc]);
 
   const handleCommitTag = () => {
     if (!tagInput.trim()) return;
@@ -967,7 +975,7 @@ export function NoteViewer({
   const renderTocSidebar = (
     <aside
       data-testid="note-toc-sidebar"
-      className="fixed top-20 right-4 sm:right-6 z-30 w-60 sm:w-64 max-h-[calc(100vh-6.5rem)] flex flex-col transition-all duration-200"
+      className="fixed top-28 right-4 sm:right-6 z-30 w-60 sm:w-64 max-h-[calc(100vh-8.5rem)] flex flex-col transition-all duration-200"
       style={{
         background: "var(--bg-card-solid)",
         backdropFilter: "blur(24px) saturate(180%)",
@@ -984,7 +992,10 @@ export function NoteViewer({
         </h4>
         <button
           type="button"
-          onClick={() => setShowToc(false)}
+          onClick={() => {
+            setShowToc(false);
+            onToggleToc?.(false);
+          }}
           className="w-6 h-6 rounded-lg flex items-center justify-center text-charcoal-light hover:text-charcoal hover:bg-black/5 dark:hover:bg-white/10 transition-colors cursor-pointer border-none bg-transparent"
           title="目次を閉じる"
           aria-label="目次を閉じる"
@@ -1285,7 +1296,7 @@ export function NoteViewer({
   );
 
   return (
-    <div className="arca-view-in flex flex-col w-full h-full min-h-screen flex-1 overflow-hidden">
+    <div className="arca-view-in flex flex-col w-full h-full min-h-0 flex-1 overflow-hidden">
       {/* 非表示の画像ファイル選択input */}
       <input
         ref={imageFileInputRef}
@@ -1313,7 +1324,7 @@ export function NoteViewer({
         isFullWidth={isFullWidth}
         onToggleFullWidth={onToggleFullWidth}
         showToc={showToc}
-        onToggleToc={() => setShowToc((s) => !s)}
+        onToggleToc={handleToggleToc}
         onDelete={onDelete}
         isSourceMode={isSourceMode}
         onToggleSourceMode={() => setIsSourceMode((s) => !s)}
@@ -1328,17 +1339,18 @@ export function NoteViewer({
           WebkitOverflowScrolling: "touch",
           overscrollBehaviorY: "contain",
           touchAction: "pan-y",
+          scrollPaddingBottom: "calc(7rem + env(safe-area-inset-bottom, 0px))",
         }}
       >
         <div
-          className={`w-full mx-auto px-4 sm:px-8 py-4 transition-all duration-200 ${
-            isFullWidth ? "max-w-none" : "max-w-4xl"
+          className={`w-full mx-auto px-4 sm:px-8 py-4 transition-all duration-200 min-h-full flex flex-col ${
+            isFullWidth || isSourceMode ? "max-w-none" : "max-w-4xl"
           }`}
           style={{
-            paddingBottom: "calc(6rem + env(safe-area-inset-bottom, 0px))",
+            paddingBottom: "calc(40vh + 5rem + env(safe-area-inset-bottom, 0px))",
           }}
         >
-          <div className="w-full min-w-0">{editorBody}</div>
+          <div className="w-full min-w-0 flex-1 flex flex-col">{editorBody}</div>
         </div>
         {showToc && renderTocSidebar}
       </div>
@@ -2884,15 +2896,16 @@ export default function Notes({
     [notes, mutateNote, showMessageToast]
   );
 
-  // ノート並び替え処理（手動ドラッグ＆ドロップ）
+  // ノート並び替え処理（手動ドラッグ＆ドロップ / 上下移動）
   const handleReorderNotes = useCallback(
     async (orderedIds: string[], parentId: string | null) => {
+      const targetParentId = parentId || null;
       // 楽観的更新
       setNotes((prev) =>
         prev.map((n) => {
           const idx = orderedIds.indexOf(n.id);
           if (idx !== -1) {
-            return { ...n, order: idx, parentId };
+            return { ...n, order: idx, parentId: targetParentId };
           }
           return n;
         })
@@ -2903,7 +2916,7 @@ export default function Notes({
           orderedIds.map((id, index) =>
             updateDoc(doc(db, "notes", id), {
               order: index,
-              parentId: parentId,
+              parentId: targetParentId,
             })
           )
         );
@@ -3095,6 +3108,16 @@ export default function Notes({
   const handleNewNote = useCallback(
     async (parentId: string | null = null, spaceType: NoteSpaceType = "document") => {
       try {
+        const targetParentId = parentId || null;
+        // 同じ親階層のノート群から最大の order を取得して末尾に追加
+        const siblings = notes.filter(
+          (n) => (n.parentId ?? null) === targetParentId && !n.isDeleted
+        );
+        const maxOrder = siblings.reduce((max, n) => {
+          return typeof n.order === "number" && n.order > max ? n.order : max;
+        }, -1);
+        const nextOrder = maxOrder + 1;
+
         const docRef = await addDoc(collection(db, "notes"), {
           title: "",
           content: "",
@@ -3103,18 +3126,19 @@ export default function Notes({
           createdAt: serverTimestamp(),
           updatedAt: serverTimestamp(),
           isDeleted: false,
-          parentId: parentId || null,
+          parentId: targetParentId,
+          order: nextOrder,
         });
-        logger.info("firestore", `Notes: Created note (ID: ${docRef.id}, space: ${spaceType})`);
+        logger.info("firestore", `Notes: Created note (ID: ${docRef.id}, space: ${spaceType}, order: ${nextOrder})`);
 
         // 親ノートが指定されている場合、親ノートの本文末尾に子ページボタンを追加して保存
-        if (parentId) {
-          const parentNote = notes.find((n) => n.id === parentId);
+        if (targetParentId) {
+          const parentNote = notes.find((n) => n.id === targetParentId);
           if (parentNote) {
             const currentContent = parentNote.content || "";
             const separator = currentContent.trim() ? "\n\n" : "";
             const newContent = `${currentContent.trim()}${separator}[child-page:${docRef.id}]\n`;
-            mutateNote(parentId, { content: newContent }, true);
+            mutateNote(targetParentId, { content: newContent }, true);
           }
         }
 
@@ -3391,6 +3415,7 @@ export default function Notes({
                 }
                 onIconChange={(icon) => currentId && mutateNote(currentId, { icon: icon || "" })}
                 onTogglePin={() => activeDocNote && mutateNote(activeDocNote.id, { pinned: !activeDocNote.pinned })}
+                onToggleToc={(next) => currentId && mutateNote(currentId, { showToc: next }, true)}
                 isDocumentSpace={true}
               />
             </NoteErrorBoundary>
@@ -3455,6 +3480,7 @@ export default function Notes({
                 }
                 onIconChange={(icon) => currentId && mutateNote(currentId, { icon: icon || "" })}
                 onTogglePin={() => activeNote && mutateNote(activeNote.id, { pinned: !activeNote.pinned })}
+                onToggleToc={(next) => currentId && mutateNote(currentId, { showToc: next }, true)}
               />
             </NoteErrorBoundary>
           ) : (

@@ -248,6 +248,13 @@ export const MemoSpace: React.FC<MemoSpaceProps> = ({
 
   return (
     <div className="w-full max-w-6xl mx-auto px-4 py-5 pb-28 space-y-5">
+      {/* ── ページタイトル ── */}
+      <div className="flex items-center justify-between pt-1">
+        <h2 className="text-2xl sm:text-[1.75rem] font-[750] tracking-[-0.03em] leading-tight text-charcoal dark:text-stone-100">
+          メモ
+        </h2>
+      </div>
+
       {/* ── ツールバー（検索・アクション） ── */}
       <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3">
         {/* 検索バー */}
