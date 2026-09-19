@@ -330,25 +330,48 @@ function NavBar({
         left: 0,
         right: 0,
         zIndex: 100,
-        background: "var(--bg-surface-glass)",
-        backdropFilter: "blur(20px) saturate(180%)",
-        WebkitBackdropFilter: "blur(20px) saturate(180%)",
-        boxShadow: "0 1px 0 var(--border-subtle)",
         height: isMobile
           ? "calc(94px + env(safe-area-inset-top, 0px))"
           : "calc(52px + env(safe-area-inset-top, 0px))",
-        paddingTop: "env(safe-area-inset-top, 0px)",
-        paddingLeft: "calc(1rem + env(safe-area-inset-left, 0px))",
-        paddingRight: "calc(1rem + env(safe-area-inset-right, 0px))",
-        paddingBottom: isMobile ? "0.4rem" : "0",
-        boxSizing: "border-box",
-        display: "flex",
-        flexDirection: isMobile ? "column" : "row",
-        alignItems: isMobile ? "stretch" : "center",
-        justifyContent: isMobile ? "space-between" : "space-between",
         transition: "height 0.2s ease",
       }}
     >
+      {/* ─── すりガラス背景専用レイヤー（GPUラスタライズ巻き込み防止） ─── */}
+      <div
+        aria-hidden="true"
+        style={{
+          position: "absolute",
+          inset: 0,
+          background: "var(--bg-surface-glass)",
+          backdropFilter: "blur(20px) saturate(180%)",
+          WebkitBackdropFilter: "blur(20px) saturate(180%)",
+          boxShadow: "0 1px 0 var(--border-subtle)",
+          pointerEvents: "none",
+          transform: "translateZ(0)",
+          WebkitTransform: "translateZ(0)",
+        }}
+      />
+
+      {/* ─── 前面コンテンツレイヤー（独立した合成レイヤーでクッキリ描画） ─── */}
+      <div
+        style={{
+          position: "relative",
+          zIndex: 1,
+          width: "100%",
+          height: "100%",
+          boxSizing: "border-box",
+          paddingTop: "env(safe-area-inset-top, 0px)",
+          paddingLeft: "calc(1rem + env(safe-area-inset-left, 0px))",
+          paddingRight: "calc(1rem + env(safe-area-inset-right, 0px))",
+          paddingBottom: isMobile ? "0.4rem" : "0",
+          display: "flex",
+          flexDirection: isMobile ? "column" : "row",
+          alignItems: isMobile ? "stretch" : "center",
+          justifyContent: "space-between",
+          WebkitFontSmoothing: "antialiased",
+          MozOsxFontSmoothing: "grayscale",
+        }}
+      >
       {/* ─── 上段（PC時は左と右、モバイル時はロゴと右コントロールが1行） ─── */}
       <div
         style={{
@@ -657,6 +680,7 @@ function NavBar({
           </button>
         </div>
       )}
+      </div>
     </header>
   );
 }
