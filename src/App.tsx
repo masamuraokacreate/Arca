@@ -512,13 +512,14 @@ function NavBar({
         style={{
           display: "flex",
           justifyContent: "center",
-          position: isMobile ? "static" : "absolute",
+          position: isMobile ? "relative" : "absolute",
           left: isMobile ? "auto" : "50%",
           top: isMobile ? "auto" : "50%",
-          transform: isMobile ? "none" : "translate(-50%, -50%)",
+          transform: isMobile ? "translateZ(0)" : "translate(-50%, -50%)",
+          WebkitTransform: isMobile ? "translateZ(0)" : "translate(-50%, -50%)",
           width: isMobile ? "100%" : "auto",
           overflowX: "auto",
-          zIndex: 1,
+          zIndex: 10,
         }}
         className="no-scrollbar"
       >
@@ -545,7 +546,8 @@ function NavBar({
               position: "absolute",
               top: indicator.top,
               left: 0,
-              transform: `translate3d(${indicator.left}px, 0, 0)`,
+              transform: `translateX(${indicator.left}px)`,
+              WebkitTransform: `translateX(${indicator.left}px)`,
               width: indicator.width,
               height: indicator.height,
               background: "var(--bg-nav-pill)",
