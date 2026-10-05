@@ -6,6 +6,7 @@
 import { useEffect } from "react";
 import { useTheme, type ThemeMode } from "../context/ThemeContext";
 import { C } from "../lib/designSystem";
+import { useModalAnimation } from "../hooks/useModalAnimation";
 
 interface ThemeModalProps {
   isOpen: boolean;
@@ -88,22 +89,25 @@ const PALETTES: PaletteOption[] = [
 
 export default function ThemeModal({ isOpen, onClose }: ThemeModalProps) {
   const { theme, resolvedTheme, setTheme } = useTheme();
+  const { shouldRender, isClosing, handleClose } = useModalAnimation({ isOpen, onClose });
 
   // Escapeキーで閉じる
   useEffect(() => {
+    if (!shouldRender || isClosing) return;
     const handleKeyDown = (e: KeyboardEvent) => {
-      if (e.key === "Escape" && isOpen) {
-        onClose();
+      if (e.key === "Escape") {
+        handleClose();
       }
     };
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [isOpen, onClose]);
+  }, [shouldRender, isClosing, handleClose]);
 
-  if (!isOpen) return null;
+  if (!shouldRender) return null;
 
   return (
     <div
+      className={`arca-modal-backdrop ${isClosing ? "is-closing" : ""}`}
       style={{
         position: "fixed",
         inset: 0,
@@ -115,14 +119,13 @@ export default function ThemeModal({ isOpen, onClose }: ThemeModalProps) {
         background: "rgba(0, 0, 0, 0.45)",
         backdropFilter: "blur(8px)",
         WebkitBackdropFilter: "blur(8px)",
-        animation: "arca-module-in 0.2s ease-out forwards",
       }}
       onClick={(e) => {
-        if (e.target === e.currentTarget) onClose();
+        if (e.target === e.currentTarget) handleClose();
       }}
     >
       <div
-        className="arca-card"
+        className={`arca-card arca-modal-window ${isClosing ? "is-closing" : ""}`}
         style={{
           width: "100%",
           maxWidth: "520px",
@@ -156,7 +159,7 @@ export default function ThemeModal({ isOpen, onClose }: ThemeModalProps) {
 
           <button
             type="button"
-            onClick={onClose}
+            onClick={handleClose}
             aria-label="閉じる"
             style={{
               background: "var(--bg-nav-track)",

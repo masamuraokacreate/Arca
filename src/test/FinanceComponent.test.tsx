@@ -88,16 +88,26 @@ describe("Finance コンポーネント", () => {
   it("タブ切り替え（分析・グラフ、クレカ明細突合）が機能する", async () => {
     render(<Finance />);
 
+    // 支出一覧タブでは「支出合計」と「件の決済」が表示される
+    expect(screen.getByText(/の支出合計/)).toBeInTheDocument();
+    expect(screen.getByText(/件の決済/)).toBeInTheDocument();
+
     // 「分析・グラフ」タブをクリック
     const analyticsTabBtn = screen.getByText("分析・グラフ");
     fireEvent.click(analyticsTabBtn);
     expect(screen.getByText("カテゴリ別支出内訳")).toBeInTheDocument();
     expect(screen.getByText("割合")).toBeInTheDocument();
+    // 支出合計サマリーカードは非表示になる
+    expect(screen.queryByText(/の支出合計/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/件の決済/)).not.toBeInTheDocument();
 
     // 「クレカ明細確認」タブをクリック
     const reconcileTabBtn = screen.getByText(/クレカ明細確認/);
     fireEvent.click(reconcileTabBtn);
     expect(screen.getByText("クレジットカード明細 CSV インポート")).toBeInTheDocument();
+    // 支出合計サマリーカードは引き続き非表示
+    expect(screen.queryByText(/の支出合計/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/件の決済/)).not.toBeInTheDocument();
   });
 
   it("アコーディオンをクリックすると品目内訳（牛乳、お米）が展開表示される", async () => {

@@ -11,6 +11,7 @@
 
 import { useState, useEffect, useRef } from "react";
 import { C } from "../../lib/designSystem";
+import { useModalAnimation } from "../../hooks/useModalAnimation";
 
 export interface PMSkipReasonModalProps {
   isOpen?: boolean;
@@ -32,7 +33,12 @@ export function PMSkipReasonModal({
   onConfirm,
 }: PMSkipReasonModalProps) {
   const title = taskTitle || itemTitle || "タスク";
-  const handleClose = onClose || onCancel || (() => {});
+  const rawClose = onClose || onCancel || (() => {});
+
+  const { shouldRender, isClosing, handleClose } = useModalAnimation({
+    isOpen,
+    onClose: rawClose,
+  });
 
   const [reason, setReason] = useState("");
   const [selectedChip, setSelectedChip] = useState<string | null>(null);
@@ -40,22 +46,22 @@ export function PMSkipReasonModal({
 
   // マウント時にフォーカス
   useEffect(() => {
-    if (!isOpen) return;
+    if (!shouldRender || isClosing) return;
     const timer = setTimeout(() => textareaRef.current?.focus(), 50);
     return () => clearTimeout(timer);
-  }, [isOpen]);
+  }, [shouldRender, isClosing]);
 
   // Escape キーでキャンセル
   useEffect(() => {
-    if (!isOpen) return;
+    if (!shouldRender || isClosing) return;
     const handleKey = (e: KeyboardEvent) => {
       if (e.key === "Escape") handleClose();
     };
     window.addEventListener("keydown", handleKey);
     return () => window.removeEventListener("keydown", handleKey);
-  }, [isOpen, handleClose]);
+  }, [shouldRender, isClosing, handleClose]);
 
-  if (!isOpen) return null;
+  if (!shouldRender) return null;
 
   const handleChipClick = (chip: string) => {
     if (selectedChip === chip) {
@@ -69,11 +75,13 @@ export function PMSkipReasonModal({
 
   const handleConfirm = () => {
     onConfirm(reason.trim());
+    handleClose();
   };
 
   return (
     <div
       onClick={handleClose}
+      className={`arca-modal-backdrop ${isClosing ? "is-closing" : ""}`}
       style={{
         position: "fixed",
         inset: 0,
@@ -84,12 +92,12 @@ export function PMSkipReasonModal({
         display: "flex",
         alignItems: "flex-end",
         justifyContent: "center",
-        animation: "pm-overlay-in 0.2s ease",
       }}
     >
       {/* ── シート本体 ── */}
       <div
         onClick={(e) => e.stopPropagation()}
+        className={`arca-modal-window ${isClosing ? "is-closing" : ""}`}
         style={{
           width: "100%",
           maxWidth: "540px",
@@ -100,7 +108,6 @@ export function PMSkipReasonModal({
           padding: "1.75rem 1.75rem 2.25rem",
           boxShadow: C.toastShadow,
           border: "1px solid var(--border-subtle)",
-          animation: "pm-sheet-up 0.28s cubic-bezier(0.16, 1, 0.3, 1)",
           boxSizing: "border-box",
         }}
       >

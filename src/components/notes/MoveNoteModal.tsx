@@ -8,10 +8,11 @@
  * 3. 視覚的にわかりやすいインデントツリー表示
  */
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import type { NoteItem } from "../../types";
 import { getHierarchyTreeOptions } from "../../utils/noteHierarchy";
 import { C } from "../../lib/designSystem";
+import { useModalAnimation } from "../../hooks/useModalAnimation";
 
 const FolderMoveModalIcon = () => (
   <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0, color: C.gold }}>
@@ -53,18 +54,36 @@ export function MoveNoteModal({
   const currentParentId = targetNote.parentId ?? null;
   const [selectedParentId, setSelectedParentId] = useState<string | null>(currentParentId);
 
-  if (!isOpen) return null;
+  const { shouldRender, isClosing, handleClose } = useModalAnimation({
+    isOpen,
+    onClose,
+  });
+
+  // Escape キーで閉じる
+  useEffect(() => {
+    if (!shouldRender || isClosing) return;
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === "Escape") {
+        handleClose();
+      }
+    };
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [shouldRender, isClosing, handleClose]);
+
+  if (!shouldRender) return null;
 
   const options = getHierarchyTreeOptions(allNotes, targetNote.id);
   const isCurrentSelection = selectedParentId === currentParentId;
 
   const handleConfirm = () => {
     onMove(targetNote.id, selectedParentId);
-    onClose();
+    handleClose();
   };
 
   return (
     <div
+      className={`arca-modal-backdrop ${isClosing ? "is-closing" : ""}`}
       style={{
         position: "fixed",
         inset: 0,
@@ -77,10 +96,10 @@ export function MoveNoteModal({
         zIndex: 1000,
         padding: "1rem",
       }}
-      onClick={onClose}
+      onClick={handleClose}
     >
       <div
-        className="arca-card"
+        className={`arca-card arca-modal-window ${isClosing ? "is-closing" : ""}`}
         style={{
           background: "var(--bg-card-solid)",
           borderRadius: "20px",

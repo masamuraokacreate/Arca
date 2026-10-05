@@ -12,7 +12,7 @@
  * 7. 【Chef's Review】: 次回の改善点・知見・アレンジメモ
  */
 
-import React, { useState, useRef } from "react";
+import React, { useState, useRef, useEffect } from "react";
 import { createPortal } from "react-dom";
 import type { Recipe, IngredientItem, RecipeStep } from "../../types/recipe";
 import {
@@ -22,6 +22,8 @@ import {
 } from "../../lib/recipeStorage";
 import { parseRecipeWithGemini, type ParsedRecipeResult } from "../../services/recipeParser";
 import { C } from "../../lib/designSystem";
+import { useModalAnimation } from "../../hooks/useModalAnimation";
+import { ConfirmModal } from "../notes/ConfirmModal";
 
 // ── アイコン定義 ──
 const ChevronLeftIcon = () => (
@@ -1480,607 +1482,45 @@ export function RecipeEditor({
       </div>
 
       {/* ─── AI自動抽出モーダルシート ─── */}
-      {showAiInputModal && (
-        <div
-          role="dialog"
-          aria-modal="true"
-          style={{
-            position: "fixed",
-            inset: 0,
-            zIndex: 1100,
-            background: "rgba(0, 0, 0, 0.4)",
-            backdropFilter: "blur(8px)",
-            WebkitBackdropFilter: "blur(8px)",
-            display: "flex",
-            alignItems: "center",
-            justifyContent: "center",
-            padding: "1rem",
-            animation: "arca-fade-in 0.2s ease",
-          }}
-          onClick={() => {
-            if (!isParsingRecipe) setShowAiInputModal(false);
-          }}
-        >
-          <div
-            className="arca-card"
-            style={{
-              width: "100%",
-              maxWidth: "540px",
-              background: "var(--bg-card-solid)",
-              borderRadius: "24px",
-              border: "1px solid var(--border-subtle)",
-              padding: "1.8rem clamp(1.2rem, 4vw, 2rem)",
-              boxShadow: "var(--shadow-modal)",
-              display: "flex",
-              flexDirection: "column",
-              gap: "1.2rem",
-            }}
-            onClick={(e) => e.stopPropagation()}
-          >
-            {/* ヘッダー */}
-            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
-              <div style={{ display: "flex", alignItems: "center", gap: "0.5rem" }}>
-                <span style={{ fontSize: "1.15rem", color: C.goldDark }}>✦</span>
-                <h3 style={{ margin: 0, fontSize: "1.1rem", fontWeight: 750, color: C.charcoal }}>
-                  AI レシピ自動抽出
-                </h3>
-              </div>
-              <button
-                type="button"
-                onClick={() => setShowAiInputModal(false)}
-                disabled={isParsingRecipe}
-                style={{
-                  background: "transparent",
-                  border: "none",
-                  fontSize: "1.2rem",
-                  color: C.charcoalLight,
-                  cursor: "pointer",
-                  padding: "0.2rem 0.5rem",
-                  lineHeight: 1,
-                }}
-              >
-                ✕
-              </button>
-            </div>
+      <AiExtractInputModal
+        isOpen={showAiInputModal}
+        onClose={() => setShowAiInputModal(false)}
+        isParsingRecipe={isParsingRecipe}
+        aiInputText={aiInputText}
+        setAiInputText={setAiInputText}
+        onSubmit={handleRunAiParser}
+      />
 
-            <p style={{ margin: 0, fontSize: "0.82rem", color: C.charcoalMid, lineHeight: 1.5 }}>
-              WebサイトのURLまたは、レシピのテキスト（材料や手順のコピー）を貼り付けてください。Gemini APIが自動で料理名、材料、分量、手順、タグを構造化してセットします。
-            </p>
-
-            {/* 入力テキストエリア */}
-            <textarea
-              value={aiInputText}
-              onChange={(e) => setAiInputText(e.target.value)}
-              placeholder="ここにURL（https://...）またはレシピの文章を貼り付け..."
-              rows={6}
-              disabled={isParsingRecipe}
-              style={{
-                width: "100%",
-                padding: "0.85rem 1rem",
-                borderRadius: "14px",
-                border: "1px solid var(--border-subtle)",
-                background: C.white,
-                fontSize: "0.88rem",
-                lineHeight: 1.6,
-                color: C.charcoal,
-                outline: "none",
-                resize: "vertical",
-                boxSizing: "border-box",
-                fontFamily: "inherit",
-              }}
-            />
-
-            {/* フッターアクションボタン */}
-            <div style={{ display: "flex", justifyContent: "flex-end", gap: "0.75rem", marginTop: "0.2rem" }}>
-              <button
-                type="button"
-                onClick={() => setShowAiInputModal(false)}
-                disabled={isParsingRecipe}
-                style={{
-                  background: "var(--bg-nav-track)",
-                  border: "none",
-                  borderRadius: "11px",
-                  padding: "0.6rem 1.1rem",
-                  fontSize: "0.82rem",
-                  fontWeight: 600,
-                  color: C.charcoalMid,
-                  cursor: "pointer",
-                }}
-              >
-                キャンセル
-              </button>
-              <button
-                type="button"
-                onClick={() => handleRunAiParser(aiInputText)}
-                disabled={isParsingRecipe || !aiInputText.trim()}
-                data-testid="ai-modal-submit-btn"
-                style={{
-                  background: C.gold,
-                  border: "none",
-                  borderRadius: "11px",
-                  padding: "0.6rem 1.4rem",
-                  fontSize: "0.82rem",
-                  fontWeight: 650,
-                  color: "#FDFCFA",
-                  cursor: isParsingRecipe || !aiInputText.trim() ? "default" : "pointer",
-                  display: "inline-flex",
-                  alignItems: "center",
-                  gap: "0.4rem",
-                  opacity: !aiInputText.trim() || isParsingRecipe ? 0.65 : 1,
-                  boxShadow: "0 2px 8px rgba(197, 160, 89, 0.25)",
-                }}
-              >
-                {isParsingRecipe ? (
-                  <>
-                    <span style={{ display: "inline-flex", gap: "2px", alignItems: "center" }}>
-                      {[0, 1, 2].map((i) => (
-                        <span
-                          key={i}
-                          style={{
-                            width: "3px",
-                            height: "3px",
-                            borderRadius: "50%",
-                            backgroundColor: "#FDFCFA",
-                            display: "inline-block",
-                            animation: `aether-pulse 1.2s ease-in-out ${i * 0.2}s infinite`,
-                          }}
-                        />
-                      ))}
-                    </span>
-                    <span>AI解析中…</span>
-                  </>
-                ) : (
-                  <>
-                    <SparklesIcon />
-                    <span>抽出を実行</span>
-                  </>
-                )}
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* ─── 上書き確認モーダル ─── */}
-      {showOverwriteConfirm && pendingParsedData && (
-        <div
-          role="dialog"
-          aria-modal="true"
-          style={{
-            position: "fixed",
-            inset: 0,
-            zIndex: 1200,
-            background: "rgba(0, 0, 0, 0.4)",
-            backdropFilter: "blur(8px)",
-            WebkitBackdropFilter: "blur(8px)",
-            display: "flex",
-            alignItems: "center",
-            justifyContent: "center",
-            padding: "1rem",
-            animation: "arca-fade-in 0.2s ease",
-          }}
-          onClick={() => setShowOverwriteConfirm(false)}
-        >
-          <div
-            className="arca-card"
-            style={{
-              width: "100%",
-              maxWidth: "440px",
-              background: "var(--bg-card-solid)",
-              borderRadius: "20px",
-              border: "1px solid var(--border-subtle)",
-              padding: "1.8rem clamp(1.2rem, 4vw, 1.8rem)",
-              boxShadow: "var(--shadow-modal)",
-              display: "flex",
-              flexDirection: "column",
-              gap: "1.2rem",
-            }}
-            onClick={(e) => e.stopPropagation()}
-          >
-            <h3 style={{ margin: 0, fontSize: "1.05rem", fontWeight: 750, color: C.charcoal }}>
-              入力内容を上書きしますか？
-            </h3>
-            <p style={{ margin: 0, fontSize: "0.85rem", color: C.charcoalMid, lineHeight: 1.6 }}>
-              現在エディタに入力されているレシピ内容を、AIで抽出した「{pendingParsedData.title}」の情報で上書きします。
-            </p>
-            <div style={{ display: "flex", justifyContent: "flex-end", gap: "0.65rem", marginTop: "0.4rem" }}>
-              <button
-                type="button"
-                onClick={() => {
-                  setShowOverwriteConfirm(false);
-                  setPendingParsedData(null);
-                }}
-                style={{
-                  background: "rgba(0, 0, 0, 0.05)",
-                  border: "none",
-                  borderRadius: "10px",
-                  padding: "0.55rem 1rem",
-                  fontSize: "0.82rem",
-                  fontWeight: 600,
-                  color: C.charcoalMid,
-                  cursor: "pointer",
-                }}
-              >
-                キャンセル
-              </button>
-              <button
-                type="button"
-                onClick={() => {
-                  applyParsedData(pendingParsedData);
-                  setShowOverwriteConfirm(false);
-                  setPendingParsedData(null);
-                  setAiInputText("");
-                }}
-                style={{
-                  background: C.gold,
-                  border: "none",
-                  borderRadius: "10px",
-                  padding: "0.55rem 1.25rem",
-                  fontSize: "0.82rem",
-                  fontWeight: 650,
-                  color: "#FDFCFA",
-                  cursor: "pointer",
-                  boxShadow: "0 2px 8px rgba(197, 160, 89, 0.25)",
-                }}
-              >
-                上書きする
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
+      {/* ─── 上書き確認モーダル (ConfirmModal) ─── */}
+      <ConfirmModal
+        isOpen={showOverwriteConfirm && !!pendingParsedData}
+        title="入力内容を上書きしますか？"
+        message={`現在エディタに入力されているレシピ内容を、AIで抽出した「${pendingParsedData?.title || ""}」の情報で上書きします。`}
+        confirmLabel="上書きする"
+        cancelLabel="キャンセル"
+        isDestructive={false}
+        onConfirm={() => {
+          if (pendingParsedData) {
+            applyParsedData(pendingParsedData);
+            setShowOverwriteConfirm(false);
+            setPendingParsedData(null);
+            setAiInputText("");
+          }
+        }}
+        onCancel={() => {
+          setShowOverwriteConfirm(false);
+          setPendingParsedData(null);
+        }}
+      />
 
       {/* ─── クリップボード画像 貼り付け先選択モーダル ─── */}
-      {pasteCandidateImage &&
-        createPortal(
-          <div
-            className="arca-modal-overlay"
-            data-testid="paste-target-modal"
-            style={{
-              position: "fixed",
-              inset: 0,
-              zIndex: 2000,
-              background: "rgba(0, 0, 0, 0.45)",
-              backdropFilter: "blur(10px)",
-              WebkitBackdropFilter: "blur(10px)",
-              display: "flex",
-              alignItems: "center",
-              justifyContent: "center",
-              padding: "1rem",
-              boxSizing: "border-box",
-            }}
-            onClick={() => setPasteCandidateImage(null)}
-          >
-            <div
-              className="arca-card"
-              style={{
-                width: "100%",
-                maxWidth: "460px",
-                background: "var(--bg-card-solid)",
-                borderRadius: "24px",
-                border: "1px solid var(--border-subtle)",
-                boxShadow: "var(--shadow-modal)",
-                display: "flex",
-                flexDirection: "column",
-                overflow: "hidden",
-                animation: "arca-modal-pop 0.22s cubic-bezier(0.16, 1, 0.3, 1)",
-              }}
-              onClick={(e) => e.stopPropagation()}
-            >
-              {/* モーダルヘッダー */}
-              <div
-                style={{
-                  padding: "1.4rem 1.6rem 1rem",
-                  borderBottom: "1px solid var(--border-subtle)",
-                  display: "flex",
-                  alignItems: "center",
-                  justifyContent: "space-between",
-                }}
-              >
-                <div>
-                  <h3
-                    style={{
-                      margin: 0,
-                      fontSize: "1.05rem",
-                      fontWeight: 750,
-                      color: C.charcoal,
-                      letterSpacing: "-0.01em",
-                    }}
-                  >
-                    画像の貼り付け先を選択
-                  </h3>
-                  <p
-                    style={{
-                      margin: "0.25rem 0 0",
-                      fontSize: "0.76rem",
-                      color: C.charcoalLight,
-                    }}
-                  >
-                    この画像をどの箇所に貼り付けますか？
-                  </p>
-                </div>
-                <button
-                  type="button"
-                  onClick={() => setPasteCandidateImage(null)}
-                  style={{
-                    background: "none",
-                    border: "none",
-                    padding: "0.4rem",
-                    cursor: "pointer",
-                    color: C.charcoalLight,
-                    borderRadius: "8px",
-                  }}
-                  aria-label="閉じる"
-                >
-                  ✕
-                </button>
-              </div>
-
-              {/* 貼り付け候補画像のプレビュー */}
-              <div
-                style={{
-                  padding: "0.8rem 1.6rem",
-                  background: "rgba(0, 0, 0, 0.02)",
-                  display: "flex",
-                  justifyContent: "center",
-                  alignItems: "center",
-                  borderBottom: "1px solid var(--border-subtle)",
-                }}
-              >
-                <img
-                  src={pasteCandidateImage}
-                  alt="Paste preview"
-                  data-testid="paste-image-preview"
-                  style={{
-                    maxHeight: "130px",
-                    maxWidth: "100%",
-                    borderRadius: "12px",
-                    objectFit: "contain",
-                    boxShadow: "0 2px 8px rgba(0,0,0,0.08)",
-                  }}
-                />
-              </div>
-
-              {/* 選択肢リスト（スクロール可能） */}
-              <div
-                style={{
-                  padding: "0.8rem 1.2rem",
-                  maxHeight: "300px",
-                  overflowY: "auto",
-                  display: "flex",
-                  flexDirection: "column",
-                  gap: "0.45rem",
-                }}
-              >
-                {/* 1. 完成写真 */}
-                <button
-                  type="button"
-                  onClick={() => handleApplyPasteTarget("cover")}
-                  data-testid="paste-target-cover"
-                  style={{
-                    display: "flex",
-                    alignItems: "center",
-                    gap: "0.85rem",
-                    padding: "0.75rem 0.9rem",
-                    borderRadius: "14px",
-                    border: "1px solid var(--border-subtle)",
-                    background: C.white,
-                    cursor: "pointer",
-                    textAlign: "left",
-                    transition: "all 0.15s ease",
-                  }}
-                  onMouseEnter={(e) => {
-                    e.currentTarget.style.borderColor = C.gold;
-                    e.currentTarget.style.background = C.goldFaint;
-                  }}
-                  onMouseLeave={(e) => {
-                    e.currentTarget.style.borderColor = "var(--border-subtle)";
-                    e.currentTarget.style.background = C.white;
-                  }}
-                >
-                  <div
-                    style={{
-                      width: "34px",
-                      height: "34px",
-                      borderRadius: "10px",
-                      background: C.goldFaint,
-                      color: C.goldDark,
-                      display: "flex",
-                      alignItems: "center",
-                      justifyContent: "center",
-                      flexShrink: 0,
-                    }}
-                  >
-                    <CameraIcon />
-                  </div>
-                  <div style={{ flex: 1, minWidth: 0 }}>
-                    <div style={{ fontSize: "0.85rem", fontWeight: 700, color: C.charcoal }}>
-                      完成写真（メイン画像）
-                    </div>
-                    <div style={{ fontSize: "0.72rem", color: C.charcoalLight, marginTop: "1px" }}>
-                      {imageUrl ? "現在の完成写真を置き換えます" : "料理のメイン写真として設定します"}
-                    </div>
-                  </div>
-                  {imageUrl && (
-                    <span
-                      style={{
-                        fontSize: "0.68rem",
-                        padding: "0.15rem 0.45rem",
-                        borderRadius: "6px",
-                        background: C.goldFaint2,
-                        color: C.goldDark,
-                        fontWeight: 600,
-                        flexShrink: 0,
-                      }}
-                    >
-                      置換
-                    </span>
-                  )}
-                </button>
-
-                {/* 2. 各手順（ステップ） */}
-                {steps.map((step, idx) => (
-                  <button
-                    key={step.id}
-                    type="button"
-                    onClick={() => handleApplyPasteTarget({ stepId: step.id })}
-                    data-testid={`paste-target-step-${idx}`}
-                    style={{
-                      display: "flex",
-                      alignItems: "center",
-                      gap: "0.85rem",
-                      padding: "0.75rem 0.9rem",
-                      borderRadius: "14px",
-                      border: "1px solid var(--border-subtle)",
-                      background: C.white,
-                      cursor: "pointer",
-                      textAlign: "left",
-                      transition: "all 0.15s ease",
-                    }}
-                    onMouseEnter={(e) => {
-                      e.currentTarget.style.borderColor = C.gold;
-                      e.currentTarget.style.background = C.goldFaint;
-                    }}
-                    onMouseLeave={(e) => {
-                      e.currentTarget.style.borderColor = "var(--border-subtle)";
-                      e.currentTarget.style.background = C.white;
-                    }}
-                  >
-                    <div
-                      style={{
-                        width: "34px",
-                        height: "34px",
-                        borderRadius: "10px",
-                        background: C.gold,
-                        color: "#fff",
-                        fontSize: "0.85rem",
-                        fontWeight: 700,
-                        display: "flex",
-                        alignItems: "center",
-                        justifyContent: "center",
-                        flexShrink: 0,
-                      }}
-                    >
-                      {idx + 1}
-                    </div>
-                    <div style={{ flex: 1, minWidth: 0 }}>
-                      <div style={{ fontSize: "0.85rem", fontWeight: 700, color: C.charcoal }}>
-                        ステップ {idx + 1}
-                      </div>
-                      <div
-                        style={{
-                          fontSize: "0.72rem",
-                          color: C.charcoalLight,
-                          marginTop: "1px",
-                          overflow: "hidden",
-                          textOverflow: "ellipsis",
-                          whiteSpace: "nowrap",
-                        }}
-                      >
-                        {step.text.trim() || "（手順テキスト未入力）"}
-                      </div>
-                    </div>
-                    {step.imageUrl && (
-                      <span
-                        style={{
-                          fontSize: "0.68rem",
-                          padding: "0.15rem 0.45rem",
-                          borderRadius: "6px",
-                          background: C.goldFaint2,
-                          color: C.goldDark,
-                          fontWeight: 600,
-                          flexShrink: 0,
-                        }}
-                      >
-                        写真あり
-                      </span>
-                    )}
-                  </button>
-                ))}
-
-                {/* 3. 新しいステップを追加して設定 */}
-                <button
-                  type="button"
-                  onClick={() => handleApplyPasteTarget("newStep")}
-                  data-testid="paste-target-new-step"
-                  style={{
-                    display: "flex",
-                    alignItems: "center",
-                    gap: "0.85rem",
-                    padding: "0.75rem 0.9rem",
-                    borderRadius: "14px",
-                    border: "1.5px dashed var(--border-subtle)",
-                    background: "rgba(0,0,0,0.01)",
-                    cursor: "pointer",
-                    textAlign: "left",
-                    transition: "all 0.15s ease",
-                  }}
-                  onMouseEnter={(e) => {
-                    e.currentTarget.style.borderColor = C.gold;
-                    e.currentTarget.style.background = C.goldFaint;
-                  }}
-                  onMouseLeave={(e) => {
-                    e.currentTarget.style.borderColor = "var(--border-subtle)";
-                    e.currentTarget.style.background = "rgba(0,0,0,0.01)";
-                  }}
-                >
-                  <div
-                    style={{
-                      width: "34px",
-                      height: "34px",
-                      borderRadius: "10px",
-                      background: C.goldFaint2,
-                      color: C.goldDark,
-                      display: "flex",
-                      alignItems: "center",
-                      justifyContent: "center",
-                      flexShrink: 0,
-                    }}
-                  >
-                    <PlusIcon />
-                  </div>
-                  <div style={{ flex: 1, minWidth: 0 }}>
-                    <div style={{ fontSize: "0.85rem", fontWeight: 700, color: C.goldDark }}>
-                      ＋ 新しいステップを追加して設定
-                    </div>
-                    <div style={{ fontSize: "0.72rem", color: C.charcoalLight, marginTop: "1px" }}>
-                      新しい手順を作成し、そこに写真を登録します
-                    </div>
-                  </div>
-                </button>
-              </div>
-
-              {/* モーダルフッター */}
-              <div
-                style={{
-                  padding: "0.8rem 1.6rem 1.2rem",
-                  borderTop: "1px solid var(--border-subtle)",
-                  display: "flex",
-                  justifyContent: "flex-end",
-                }}
-              >
-                <button
-                  type="button"
-                  data-testid="paste-modal-cancel"
-                  onClick={() => setPasteCandidateImage(null)}
-                  style={{
-                    background: "rgba(0, 0, 0, 0.05)",
-                    border: "none",
-                    borderRadius: "10px",
-                    padding: "0.55rem 1.2rem",
-                    fontSize: "0.82rem",
-                    fontWeight: 600,
-                    color: C.charcoalMid,
-                    cursor: "pointer",
-                  }}
-                >
-                  キャンセル
-                </button>
-              </div>
-            </div>
-          </div>,
-          document.body
-        )}
+      <PasteTargetChoiceModal
+        candidateImage={pasteCandidateImage}
+        onClose={() => setPasteCandidateImage(null)}
+        onApplyTarget={handleApplyPasteTarget}
+        imageUrl={imageUrl}
+        steps={steps}
+      />
 
       {/* ─── ピル型トースト通知 ─── */}
       {toastMessage && (
@@ -2119,5 +1559,592 @@ export function RecipeEditor({
         </div>
       )}
     </div>
+  );
+}
+
+// ─────────────────────────────────────────
+// AIレシピ自動抽出モーダル
+// ─────────────────────────────────────────
+function AiExtractInputModal({
+  isOpen,
+  onClose,
+  isParsingRecipe,
+  aiInputText,
+  setAiInputText,
+  onSubmit,
+}: {
+  isOpen: boolean;
+  onClose: () => void;
+  isParsingRecipe: boolean;
+  aiInputText: string;
+  setAiInputText: (val: string) => void;
+  onSubmit: (text: string) => void;
+}) {
+  const { shouldRender, isClosing, handleClose } = useModalAnimation({
+    isOpen,
+    onClose,
+  });
+
+  useEffect(() => {
+    if (!shouldRender || isClosing) return;
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === "Escape" && !isParsingRecipe) handleClose();
+    };
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [shouldRender, isClosing, handleClose, isParsingRecipe]);
+
+  if (!shouldRender) return null;
+
+  return (
+    <div
+      role="dialog"
+      aria-modal="true"
+      className={`arca-modal-backdrop ${isClosing ? "is-closing" : ""}`}
+      style={{
+        position: "fixed",
+        inset: 0,
+        zIndex: 1100,
+        background: "rgba(0, 0, 0, 0.4)",
+        backdropFilter: "blur(8px)",
+        WebkitBackdropFilter: "blur(8px)",
+        display: "flex",
+        alignItems: "center",
+        justifyContent: "center",
+        padding: "1rem",
+      }}
+      onClick={() => {
+        if (!isParsingRecipe) handleClose();
+      }}
+    >
+      <div
+        className={`arca-card arca-modal-window ${isClosing ? "is-closing" : ""}`}
+        style={{
+          width: "100%",
+          maxWidth: "540px",
+          background: "var(--bg-card-solid)",
+          borderRadius: "24px",
+          border: "1px solid var(--border-subtle)",
+          padding: "1.8rem clamp(1.2rem, 4vw, 2rem)",
+          boxShadow: "var(--shadow-modal)",
+          display: "flex",
+          flexDirection: "column",
+          gap: "1.2rem",
+        }}
+        onClick={(e) => e.stopPropagation()}
+      >
+        {/* ヘッダー */}
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+          <div style={{ display: "flex", alignItems: "center", gap: "0.5rem" }}>
+            <span style={{ fontSize: "1.15rem", color: C.goldDark }}>✦</span>
+            <h3 style={{ margin: 0, fontSize: "1.1rem", fontWeight: 750, color: C.charcoal }}>
+              AI レシピ自動抽出
+            </h3>
+          </div>
+          <button
+            type="button"
+            onClick={handleClose}
+            disabled={isParsingRecipe}
+            style={{
+              background: "transparent",
+              border: "none",
+              fontSize: "1.2rem",
+              color: C.charcoalLight,
+              cursor: "pointer",
+              padding: "0.2rem 0.5rem",
+              lineHeight: 1,
+            }}
+          >
+            ✕
+          </button>
+        </div>
+
+        <p style={{ margin: 0, fontSize: "0.82rem", color: C.charcoalMid, lineHeight: 1.5 }}>
+          WebサイトのURLまたは、レシピのテキスト（材料や手順のコピー）を貼り付けてください。Gemini APIが自動で料理名、材料、分量、手順、タグを構造化してセットします。
+        </p>
+
+        {/* 入力テキストエリア */}
+        <textarea
+          value={aiInputText}
+          onChange={(e) => setAiInputText(e.target.value)}
+          placeholder="ここにURL（https://...）またはレシピの文章を貼り付け..."
+          rows={6}
+          disabled={isParsingRecipe}
+          style={{
+            width: "100%",
+            padding: "0.85rem 1rem",
+            borderRadius: "14px",
+            border: "1px solid var(--border-subtle)",
+            background: C.white,
+            fontSize: "0.88rem",
+            lineHeight: 1.6,
+            color: C.charcoal,
+            outline: "none",
+            resize: "vertical",
+            boxSizing: "border-box",
+            fontFamily: "inherit",
+          }}
+        />
+
+        {/* フッターアクションボタン */}
+        <div style={{ display: "flex", justifyContent: "flex-end", gap: "0.75rem", marginTop: "0.2rem" }}>
+          <button
+            type="button"
+            onClick={handleClose}
+            disabled={isParsingRecipe}
+            style={{
+              background: "var(--bg-nav-track)",
+              border: "none",
+              borderRadius: "11px",
+              padding: "0.6rem 1.1rem",
+              fontSize: "0.82rem",
+              fontWeight: 600,
+              color: C.charcoalMid,
+              cursor: "pointer",
+            }}
+          >
+            キャンセル
+          </button>
+          <button
+            type="button"
+            onClick={() => onSubmit(aiInputText)}
+            disabled={isParsingRecipe || !aiInputText.trim()}
+            data-testid="ai-modal-submit-btn"
+            style={{
+              background: C.gold,
+              border: "none",
+              borderRadius: "11px",
+              padding: "0.6rem 1.4rem",
+              fontSize: "0.82rem",
+              fontWeight: 650,
+              color: "#FDFCFA",
+              cursor: isParsingRecipe || !aiInputText.trim() ? "default" : "pointer",
+              display: "inline-flex",
+              alignItems: "center",
+              gap: "0.4rem",
+              opacity: !aiInputText.trim() || isParsingRecipe ? 0.65 : 1,
+              boxShadow: "0 2px 8px rgba(197, 160, 89, 0.25)",
+            }}
+          >
+            {isParsingRecipe ? (
+              <>
+                <span style={{ display: "inline-flex", gap: "2px", alignItems: "center" }}>
+                  {[0, 1, 2].map((i) => (
+                    <span
+                      key={i}
+                      style={{
+                        width: "3px",
+                        height: "3px",
+                        borderRadius: "50%",
+                        backgroundColor: "#FDFCFA",
+                        display: "inline-block",
+                        animation: `aether-pulse 1.2s ease-in-out ${i * 0.2}s infinite`,
+                      }}
+                    />
+                  ))}
+                </span>
+                <span>AI解析中…</span>
+              </>
+            ) : (
+              <>
+                <SparklesIcon />
+                <span>抽出を実行</span>
+              </>
+            )}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ─────────────────────────────────────────
+// クリップボード画像 貼り付け先選択モーダル
+// ─────────────────────────────────────────
+function PasteTargetChoiceModal({
+  candidateImage,
+  onClose,
+  onApplyTarget,
+  imageUrl,
+  steps,
+}: {
+  candidateImage: string | null;
+  onClose: () => void;
+  onApplyTarget: (target: "cover" | "newStep" | { stepId: string }) => void;
+  imageUrl?: string | null;
+  steps: RecipeStep[];
+}) {
+  const { shouldRender, isClosing, handleClose } = useModalAnimation({
+    isOpen: !!candidateImage,
+    onClose,
+  });
+
+  useEffect(() => {
+    if (!shouldRender || isClosing) return;
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === "Escape") handleClose();
+    };
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [shouldRender, isClosing, handleClose]);
+
+  if (!shouldRender || !candidateImage) return null;
+
+  return createPortal(
+    <div
+      className={`arca-modal-overlay arca-modal-backdrop ${isClosing ? "is-closing" : ""}`}
+      data-testid="paste-target-modal"
+      style={{
+        position: "fixed",
+        inset: 0,
+        zIndex: 2000,
+        background: "rgba(0, 0, 0, 0.45)",
+        backdropFilter: "blur(10px)",
+        WebkitBackdropFilter: "blur(10px)",
+        display: "flex",
+        alignItems: "center",
+        justifyContent: "center",
+        padding: "1rem",
+        boxSizing: "border-box",
+      }}
+      onClick={handleClose}
+    >
+      <div
+        className={`arca-card arca-modal-window ${isClosing ? "is-closing" : ""}`}
+        style={{
+          width: "100%",
+          maxWidth: "460px",
+          background: "var(--bg-card-solid)",
+          borderRadius: "24px",
+          border: "1px solid var(--border-subtle)",
+          boxShadow: "var(--shadow-modal)",
+          display: "flex",
+          flexDirection: "column",
+          overflow: "hidden",
+        }}
+        onClick={(e) => e.stopPropagation()}
+      >
+        {/* モーダルヘッダー */}
+        <div
+          style={{
+            padding: "1.4rem 1.6rem 1rem",
+            borderBottom: "1px solid var(--border-subtle)",
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "space-between",
+          }}
+        >
+          <div>
+            <h3
+              style={{
+                margin: 0,
+                fontSize: "1.05rem",
+                fontWeight: 750,
+                color: C.charcoal,
+                letterSpacing: "-0.01em",
+              }}
+            >
+              画像の貼り付け先を選択
+            </h3>
+            <p
+              style={{
+                margin: "0.25rem 0 0",
+                fontSize: "0.76rem",
+                color: C.charcoalLight,
+              }}
+            >
+              この画像をどの箇所に貼り付けますか？
+            </p>
+          </div>
+          <button
+            type="button"
+            onClick={handleClose}
+            style={{
+              background: "none",
+              border: "none",
+              padding: "0.4rem",
+              cursor: "pointer",
+              color: C.charcoalLight,
+              borderRadius: "8px",
+            }}
+            aria-label="閉じる"
+          >
+            ✕
+          </button>
+        </div>
+
+        {/* 貼り付け候補画像のプレビュー */}
+        <div
+          style={{
+            padding: "0.8rem 1.6rem",
+            background: "rgba(0, 0, 0, 0.02)",
+            display: "flex",
+            justifyContent: "center",
+            alignItems: "center",
+            borderBottom: "1px solid var(--border-subtle)",
+          }}
+        >
+          <img
+            src={candidateImage}
+            alt="Paste preview"
+            data-testid="paste-image-preview"
+            style={{
+              maxHeight: "130px",
+              maxWidth: "100%",
+              borderRadius: "12px",
+              objectFit: "contain",
+              boxShadow: "0 2px 8px rgba(0,0,0,0.08)",
+            }}
+          />
+        </div>
+
+        {/* 選択肢リスト（スクロール可能） */}
+        <div
+          style={{
+            padding: "0.8rem 1.2rem",
+            maxHeight: "300px",
+            overflowY: "auto",
+            display: "flex",
+            flexDirection: "column",
+            gap: "0.45rem",
+          }}
+        >
+          {/* 1. 完成写真 */}
+          <button
+            type="button"
+            onClick={() => {
+              onApplyTarget("cover");
+              handleClose();
+            }}
+            data-testid="paste-target-cover"
+            style={{
+              display: "flex",
+              alignItems: "center",
+              gap: "0.85rem",
+              padding: "0.75rem 0.9rem",
+              borderRadius: "14px",
+              border: "1px solid var(--border-subtle)",
+              background: C.white,
+              cursor: "pointer",
+              textAlign: "left",
+              transition: "all 0.15s ease",
+            }}
+            onMouseEnter={(e) => {
+              e.currentTarget.style.borderColor = C.gold;
+              e.currentTarget.style.background = C.goldFaint;
+            }}
+            onMouseLeave={(e) => {
+              e.currentTarget.style.borderColor = "var(--border-subtle)";
+              e.currentTarget.style.background = C.white;
+            }}
+          >
+            <div
+              style={{
+                width: "34px",
+                height: "34px",
+                borderRadius: "10px",
+                background: C.goldFaint,
+                color: C.goldDark,
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "center",
+                flexShrink: 0,
+              }}
+            >
+              <CameraIcon />
+            </div>
+            <div style={{ flex: 1, minWidth: 0 }}>
+              <div style={{ fontSize: "0.85rem", fontWeight: 750, color: C.charcoal }}>
+                完成写真（メイン画像）
+              </div>
+              <div style={{ fontSize: "0.72rem", color: C.charcoalLight, marginTop: "1px" }}>
+                {imageUrl ? "現在の完成写真を置き換えます" : "料理のメイン写真として設定します"}
+              </div>
+            </div>
+            {imageUrl && (
+              <span
+                style={{
+                  fontSize: "0.68rem",
+                  padding: "0.15rem 0.45rem",
+                  borderRadius: "6px",
+                  background: C.goldFaint2,
+                  color: C.goldDark,
+                  fontWeight: 600,
+                  flexShrink: 0,
+                }}
+              >
+                置換
+              </span>
+            )}
+          </button>
+
+          {/* 2. 各手順（ステップ） */}
+          {steps.map((step, idx) => (
+            <button
+              key={step.id}
+              type="button"
+              onClick={() => {
+                onApplyTarget({ stepId: step.id });
+                handleClose();
+              }}
+              data-testid={`paste-target-step-${idx}`}
+              style={{
+                display: "flex",
+                alignItems: "center",
+                gap: "0.85rem",
+                padding: "0.75rem 0.9rem",
+                borderRadius: "14px",
+                border: "1px solid var(--border-subtle)",
+                background: C.white,
+                cursor: "pointer",
+                textAlign: "left",
+                transition: "all 0.15s ease",
+              }}
+              onMouseEnter={(e) => {
+                e.currentTarget.style.borderColor = C.gold;
+                e.currentTarget.style.background = C.goldFaint;
+              }}
+              onMouseLeave={(e) => {
+                e.currentTarget.style.borderColor = "var(--border-subtle)";
+                e.currentTarget.style.background = C.white;
+              }}
+            >
+              <div
+                style={{
+                  width: "34px",
+                  height: "34px",
+                  borderRadius: "10px",
+                  background: C.gold,
+                  color: "#fff",
+                  fontSize: "0.85rem",
+                  fontWeight: 700,
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "center",
+                  flexShrink: 0,
+                }}
+              >
+                {idx + 1}
+              </div>
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <div style={{ fontSize: "0.85rem", fontWeight: 700, color: C.charcoal }}>
+                  ステップ {idx + 1}
+                </div>
+                <div
+                  style={{
+                    fontSize: "0.72rem",
+                    color: C.charcoalLight,
+                    marginTop: "1px",
+                    overflow: "hidden",
+                    textOverflow: "ellipsis",
+                    whiteSpace: "nowrap",
+                  }}
+                >
+                  {step.text.trim() || "（手順テキスト未入力）"}
+                </div>
+              </div>
+              {step.imageUrl && (
+                <span
+                  style={{
+                    fontSize: "0.68rem",
+                    padding: "0.15rem 0.45rem",
+                    borderRadius: "6px",
+                    background: C.goldFaint2,
+                    color: C.goldDark,
+                    fontWeight: 600,
+                    flexShrink: 0,
+                  }}
+                >
+                  写真あり
+                </span>
+              )}
+            </button>
+          ))}
+
+          {/* 3. 新しいステップを追加して設定 */}
+          <button
+            type="button"
+            onClick={() => {
+              onApplyTarget("newStep");
+              handleClose();
+            }}
+            data-testid="paste-target-new-step"
+            style={{
+              display: "flex",
+              alignItems: "center",
+              gap: "0.85rem",
+              padding: "0.75rem 0.9rem",
+              borderRadius: "14px",
+              border: "1.5px dashed var(--border-subtle)",
+              background: "rgba(0,0,0,0.01)",
+              cursor: "pointer",
+              textAlign: "left",
+              transition: "all 0.15s ease",
+            }}
+            onMouseEnter={(e) => {
+              e.currentTarget.style.borderColor = C.gold;
+              e.currentTarget.style.background = C.goldFaint;
+            }}
+            onMouseLeave={(e) => {
+              e.currentTarget.style.borderColor = "var(--border-subtle)";
+              e.currentTarget.style.background = "rgba(0,0,0,0.01)";
+            }}
+          >
+            <div
+              style={{
+                width: "34px",
+                height: "34px",
+                borderRadius: "10px",
+                background: C.goldFaint2,
+                color: C.goldDark,
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "center",
+                flexShrink: 0,
+              }}
+            >
+              <PlusIcon />
+            </div>
+            <div style={{ flex: 1, minWidth: 0 }}>
+              <div style={{ fontSize: "0.85rem", fontWeight: 700, color: C.goldDark }}>
+                ＋ 新しいステップを追加して設定
+              </div>
+              <div style={{ fontSize: "0.72rem", color: C.charcoalLight, marginTop: "1px" }}>
+                新しい手順を作成し、そこに写真を登録します
+              </div>
+            </div>
+          </button>
+        </div>
+
+        {/* モーダルフッター */}
+        <div
+          style={{
+            padding: "0.8rem 1.6rem 1.2rem",
+            borderTop: "1px solid var(--border-subtle)",
+            display: "flex",
+            justifyContent: "flex-end",
+          }}
+        >
+          <button
+            type="button"
+            data-testid="paste-modal-cancel"
+            onClick={handleClose}
+            style={{
+              background: "rgba(0, 0, 0, 0.05)",
+              border: "none",
+              borderRadius: "10px",
+              padding: "0.55rem 1.2rem",
+              fontSize: "0.82rem",
+              fontWeight: 600,
+              color: C.charcoalMid,
+              cursor: "pointer",
+            }}
+          >
+            キャンセル
+          </button>
+        </div>
+      </div>
+    </div>,
+    document.body
   );
 }

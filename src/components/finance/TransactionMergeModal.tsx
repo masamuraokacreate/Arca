@@ -8,11 +8,12 @@
  * - Matte Gold (#C5A059) を基調とした上質なカードデザイン
  */
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { Link, Check, Receipt, CreditCard, ArrowRight, X } from "lucide-react";
 import type { ExpenseTransaction } from "../../types/finance";
 import { formatCurrency } from "../../utils/financeSummary";
 import { C } from "../../lib/designSystem";
+import { useModalAnimation } from "../../hooks/useModalAnimation";
 
 interface TransactionMergeModalProps {
   isOpen: boolean;
@@ -30,15 +31,28 @@ export function TransactionMergeModal({
   onConfirmMerge,
 }: TransactionMergeModalProps) {
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const { shouldRender, isClosing, handleClose } = useModalAnimation({ isOpen, onClose });
 
-  if (!isOpen || !manualOrOcrTx || !emailTx) return null;
+  // Escapeキーで閉じる
+  useEffect(() => {
+    if (!shouldRender || isClosing || isSubmitting) return;
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === "Escape") {
+        handleClose();
+      }
+    };
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [shouldRender, isClosing, isSubmitting, handleClose]);
+
+  if (!shouldRender || !manualOrOcrTx || !emailTx) return null;
 
   const handleConfirm = async () => {
     if (isSubmitting) return;
     setIsSubmitting(true);
     try {
       await onConfirmMerge(manualOrOcrTx, emailTx);
-      onClose();
+      handleClose();
     } catch (err) {
       console.error("[TransactionMergeModal] Error merging transactions:", err);
     } finally {
@@ -50,6 +64,7 @@ export function TransactionMergeModal({
 
   return (
     <div
+      className={`arca-modal-backdrop ${isClosing ? "is-closing" : ""}`}
       style={{
         position: "fixed",
         inset: 0,
@@ -61,12 +76,11 @@ export function TransactionMergeModal({
         alignItems: "center",
         justifyContent: "center",
         padding: "1rem",
-        animation: "arca-fade-in 0.15s ease-out",
       }}
-      onClick={isSubmitting ? undefined : onClose}
+      onClick={isSubmitting ? undefined : handleClose}
     >
       <div
-        className="arca-card"
+        className={`arca-card arca-modal-window ${isClosing ? "is-closing" : ""}`}
         style={{
           background: "var(--bg-card-solid)",
           borderRadius: C.radiusModal,
@@ -77,7 +91,6 @@ export function TransactionMergeModal({
           border: "1px solid var(--border-subtle)",
           display: "flex",
           flexDirection: "column",
-          animation: "arca-modal-pop 0.2s cubic-bezier(0.16, 1, 0.3, 1)",
         }}
         onClick={(e) => e.stopPropagation()}
       >
@@ -126,7 +139,7 @@ export function TransactionMergeModal({
           </div>
 
           <button
-            onClick={onClose}
+            onClick={handleClose}
             disabled={isSubmitting}
             style={{
               background: "transparent",
@@ -330,7 +343,7 @@ export function TransactionMergeModal({
           }}
         >
           <button
-            onClick={onClose}
+            onClick={handleClose}
             disabled={isSubmitting}
             style={{
               background: "transparent",

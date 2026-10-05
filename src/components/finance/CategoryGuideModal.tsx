@@ -3,9 +3,11 @@
  * Arca — Finance 支出カテゴリ分類ガイド モーダル (Sprint 10.13)
  */
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
+import { BookOpen } from "lucide-react";
 import { CATEGORY_GUIDE_DATA, type ExpenseCategory } from "../../types/finance";
 import { C } from "../../lib/designSystem";
+import { useModalAnimation } from "../../hooks/useModalAnimation";
 
 interface CategoryGuideModalProps {
   isOpen: boolean;
@@ -21,8 +23,21 @@ export function CategoryGuideModal({
   selectedCategory,
 }: CategoryGuideModalProps) {
   const [searchQuery, setSearchQuery] = useState("");
+  const { shouldRender, isClosing, handleClose } = useModalAnimation({ isOpen, onClose });
 
-  if (!isOpen) return null;
+  // Escapeキーで閉じる
+  useEffect(() => {
+    if (!shouldRender || isClosing) return;
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === "Escape") {
+        handleClose();
+      }
+    };
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [shouldRender, isClosing, handleClose]);
+
+  if (!shouldRender) return null;
 
   const filteredGuides = CATEGORY_GUIDE_DATA.filter((item) => {
     if (!searchQuery.trim()) return true;
@@ -35,6 +50,7 @@ export function CategoryGuideModal({
 
   return (
     <div
+      className={`arca-modal-backdrop ${isClosing ? "is-closing" : ""}`}
       style={{
         position: "fixed",
         inset: 0,
@@ -47,11 +63,11 @@ export function CategoryGuideModal({
         backdropFilter: "blur(8px)",
       }}
       onClick={(e) => {
-        if (e.target === e.currentTarget) onClose();
+        if (e.target === e.currentTarget) handleClose();
       }}
     >
       <div
-        className="arca-card"
+        className={`arca-card arca-modal-window ${isClosing ? "is-closing" : ""}`}
         style={{
           width: "100%",
           maxWidth: "720px",
@@ -87,7 +103,7 @@ export function CategoryGuideModal({
                 gap: "0.5rem",
               }}
             >
-              <span>📖</span>
+              <BookOpen size={18} color={C.goldDark} />
               <span>支出カテゴリ分類ガイド</span>
             </h2>
             <p
@@ -104,7 +120,7 @@ export function CategoryGuideModal({
           </div>
 
           <button
-            onClick={onClose}
+            onClick={handleClose}
             aria-label="閉じる"
             style={{
               background: "transparent",

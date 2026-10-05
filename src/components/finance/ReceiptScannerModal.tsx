@@ -9,13 +9,14 @@
  * - Aether Core の静かなゴールドスキャニングUI
  */
 
-import { useState, useRef } from "react";
+import { useState, useRef, useEffect } from "react";
 import type { ReceiptOcrResult } from "../../types/finance";
 import {
   compressReceiptImage,
   parseReceiptWithGemini,
 } from "../../services/receiptOcrService";
 import { C } from "../../lib/designSystem";
+import { useModalAnimation } from "../../hooks/useModalAnimation";
 
 interface ReceiptScannerModalProps {
   isOpen: boolean;
@@ -35,7 +36,21 @@ export function ReceiptScannerModal({
   const cameraInputRef = useRef<HTMLInputElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
-  if (!isOpen) return null;
+  const { shouldRender, isClosing, handleClose } = useModalAnimation({ isOpen, onClose });
+
+  // Escapeキーで閉じる
+  useEffect(() => {
+    if (!shouldRender || isClosing || isScanning) return;
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === "Escape") {
+        handleClose();
+      }
+    };
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [shouldRender, isClosing, isScanning, handleClose]);
+
+  if (!shouldRender) return null;
 
   const handleProcessFile = async (file: File) => {
     setIsScanning(true);
@@ -85,6 +100,7 @@ export function ReceiptScannerModal({
 
   return (
     <div
+      className={`arca-modal-backdrop ${isClosing ? "is-closing" : ""}`}
       style={{
         position: "fixed",
         inset: 0,
@@ -96,12 +112,11 @@ export function ReceiptScannerModal({
         alignItems: "center",
         justifyContent: "center",
         padding: "1rem",
-        animation: "arca-fade-in 0.18s ease-out",
       }}
-      onClick={isScanning ? undefined : onClose}
+      onClick={isScanning ? undefined : handleClose}
     >
       <div
-        className="arca-card"
+        className={`arca-card arca-modal-window ${isClosing ? "is-closing" : ""}`}
         style={{
           background: "var(--bg-card-solid)",
           borderRadius: C.radiusModal,
@@ -112,7 +127,6 @@ export function ReceiptScannerModal({
           border: "1px solid var(--border-subtle)",
           display: "flex",
           flexDirection: "column",
-          animation: "arca-modal-pop 0.22s cubic-bezier(0.16, 1, 0.3, 1)",
         }}
         onClick={(e) => e.stopPropagation()}
       >
@@ -144,7 +158,7 @@ export function ReceiptScannerModal({
           </div>
           {!isScanning && (
             <button
-              onClick={onClose}
+              onClick={handleClose}
               aria-label="閉じる"
               style={{
                 background: "transparent",

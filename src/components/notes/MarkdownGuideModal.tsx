@@ -11,6 +11,7 @@
 
 import { useState, useEffect, useRef } from "react";
 import { C } from "../../lib/designSystem";
+import { useModalAnimation } from "../../hooks/useModalAnimation";
 
 interface GuideItem {
   id: string;
@@ -113,19 +114,22 @@ export function MarkdownGuideModal({
     return () => window.removeEventListener("keydown", handleKeyDown);
   }, [isOpen, onClose]);
 
-  // モーダル外クリックで閉じる
-  useEffect(() => {
-    if (!isOpen) return;
-    const handleMouseDown = (e: MouseEvent) => {
-      if (modalRef.current && !modalRef.current.contains(e.target as Node)) {
-        onClose();
-      }
-    };
-    document.addEventListener("mousedown", handleMouseDown);
-    return () => document.removeEventListener("mousedown", handleMouseDown);
-  }, [isOpen, onClose]);
+  const { shouldRender, isClosing, handleClose } = useModalAnimation({
+    isOpen,
+    onClose,
+  });
 
-  if (!isOpen) return null;
+  // Escapeキーで閉じる
+  useEffect(() => {
+    if (!shouldRender || isClosing) return;
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === "Escape") handleClose();
+    };
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [shouldRender, isClosing, handleClose]);
+
+  if (!shouldRender) return null;
 
   const filteredCategories = GUIDE_CATEGORIES.map((cat) => {
     if (selectedCategory !== "all" && cat.title !== selectedCategory) {
@@ -146,6 +150,7 @@ export function MarkdownGuideModal({
 
   return (
     <div
+      className={`arca-modal-backdrop ${isClosing ? "is-closing" : ""}`}
       style={{
         position: "fixed",
         inset: 0,
@@ -158,13 +163,14 @@ export function MarkdownGuideModal({
         backdropFilter: "blur(8px)",
         WebkitBackdropFilter: "blur(8px)",
       }}
+      onClick={handleClose}
       aria-modal="true"
       role="dialog"
       aria-label="Markdown 構文ガイド"
     >
       <div
         ref={modalRef}
-        className="arca-view-in"
+        className={`arca-modal-window ${isClosing ? "is-closing" : ""}`}
         style={{
           width: "100%",
           maxWidth: "680px",
@@ -179,6 +185,7 @@ export function MarkdownGuideModal({
           overflow: "hidden",
           border: "1px solid var(--border-subtle)",
         }}
+        onClick={(e) => e.stopPropagation()}
       >
         {/* ── ヘッダー ── */}
         <div

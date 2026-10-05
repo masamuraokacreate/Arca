@@ -13,6 +13,7 @@
 
 import React, { useState, useEffect, useMemo } from "react";
 import { createPortal } from "react-dom";
+import { useModalAnimation } from "../../hooks/useModalAnimation";
 import {
   ArrowLeft,
   Star,
@@ -596,35 +597,63 @@ export function RecipeDetail({
       )}
 
       {/* ────── 4. 画像拡大モーダル (Lightbox) ────── */}
-      {previewImageUrl &&
-        createPortal(
-          <div
-            className="fixed inset-0 z-[2000] flex items-center justify-center bg-black/80 backdrop-blur-md p-4 animate-in fade-in duration-200"
-            onClick={() => setPreviewImageUrl(null)}
-            data-testid="recipe-image-preview-modal"
-          >
-            <div
-              className="relative max-w-4xl max-h-[90vh] flex flex-col items-center justify-center"
-              onClick={(e) => e.stopPropagation()}
-            >
-              <button
-                type="button"
-                onClick={() => setPreviewImageUrl(null)}
-                className="absolute -top-12 right-0 sm:-right-10 text-white/80 hover:text-white bg-black/40 hover:bg-black/60 rounded-full p-2 backdrop-blur-sm transition-colors cursor-pointer"
-                title="閉じる"
-                aria-label="閉じる"
-              >
-                <X className="w-6 h-6" />
-              </button>
-              <img
-                src={previewImageUrl}
-                alt="拡大表示プレビュー"
-                className="max-w-full max-h-[85vh] object-contain rounded-xl shadow-2xl ring-1 ring-white/10"
-              />
-            </div>
-          </div>,
-          document.body
-        )}
+      <ImageLightboxModal
+        imageUrl={previewImageUrl}
+        onClose={() => setPreviewImageUrl(null)}
+      />
     </div>
+  );
+}
+
+function ImageLightboxModal({
+  imageUrl,
+  onClose,
+}: {
+  imageUrl: string | null;
+  onClose: () => void;
+}) {
+  const { shouldRender, isClosing, handleClose } = useModalAnimation({
+    isOpen: !!imageUrl,
+    onClose,
+  });
+
+  useEffect(() => {
+    if (!shouldRender || isClosing) return;
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === "Escape") handleClose();
+    };
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [shouldRender, isClosing, handleClose]);
+
+  if (!shouldRender || !imageUrl) return null;
+
+  return createPortal(
+    <div
+      className={`fixed inset-0 z-[2000] flex items-center justify-center bg-black/80 backdrop-blur-md p-4 arca-modal-backdrop ${isClosing ? "is-closing" : ""}`}
+      onClick={handleClose}
+      data-testid="recipe-image-preview-modal"
+    >
+      <div
+        className={`relative max-w-4xl max-h-[90vh] flex flex-col items-center justify-center arca-modal-window ${isClosing ? "is-closing" : ""}`}
+        onClick={(e) => e.stopPropagation()}
+      >
+        <button
+          type="button"
+          onClick={handleClose}
+          className="absolute -top-12 right-0 sm:-right-10 text-white/80 hover:text-white bg-black/40 hover:bg-black/60 rounded-full p-2 backdrop-blur-sm transition-colors cursor-pointer"
+          title="閉じる"
+          aria-label="閉じる"
+        >
+          <X className="w-6 h-6" />
+        </button>
+        <img
+          src={imageUrl}
+          alt="拡大表示プレビュー"
+          className="max-w-full max-h-[85vh] object-contain rounded-xl shadow-2xl ring-1 ring-white/10"
+        />
+      </div>
+    </div>,
+    document.body
   );
 }

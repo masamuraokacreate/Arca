@@ -28,6 +28,7 @@ import { ConfirmModal } from "../notes/ConfirmModal";
 import { useUndoToast } from "../../hooks/useUndoToast";
 import { UndoToast } from "../common/UndoToast";
 import { C } from "../../lib/designSystem";
+import { useModalAnimation } from "../../hooks/useModalAnimation";
 
 // ── アイコン定義 ──
 const PlusIcon = () => (
@@ -86,6 +87,25 @@ export default function Recipes({ onNavigateToLists, onDetailViewChange, initial
   const [isFabMenuOpen, setIsFabMenuOpen] = useState(false);
   const [isSearchModalOpen, setIsSearchModalOpen] = useState(false);
   const searchInputRef = useRef<HTMLInputElement>(null);
+
+  const {
+    shouldRender: shouldRenderSearchModal,
+    isClosing: isClosingSearchModal,
+    handleClose: handleCloseSearchModal,
+  } = useModalAnimation({
+    isOpen: isSearchModalOpen,
+    onClose: () => setIsSearchModalOpen(false),
+  });
+
+  // Escape キーで検索モーダルを閉じる
+  useEffect(() => {
+    if (!shouldRenderSearchModal || isClosingSearchModal) return;
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === "Escape") handleCloseSearchModal();
+    };
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [shouldRenderSearchModal, isClosingSearchModal, handleCloseSearchModal]);
 
   // 画面幅によるレスポンシブ自動判定（モバイル: リスト表示、PC/iPad等: 四角のグリッドカード表示）
   const [isDesktop, setIsDesktop] = useState<boolean>(() =>
@@ -793,9 +813,10 @@ export default function Recipes({ onNavigateToLists, onDetailViewChange, initial
       )}
 
       {/* ── レシピ検索・絞り込みポップアップモーダル ── */}
-      {isSearchModalOpen && (
+      {shouldRenderSearchModal && (
         <div
           data-testid="recipe-search-modal-overlay"
+          className={`arca-modal-backdrop ${isClosingSearchModal ? "is-closing" : ""}`}
           style={{
             position: "fixed",
             inset: 0,
@@ -807,12 +828,11 @@ export default function Recipes({ onNavigateToLists, onDetailViewChange, initial
             alignItems: "center",
             justifyContent: "center",
             padding: "1rem",
-            animation: "arca-fade-in 0.15s ease-out",
           }}
-          onClick={() => setIsSearchModalOpen(false)}
+          onClick={handleCloseSearchModal}
         >
           <div
-            className="arca-card"
+            className={`arca-card arca-modal-window ${isClosingSearchModal ? "is-closing" : ""}`}
             style={{
               background: "var(--bg-card-solid)",
               borderRadius: "16px",
@@ -822,7 +842,6 @@ export default function Recipes({ onNavigateToLists, onDetailViewChange, initial
               maxWidth: "480px",
               maxHeight: "85vh",
               overflowY: "auto",
-              animation: "arca-modal-pop 0.2s cubic-bezier(0.16, 1, 0.3, 1)",
               boxSizing: "border-box",
             }}
             onClick={(e) => e.stopPropagation()}
@@ -836,7 +855,7 @@ export default function Recipes({ onNavigateToLists, onDetailViewChange, initial
                 </h3>
               </div>
               <button
-                onClick={() => setIsSearchModalOpen(false)}
+                onClick={handleCloseSearchModal}
                 style={{
                   background: "transparent",
                   border: "none",
@@ -1048,7 +1067,7 @@ export default function Recipes({ onNavigateToLists, onDetailViewChange, initial
                   リセット
                 </button>
                 <button
-                  onClick={() => setIsSearchModalOpen(false)}
+                  onClick={handleCloseSearchModal}
                   style={{
                     flex: 1,
                     background: C.gold,

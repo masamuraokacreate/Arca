@@ -16,6 +16,7 @@ import { Clock, Sun, Check, X } from "lucide-react";
 import type { CalendarEvent, SyncStatus, PMSettings } from "../../types";
 import { C } from "../../lib/designSystem";
 import { getFourDayWorkBlock, isWorkEvent } from "../../services/pmCycleService";
+import { useModalAnimation } from "../../hooks/useModalAnimation";
 
 export interface ShiftEditModalProps {
   isOpen: boolean;
@@ -109,17 +110,19 @@ export function ShiftEditModal({
     prevOpenRef.current = isOpen;
   }, [isOpen, targetDate, events]);
 
+  const { shouldRender, isClosing, handleClose } = useModalAnimation({ isOpen, onClose });
+
   // Escapeキーで閉じる
   useEffect(() => {
-    if (!isOpen) return;
+    if (!shouldRender || isClosing) return;
     const handleKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") onClose();
+      if (e.key === "Escape") handleClose();
     };
     window.addEventListener("keydown", handleKey);
     return () => window.removeEventListener("keydown", handleKey);
-  }, [isOpen, onClose]);
+  }, [shouldRender, isClosing, handleClose]);
 
-  if (!isOpen) return null;
+  if (!shouldRender) return null;
 
   // プリセット選択ハンドラ
   const handleSelectPreset = (preset: ShiftPreset) => {
@@ -146,7 +149,7 @@ export function ShiftEditModal({
         endTime: endTime.trim(),
         scope,
       });
-      onClose();
+      handleClose();
     } finally {
       setSaving(false);
     }
@@ -165,7 +168,8 @@ export function ShiftEditModal({
 
   return (
     <div
-      onClick={onClose}
+      onClick={handleClose}
+      className={`arca-modal-backdrop ${isClosing ? "is-closing" : ""}`}
       style={{
         position: "fixed",
         inset: 0,
@@ -178,13 +182,12 @@ export function ShiftEditModal({
         justifyContent: "center",
         padding: "1rem",
         boxSizing: "border-box",
-        animation: "arca-overlay-in 0.18s ease",
       }}
       data-testid="shift-edit-modal-overlay"
     >
       <div
         onClick={(e) => e.stopPropagation()}
-        className="arca-card"
+        className={`arca-card arca-modal-window ${isClosing ? "is-closing" : ""}`}
         style={{
           width: "100%",
           maxWidth: "480px",
@@ -218,7 +221,7 @@ export function ShiftEditModal({
 
           <button
             type="button"
-            onClick={onClose}
+            onClick={handleClose}
             style={{
               background: "rgba(0, 0, 0, 0.04)",
               border: "none",

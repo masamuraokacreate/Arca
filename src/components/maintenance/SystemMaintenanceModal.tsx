@@ -7,8 +7,9 @@
  * - references/apple_hig_master.md: 洗練されたSVGアイコン、二重多層シャドウ、44pxタップ領域
  */
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { C } from "../../lib/designSystem";
+import { useModalAnimation } from "../../hooks/useModalAnimation";
 import { DbInspectorTab } from "./DbInspectorTab";
 import { LogTracerTab } from "./LogTracerTab";
 import { BackupTab } from "./BackupTab";
@@ -17,16 +18,17 @@ import {
   Database,
   Activity,
   ShieldCheck,
+  RotateCw,
   X,
 } from "lucide-react";
 
 export interface SystemMaintenanceModalProps {
   isOpen: boolean;
   onClose: () => void;
-  initialTab?: "db" | "tracer" | "backup";
+  initialTab?: "db" | "tracer" | "backup" | "pm";
 }
 
-type MainTab = "db" | "tracer" | "backup";
+type MainTab = "db" | "tracer" | "backup" | "pm";
 
 export function SystemMaintenanceModal({
   isOpen,
@@ -34,11 +36,25 @@ export function SystemMaintenanceModal({
   initialTab = "db",
 }: SystemMaintenanceModalProps) {
   const [activeTab, setActiveTab] = useState<MainTab>(initialTab);
+  const { shouldRender, isClosing, handleClose } = useModalAnimation({ isOpen, onClose });
 
-  if (!isOpen) return null;
+  // Escapeキーで閉じる
+  useEffect(() => {
+    if (!shouldRender || isClosing) return;
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === "Escape") {
+        handleClose();
+      }
+    };
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [shouldRender, isClosing, handleClose]);
+
+  if (!shouldRender) return null;
 
   return (
     <div
+      className={`arca-modal-backdrop ${isClosing ? "is-closing" : ""}`}
       style={{
         position: "fixed",
         inset: 0,
@@ -50,13 +66,12 @@ export function SystemMaintenanceModal({
         alignItems: "center",
         justifyContent: "center",
         padding: "calc(1.2rem + env(safe-area-inset-top, 0px)) 1rem calc(1.2rem + env(safe-area-inset-bottom, 0px))",
-        animation: "arca-fade-in 0.16s ease-out",
         boxSizing: "border-box",
       }}
-      onClick={onClose}
+      onClick={handleClose}
     >
       <div
-        className="arca-card"
+        className={`arca-card arca-modal-window ${isClosing ? "is-closing" : ""}`}
         data-testid="system-maintenance-modal"
         style={{
           background: "var(--bg-card-solid, #FDFCFA)",
@@ -71,7 +86,6 @@ export function SystemMaintenanceModal({
           flexDirection: "column",
           overflow: "hidden",
           border: "none",
-          animation: "arca-modal-pop 0.22s cubic-bezier(0.16, 1, 0.3, 1)",
         }}
         onClick={(e) => e.stopPropagation()}
       >
@@ -119,7 +133,7 @@ export function SystemMaintenanceModal({
           </div>
 
           <button
-            onClick={onClose}
+            onClick={handleClose}
             aria-label="閉じる"
             style={{
               width: "44px",
@@ -179,6 +193,29 @@ export function SystemMaintenanceModal({
           </button>
 
           <button
+            onClick={() => setActiveTab("pm")}
+            data-testid="maint-tab-pm"
+            style={{
+              display: "inline-flex",
+              alignItems: "center",
+              gap: "0.4rem",
+              padding: "0.45rem 0.95rem",
+              borderRadius: "9999px",
+              border: "none",
+              fontSize: "0.8rem",
+              fontWeight: activeTab === "pm" ? 700 : 550,
+              background: activeTab === "pm" ? "rgba(197, 160, 89, 0.16)" : "transparent",
+              color: activeTab === "pm" ? C.goldDark : C.charcoalMid,
+              cursor: "pointer",
+              whiteSpace: "nowrap",
+              transition: "all 0.15s ease",
+            }}
+          >
+            <RotateCw size={15} />
+            <span>PM保全</span>
+          </button>
+
+          <button
             onClick={() => setActiveTab("tracer")}
             data-testid="maint-tab-tracer"
             style={{
@@ -235,6 +272,7 @@ export function SystemMaintenanceModal({
           }}
         >
           {activeTab === "db" && <DbInspectorTab />}
+          {activeTab === "pm" && <DbInspectorTab defaultCollection="pm_masters" />}
           {activeTab === "tracer" && <LogTracerTab />}
           {activeTab === "backup" && <BackupTab />}
         </div>

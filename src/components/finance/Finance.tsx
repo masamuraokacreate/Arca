@@ -56,6 +56,7 @@ import { ReceiptScannerModal } from "./ReceiptScannerModal";
 import { ConfirmModal } from "../notes/ConfirmModal";
 import { useUndoToast } from "../../hooks/useUndoToast";
 import { UndoToast } from "../common/UndoToast";
+import { useModalAnimation } from "../../hooks/useModalAnimation";
 import { C } from "../../lib/designSystem";
 import { Plus, Camera, Mail, SlidersHorizontal, X } from "lucide-react";
 import { logger } from "../../services/loggerService";
@@ -664,104 +665,12 @@ export default function Finance() {
           </div>
         </div>
 
-        {/* ── Apple HIG風カード型サマリー ── */}
-        <div
-          style={{
-            maxWidth: "1280px",
-            marginInline: "auto",
-            marginBottom: "0.85rem",
-            background: "var(--bg-card-solid)",
-            borderRadius: "16px",
-            padding: "0.85rem 1.15rem",
-            boxShadow: "0 1px 3px rgba(0,0,0,0.04), 0 4px 12px rgba(0,0,0,0.03)",
-            border: "1px solid var(--border-subtle)",
-            display: "flex",
-            flexDirection: "column",
-            gap: "0.4rem",
-          }}
-        >
-          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: "0.5rem" }}>
-            {/* メイン: 今月の支出合計 */}
-            <div>
-              <span style={{ fontSize: "0.72rem", color: C.charcoalLight, fontWeight: 600 }}>
-                {formatMonthLabel(selectedMonth)}の支出合計
-              </span>
-              <div
-                style={{
-                  fontSize: "1.55rem",
-                  fontWeight: 800,
-                  color: C.charcoal,
-                  letterSpacing: "-0.03em",
-                  lineHeight: 1.15,
-                  marginTop: "0.08rem",
-                }}
-              >
-                {formatCurrency(monthlySummary.totalExpense)}
-              </div>
-            </div>
-
-            {/* サブ: 取引件数 ＆ 未突合バッジ */}
-            <div style={{ display: "flex", alignItems: "center", gap: "0.45rem", flexWrap: "wrap" }}>
-              <span
-                style={{
-                  fontSize: "0.74rem",
-                  fontWeight: 650,
-                  color: C.charcoalMid,
-                  background: "var(--bg-nav-track)",
-                  padding: "0.2rem 0.55rem",
-                  borderRadius: "8px",
-                  whiteSpace: "nowrap",
-                }}
-              >
-                {monthlySummary.transactionCount}件の決済
-              </span>
-            </div>
-          </div>
-
-          {/* 安心インジケータ（照合完了時） */}
-          {currentMonthReconciledInfo.isReconciled && (
-            <div
-              style={{
-                display: "flex",
-                alignItems: "center",
-                gap: "0.4rem",
-                paddingTop: "0.35rem",
-                borderTop: "1px solid rgba(0,0,0,0.04)",
-                fontSize: "0.74rem",
-                color: "#2E7D32",
-                fontWeight: 650,
-              }}
-            >
-              <span
-                style={{
-                  display: "inline-flex",
-                  alignItems: "center",
-                  justifyContent: "center",
-                  width: "15px",
-                  height: "15px",
-                  borderRadius: "50%",
-                  background: C.sage,
-                  color: "#FFF",
-                  fontSize: "0.62rem",
-                  fontWeight: 800,
-                  flexShrink: 0,
-                }}
-              >
-                ✓
-              </span>
-              <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-                {currentMonthReconciledInfo.label}
-              </span>
-            </div>
-          )}
-        </div>
-
         {/* ── メインタブバー（横幅均等セグメントコントロール） ── */}
         <div
           style={{
             maxWidth: "1280px",
             marginInline: "auto",
-            marginBottom: "0.75rem",
+            marginBottom: "0.85rem",
             display: "flex",
             background: "var(--bg-nav-track)",
             padding: "3px",
@@ -842,6 +751,100 @@ export default function Finance() {
             <span>クレカ明細確認</span>
           </button>
         </div>
+
+        {/* ── Apple HIG風カード型サマリー（支出一覧タブ選択時のみ表示） ── */}
+        {activeTab === "transactions" && (
+          <div
+            style={{
+              maxWidth: "1280px",
+              marginInline: "auto",
+              marginBottom: "0.85rem",
+              background: "var(--bg-card-solid)",
+              borderRadius: "16px",
+              padding: "0.85rem 1.15rem",
+              boxShadow: "0 1px 3px rgba(0,0,0,0.04), 0 4px 12px rgba(0,0,0,0.03)",
+              border: "1px solid var(--border-subtle)",
+              display: "flex",
+              flexDirection: "column",
+              gap: "0.4rem",
+            }}
+          >
+            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: "0.5rem" }}>
+              {/* メイン: 今月の支出合計 */}
+              <div>
+                <span style={{ fontSize: "0.72rem", color: C.charcoalLight, fontWeight: 600 }}>
+                  {formatMonthLabel(selectedMonth)}の支出合計
+                </span>
+                <div
+                  style={{
+                    fontSize: "1.55rem",
+                    fontWeight: 800,
+                    color: C.charcoal,
+                    letterSpacing: "-0.03em",
+                    lineHeight: 1.15,
+                    marginTop: "0.08rem",
+                  }}
+                >
+                  {formatCurrency(monthlySummary.totalExpense)}
+                </div>
+              </div>
+
+              {/* サブ: 取引件数 ＆ 未突合バッジ */}
+              <div style={{ display: "flex", alignItems: "center", gap: "0.45rem", flexWrap: "wrap" }}>
+                <span
+                  style={{
+                    fontSize: "0.74rem",
+                    fontWeight: 650,
+                    color: C.charcoalMid,
+                    background: "var(--bg-nav-track)",
+                    padding: "0.2rem 0.55rem",
+                    borderRadius: "8px",
+                    whiteSpace: "nowrap",
+                  }}
+                >
+                  {monthlySummary.transactionCount}件の決済
+                </span>
+              </div>
+            </div>
+
+            {/* 安心インジケータ（照合完了時） */}
+            {currentMonthReconciledInfo.isReconciled && (
+              <div
+                style={{
+                  display: "flex",
+                  alignItems: "center",
+                  gap: "0.4rem",
+                  paddingTop: "0.35rem",
+                  borderTop: "1px solid rgba(0,0,0,0.04)",
+                  fontSize: "0.74rem",
+                  color: "#2E7D32",
+                  fontWeight: 650,
+                }}
+              >
+                <span
+                  style={{
+                    display: "inline-flex",
+                    alignItems: "center",
+                    justifyContent: "center",
+                    width: "15px",
+                    height: "15px",
+                    borderRadius: "50%",
+                    background: C.sage,
+                    color: "#FFF",
+                    fontSize: "0.62rem",
+                    fontWeight: 800,
+                    flexShrink: 0,
+                  }}
+                >
+                  ✓
+                </span>
+                <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                  {currentMonthReconciledInfo.label}
+                </span>
+              </div>
+            )}
+          </div>
+        )}
 
         {/* ── 検索バー ＆ 詳細絞り込みボタン ── */}
         {activeTab === "transactions" && (
@@ -1195,249 +1198,19 @@ export default function Finance() {
       )}
 
       {/* ── 詳細絞り込みポップアップ（画面中央モーダル） ── */}
-      {isFilterModalOpen && (
-        <div
-          style={{
-            position: "fixed",
-            inset: 0,
-            zIndex: 150,
-            backgroundColor: "rgba(0, 0, 0, 0.45)",
-            backdropFilter: "blur(4px)",
-            WebkitBackdropFilter: "blur(4px)",
-            display: "flex",
-            alignItems: "center",
-            justifyContent: "center",
-            padding: "1rem",
-            animation: "arca-fade-in 0.15s ease-out",
-          }}
-          onClick={() => setIsFilterModalOpen(false)}
-        >
-          <div
-            className="arca-card"
-            style={{
-              background: "var(--bg-card-solid)",
-              borderRadius: "16px",
-              padding: "1.3rem 1.4rem",
-              boxShadow: "var(--shadow-modal)",
-              width: "100%",
-              maxWidth: "480px",
-              maxHeight: "85vh",
-              overflowY: "auto",
-              animation: "arca-modal-pop 0.2s cubic-bezier(0.16, 1, 0.3, 1)",
-              boxSizing: "border-box",
-            }}
-            onClick={(e) => e.stopPropagation()}
-          >
-            {/* ヘッダー */}
-            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: "1.1rem" }}>
-              <div style={{ display: "flex", alignItems: "center", gap: "0.45rem" }}>
-                <SlidersHorizontal size={17} color={C.goldDark} />
-                <h3 style={{ fontSize: "0.95rem", fontWeight: 700, color: C.charcoal, margin: 0 }}>
-                  詳細絞り込み
-                </h3>
-              </div>
-              <button
-                onClick={() => setIsFilterModalOpen(false)}
-                style={{
-                  background: "transparent",
-                  border: "none",
-                  cursor: "pointer",
-                  color: C.charcoalLight,
-                  padding: "0.2rem",
-                  display: "flex",
-                  alignItems: "center",
-                  justifyContent: "center",
-                }}
-              >
-                <X size={18} />
-              </button>
-            </div>
-
-            <div style={{ display: "flex", flexDirection: "column", gap: "1.1rem" }}>
-              {/* 支払方法で絞り込み */}
-              <div>
-                <label style={{ fontSize: "0.75rem", fontWeight: 700, color: C.charcoalMid, display: "block", marginBottom: "0.5rem" }}>
-                  支払方法で絞り込み
-                </label>
-                <div style={{ display: "flex", flexWrap: "wrap", gap: "0.4rem" }}>
-                  <button
-                    onClick={() => setSelectedPaymentMethod("all")}
-                    style={{
-                      display: "inline-flex",
-                      alignItems: "center",
-                      padding: "0.35rem 0.75rem",
-                      borderRadius: "9999px",
-                      border: "none",
-                      fontSize: "0.74rem",
-                      fontWeight: selectedPaymentMethod === "all" ? 650 : 500,
-                      background: selectedPaymentMethod === "all" ? "var(--bg-nav-pill)" : "var(--bg-nav-track)",
-                      color: selectedPaymentMethod === "all" ? "var(--text-main)" : "#555",
-                      boxShadow: selectedPaymentMethod === "all" ? "0 1px 4px rgba(0,0,0,0.08)" : "none",
-                      cursor: "pointer",
-                      transition: "all 0.15s ease",
-                    }}
-                  >
-                    すべての支払方法
-                  </button>
-
-                  {PAYMENT_METHODS.map((pm) => {
-                    const isSelected = selectedPaymentMethod === pm;
-                    const status = currentMonthReconcileMap.get(pm);
-                    const isReconciled = Boolean(status?.isReconciled);
-
-                    return (
-                      <button
-                        key={pm}
-                        data-testid={`card-filter-${pm}`}
-                        onClick={() => setSelectedPaymentMethod(pm)}
-                        title={`${formatMonthLabel(selectedMonth)} ${pm} ${isReconciled ? "照合完了" : "未照合"}（バッジクリックで手動切替）`}
-                        style={{
-                          display: "inline-flex",
-                          alignItems: "center",
-                          gap: "0.35rem",
-                          padding: "0.35rem 0.75rem",
-                          borderRadius: "9999px",
-                          border: "none",
-                          fontSize: "0.74rem",
-                          fontWeight: isSelected ? 650 : 500,
-                          background: isSelected ? "var(--bg-nav-pill)" : "var(--bg-nav-track)",
-                          color: isSelected ? "var(--text-main)" : "#4A4A4A",
-                          boxShadow: isSelected ? "0 1px 4px rgba(0,0,0,0.08)" : "none",
-                          cursor: "pointer",
-                          transition: "all 0.15s ease",
-                        }}
-                      >
-                        <span>{pm}</span>
-
-                        {/* 照合ステータスバッジ（クリックで手動トグル可能） */}
-                        <span
-                          data-testid={`reconcile-badge-${pm}`}
-                          onClick={(e) => handleToggleCardReconcile(pm, e)}
-                          title={
-                            isReconciled
-                              ? `${formatMonthLabel(selectedMonth)} ${pm} 照合完了（クリックで未照合に変更）`
-                              : `${formatMonthLabel(selectedMonth)} ${pm} 未照合（クリックで照合済みに変更）`
-                          }
-                          style={{
-                            display: "inline-flex",
-                            alignItems: "center",
-                            justifyContent: "center",
-                            width: "15px",
-                            height: "15px",
-                            borderRadius: "50%",
-                            fontSize: "0.62rem",
-                            fontWeight: 750,
-                            background: isReconciled ? C.sage : "rgba(128, 128, 128, 0.18)",
-                            color: isReconciled ? "#FFFFFF" : "#555",
-                            transition: "all 0.15s ease",
-                            cursor: "pointer",
-                            lineHeight: 1,
-                          }}
-                        >
-                          {isReconciled ? "✓" : "○"}
-                        </span>
-                      </button>
-                    );
-                  })}
-                </div>
-              </div>
-
-              {/* カテゴリ */}
-              <div>
-                <label style={{ fontSize: "0.75rem", fontWeight: 700, color: C.charcoalMid, display: "block", marginBottom: "0.4rem" }}>
-                  カテゴリ
-                </label>
-                <select
-                  value={selectedCategory}
-                  onChange={(e) => setSelectedCategory(e.target.value)}
-                  style={{
-                    width: "100%",
-                    background: "var(--bg-nav-track)",
-                    border: "1px solid var(--border-subtle)",
-                    borderRadius: "10px",
-                    padding: "0.52rem 0.75rem",
-                    fontSize: "0.82rem",
-                    color: C.charcoal,
-                    outline: "none",
-                  }}
-                >
-                  <option value="all">すべてのカテゴリ</option>
-                  {EXPENSE_CATEGORIES.map((cat) => (
-                    <option key={cat} value={cat}>
-                      {cat}
-                    </option>
-                  ))}
-                </select>
-              </div>
-
-              {/* 照合状態 */}
-              <div>
-                <label style={{ fontSize: "0.75rem", fontWeight: 700, color: C.charcoalMid, display: "block", marginBottom: "0.4rem" }}>
-                  CSV照合状態
-                </label>
-                <select
-                  value={reconcileFilter}
-                  onChange={(e) => setReconcileFilter(e.target.value as any)}
-                  style={{
-                    width: "100%",
-                    background: "var(--bg-nav-track)",
-                    border: "1px solid var(--border-subtle)",
-                    borderRadius: "10px",
-                    padding: "0.52rem 0.75rem",
-                    fontSize: "0.82rem",
-                    color: C.charcoal,
-                    outline: "none",
-                  }}
-                >
-                  <option value="all">すべて表示</option>
-                  <option value="reconciled">照合済のみ</option>
-                  <option value="unreconciled">未照合のみ</option>
-                </select>
-              </div>
-
-              {/* リセット & 適用ボタン */}
-              <div style={{ display: "flex", gap: "0.6rem", marginTop: "0.4rem" }}>
-                <button
-                  onClick={() => {
-                    setSelectedPaymentMethod("all");
-                    setSelectedCategory("all");
-                    setReconcileFilter("all");
-                  }}
-                  style={{
-                    flex: 1,
-                    background: "transparent",
-                    border: "1px solid var(--border-subtle)",
-                    borderRadius: "10px",
-                    padding: "0.55rem",
-                    fontSize: "0.82rem",
-                    fontWeight: 650,
-                    color: C.charcoalMid,
-                    cursor: "pointer",
-                  }}
-                >
-                  リセット
-                </button>
-                <button
-                  onClick={() => setIsFilterModalOpen(false)}
-                  style={{
-                    flex: 1,
-                    background: C.gold,
-                    border: "none",
-                    borderRadius: "10px",
-                    padding: "0.55rem",
-                    fontSize: "0.82rem",
-                    fontWeight: 700,
-                    color: "#FFF",
-                    cursor: "pointer",
-                  }}
-                >
-                  閉じる
-                </button>
-              </div>
-            </div>
-          </div>
-        </div>
-      )}
+      <FinanceFilterModal
+        isOpen={isFilterModalOpen}
+        onClose={() => setIsFilterModalOpen(false)}
+        selectedPaymentMethod={selectedPaymentMethod}
+        setSelectedPaymentMethod={setSelectedPaymentMethod}
+        currentMonthReconcileMap={currentMonthReconcileMap}
+        selectedMonth={selectedMonth}
+        handleToggleCardReconcile={handleToggleCardReconcile}
+        selectedCategory={selectedCategory}
+        setSelectedCategory={setSelectedCategory}
+        reconcileFilter={reconcileFilter}
+        setReconcileFilter={setReconcileFilter}
+      />
 
       {/* ── 共通 Undo トースト ── */}
       <UndoToast toast={toast} onUndo={triggerUndo} onDismiss={dismissToast} />
@@ -1469,5 +1242,289 @@ export default function Finance() {
         </div>
       )}
     </>
+  );
+}
+
+interface FinanceFilterModalProps {
+  isOpen: boolean;
+  onClose: () => void;
+  selectedPaymentMethod: string;
+  setSelectedPaymentMethod: (pm: any) => void;
+  currentMonthReconcileMap: Map<string, MonthlyCardReconcileStatus>;
+  selectedMonth: string;
+  handleToggleCardReconcile: (pm: PaymentMethod, e: React.MouseEvent) => void;
+  selectedCategory: string;
+  setSelectedCategory: (cat: string) => void;
+  reconcileFilter: "all" | "reconciled" | "unreconciled";
+  setReconcileFilter: (rf: "all" | "reconciled" | "unreconciled") => void;
+}
+
+function FinanceFilterModal({
+  isOpen,
+  onClose,
+  selectedPaymentMethod,
+  setSelectedPaymentMethod,
+  currentMonthReconcileMap,
+  selectedMonth,
+  handleToggleCardReconcile,
+  selectedCategory,
+  setSelectedCategory,
+  reconcileFilter,
+  setReconcileFilter,
+}: FinanceFilterModalProps) {
+  const { shouldRender, isClosing, handleClose } = useModalAnimation({ isOpen, onClose });
+
+  useEffect(() => {
+    if (!shouldRender || isClosing) return;
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === "Escape") handleClose();
+    };
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [shouldRender, isClosing, handleClose]);
+
+  if (!shouldRender) return null;
+
+  return (
+    <div
+      className={`arca-modal-backdrop ${isClosing ? "is-closing" : ""}`}
+      style={{
+        position: "fixed",
+        inset: 0,
+        zIndex: 150,
+        backgroundColor: "rgba(0, 0, 0, 0.45)",
+        backdropFilter: "blur(4px)",
+        WebkitBackdropFilter: "blur(4px)",
+        display: "flex",
+        alignItems: "center",
+        justifyContent: "center",
+        padding: "1rem",
+      }}
+      onClick={handleClose}
+    >
+      <div
+        className={`arca-card arca-modal-window ${isClosing ? "is-closing" : ""}`}
+        style={{
+          background: "var(--bg-card-solid)",
+          borderRadius: "16px",
+          padding: "1.3rem 1.4rem",
+          boxShadow: "var(--shadow-modal)",
+          width: "100%",
+          maxWidth: "480px",
+          maxHeight: "85vh",
+          overflowY: "auto",
+          boxSizing: "border-box",
+        }}
+        onClick={(e) => e.stopPropagation()}
+      >
+        {/* ヘッダー */}
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: "1.1rem" }}>
+          <div style={{ display: "flex", alignItems: "center", gap: "0.45rem" }}>
+            <SlidersHorizontal size={17} color={C.goldDark} />
+            <h3 style={{ fontSize: "0.95rem", fontWeight: 700, color: C.charcoal, margin: 0 }}>
+              詳細絞り込み
+            </h3>
+          </div>
+          <button
+            onClick={handleClose}
+            style={{
+              background: "transparent",
+              border: "none",
+              cursor: "pointer",
+              color: C.charcoalLight,
+              padding: "0.2rem",
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+            }}
+          >
+            <X size={18} />
+          </button>
+        </div>
+
+        <div style={{ display: "flex", flexDirection: "column", gap: "1.1rem" }}>
+          {/* 支払方法で絞り込み */}
+          <div>
+            <label style={{ fontSize: "0.75rem", fontWeight: 700, color: C.charcoalMid, display: "block", marginBottom: "0.5rem" }}>
+              支払方法で絞り込み
+            </label>
+            <div style={{ display: "flex", flexWrap: "wrap", gap: "0.4rem" }}>
+              <button
+                onClick={() => setSelectedPaymentMethod("all")}
+                style={{
+                  display: "inline-flex",
+                  alignItems: "center",
+                  padding: "0.35rem 0.75rem",
+                  borderRadius: "9999px",
+                  border: "none",
+                  fontSize: "0.74rem",
+                  fontWeight: selectedPaymentMethod === "all" ? 650 : 500,
+                  background: selectedPaymentMethod === "all" ? "var(--bg-nav-pill)" : "var(--bg-nav-track)",
+                  color: selectedPaymentMethod === "all" ? "var(--text-main)" : "#555",
+                  boxShadow: selectedPaymentMethod === "all" ? "0 1px 4px rgba(0,0,0,0.08)" : "none",
+                  cursor: "pointer",
+                  transition: "all 0.15s ease",
+                }}
+              >
+                すべての支払方法
+              </button>
+
+              {PAYMENT_METHODS.map((pm) => {
+                const isSelected = selectedPaymentMethod === pm;
+                const status = currentMonthReconcileMap.get(pm);
+                const isReconciled = Boolean(status?.isReconciled);
+
+                return (
+                  <button
+                    key={pm}
+                    data-testid={`card-filter-${pm}`}
+                    onClick={() => setSelectedPaymentMethod(pm)}
+                    title={`${formatMonthLabel(selectedMonth)} ${pm} ${isReconciled ? "照合完了" : "未照合"}（バッジクリックで手動切替）`}
+                    style={{
+                      display: "inline-flex",
+                      alignItems: "center",
+                      gap: "0.35rem",
+                      padding: "0.35rem 0.75rem",
+                      borderRadius: "9999px",
+                      border: "none",
+                      fontSize: "0.74rem",
+                      fontWeight: isSelected ? 650 : 500,
+                      background: isSelected ? "var(--bg-nav-pill)" : "var(--bg-nav-track)",
+                      color: isSelected ? "var(--text-main)" : "#4A4A4A",
+                      boxShadow: isSelected ? "0 1px 4px rgba(0,0,0,0.08)" : "none",
+                      cursor: "pointer",
+                      transition: "all 0.15s ease",
+                    }}
+                  >
+                    <span>{pm}</span>
+
+                    {/* 照合ステータスバッジ（クリックで手動トグル可能） */}
+                    <span
+                      data-testid={`reconcile-badge-${pm}`}
+                      onClick={(e) => handleToggleCardReconcile(pm, e)}
+                      title={
+                        isReconciled
+                          ? `${formatMonthLabel(selectedMonth)} ${pm} 照合完了（クリックで未照合に変更）`
+                          : `${formatMonthLabel(selectedMonth)} ${pm} 未照合（クリックで照合済みに変更）`
+                      }
+                      style={{
+                        display: "inline-flex",
+                        alignItems: "center",
+                        justifyContent: "center",
+                        width: "15px",
+                        height: "15px",
+                        borderRadius: "50%",
+                        fontSize: "0.62rem",
+                        fontWeight: 750,
+                        background: isReconciled ? C.sage : "rgba(128, 128, 128, 0.18)",
+                        color: isReconciled ? "#FFFFFF" : "#555",
+                        transition: "all 0.15s ease",
+                        cursor: "pointer",
+                        lineHeight: 1,
+                      }}
+                    >
+                      {isReconciled ? "✓" : "○"}
+                    </span>
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+
+          {/* カテゴリ */}
+          <div>
+            <label style={{ fontSize: "0.75rem", fontWeight: 700, color: C.charcoalMid, display: "block", marginBottom: "0.4rem" }}>
+              カテゴリ
+            </label>
+            <select
+              value={selectedCategory}
+              onChange={(e) => setSelectedCategory(e.target.value)}
+              style={{
+                width: "100%",
+                background: "var(--bg-nav-track)",
+                border: "1px solid var(--border-subtle)",
+                borderRadius: "10px",
+                padding: "0.52rem 0.75rem",
+                fontSize: "0.82rem",
+                color: C.charcoal,
+                outline: "none",
+              }}
+            >
+              <option value="all">すべてのカテゴリ</option>
+              {EXPENSE_CATEGORIES.map((cat) => (
+                <option key={cat} value={cat}>
+                  {cat}
+                </option>
+              ))}
+            </select>
+          </div>
+
+          {/* 照合状態 */}
+          <div>
+            <label style={{ fontSize: "0.75rem", fontWeight: 700, color: C.charcoalMid, display: "block", marginBottom: "0.4rem" }}>
+              CSV照合状態
+            </label>
+            <select
+              value={reconcileFilter}
+              onChange={(e) => setReconcileFilter(e.target.value as any)}
+              style={{
+                width: "100%",
+                background: "var(--bg-nav-track)",
+                border: "1px solid var(--border-subtle)",
+                borderRadius: "10px",
+                padding: "0.52rem 0.75rem",
+                fontSize: "0.82rem",
+                color: C.charcoal,
+                outline: "none",
+              }}
+            >
+              <option value="all">すべて表示</option>
+              <option value="reconciled">照合済のみ</option>
+              <option value="unreconciled">未照合のみ</option>
+            </select>
+          </div>
+
+          {/* リセット & 適用ボタン */}
+          <div style={{ display: "flex", gap: "0.6rem", marginTop: "0.4rem" }}>
+            <button
+              onClick={() => {
+                setSelectedPaymentMethod("all");
+                setSelectedCategory("all");
+                setReconcileFilter("all");
+              }}
+              style={{
+                flex: 1,
+                background: "transparent",
+                border: "1px solid var(--border-subtle)",
+                borderRadius: "10px",
+                padding: "0.55rem",
+                fontSize: "0.82rem",
+                fontWeight: 650,
+                color: C.charcoalMid,
+                cursor: "pointer",
+              }}
+            >
+              リセット
+            </button>
+            <button
+              onClick={handleClose}
+              style={{
+                flex: 1,
+                background: C.gold,
+                border: "none",
+                borderRadius: "10px",
+                padding: "0.55rem",
+                fontSize: "0.82rem",
+                fontWeight: 700,
+                color: "#FFF",
+                cursor: "pointer",
+              }}
+            >
+              閉じる
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
   );
 }

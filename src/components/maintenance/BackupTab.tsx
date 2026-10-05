@@ -30,6 +30,7 @@ import {
   Clock,
   HardDrive,
 } from "lucide-react";
+import { ConfirmModal } from "../notes/ConfirmModal";
 
 export function BackupTab() {
   const { requestAccessToken } = useGoogleAuth();
@@ -49,6 +50,7 @@ export function BackupTab() {
   const [parsedBackup, setParsedBackup] = useState<BackupData | null>(null);
   const [restoreMode, setRestoreMode] = useState<"merge" | "overwrite">("merge");
   const [isDragging, setIsDragging] = useState(false);
+  const [showOverwriteConfirm, setShowOverwriteConfirm] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
@@ -192,16 +194,9 @@ export function BackupTab() {
   }, []);
 
   // 復元実行
-  const handleRestore = async () => {
+  const executeRestore = async () => {
     if (!parsedBackup) return;
-
-    if (restoreMode === "overwrite") {
-      const ok = window.confirm(
-        "【警告】「完全上書き」を選択しています。\n現在のすべてのデータが削除され、バックアップの内容で置き換えられます。\n本当に復元を実行しますか？"
-      );
-      if (!ok) return;
-    }
-
+    setShowOverwriteConfirm(false);
     setIsRestoring(true);
     setStatusMessage(null);
     logger.info("app", `Backup: Starting restore (mode: ${restoreMode})`);
@@ -223,6 +218,17 @@ export function BackupTab() {
     } finally {
       setIsRestoring(false);
     }
+  };
+
+  const handleRestore = async () => {
+    if (!parsedBackup) return;
+
+    if (restoreMode === "overwrite") {
+      setShowOverwriteConfirm(true);
+      return;
+    }
+
+    await executeRestore();
   };
 
   return (
@@ -558,6 +564,17 @@ export function BackupTab() {
           </div>
         )}
       </div>
+
+      <ConfirmModal
+        isOpen={showOverwriteConfirm}
+        title="完全上書き復元の確認"
+        message="「完全上書き」を選択しています。現在のすべてのデータが削除され、バックアップの内容で置き換えられます。本当に復元を実行しますか？"
+        confirmLabel="復元を実行"
+        cancelLabel="キャンセル"
+        isDestructive={true}
+        onConfirm={executeRestore}
+        onCancel={() => setShowOverwriteConfirm(false)}
+      />
     </div>
   );
 }

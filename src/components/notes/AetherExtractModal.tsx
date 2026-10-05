@@ -3,20 +3,23 @@
  * Arca — Aether Core 横断抽出モーダル (Apple HIG × Arca 準拠)
  */
 
-import { useState, useId } from "react";
+import { useState, useId, useEffect } from "react";
 import { collection, addDoc, serverTimestamp } from "firebase/firestore";
 import { db } from "../../lib/firebase";
 import type { ExtractedActionableItems } from "../../types";
 import { C } from "../../lib/designSystem";
+import { useModalAnimation } from "../../hooks/useModalAnimation";
 
 interface AetherExtractModalProps {
   items: ExtractedActionableItems;
+  isOpen?: boolean;
   onClose: () => void;
   onSuccess: (count: number) => void;
 }
 
 export function AetherExtractModal({
   items,
+  isOpen = true,
   onClose,
   onSuccess,
 }: AetherExtractModalProps) {
@@ -111,7 +114,7 @@ export function AetherExtractModal({
 
       await Promise.all(promises);
       onSuccess(selectedCount);
-      onClose();
+      handleClose();
     } catch (err) {
       console.error("Failed to add extracted items to Arca:", err);
     } finally {
@@ -119,8 +122,26 @@ export function AetherExtractModal({
     }
   };
 
+  const { shouldRender, isClosing, handleClose } = useModalAnimation({
+    isOpen,
+    onClose,
+  });
+
+  // Escape キーで閉じる
+  useEffect(() => {
+    if (!shouldRender || isClosing) return;
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === "Escape") handleClose();
+    };
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [shouldRender, isClosing, handleClose]);
+
+  if (!shouldRender) return null;
+
   return (
     <div
+      className={`arca-modal-backdrop ${isClosing ? "is-closing" : ""}`}
       style={{
         position: "fixed",
         inset: 0,
@@ -132,13 +153,12 @@ export function AetherExtractModal({
         backdropFilter: "blur(16px)",
         WebkitBackdropFilter: "blur(16px)",
         padding: "1rem",
-        animation: "arca-view-in 0.22s cubic-bezier(0.16, 1, 0.3, 1)",
       }}
-      onClick={onClose}
+      onClick={handleClose}
     >
       {/* モーダルカード */}
       <div
-        className="arca-card"
+        className={`arca-card arca-modal-window ${isClosing ? "is-closing" : ""}`}
         style={{
           width: "100%",
           maxWidth: "520px",

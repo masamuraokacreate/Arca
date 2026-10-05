@@ -80,6 +80,7 @@ import { MoveNoteModal } from "./notes/MoveNoteModal";
 import { MoodPicker } from "./notes/MoodPicker";
 import { NoteIcon, NoteIconPickerModal } from "./notes/NoteIconPickerModal";
 import { useDocumentSpace } from "./notes/DocumentSpaceContext";
+import { useModalAnimation } from "../hooks/useModalAnimation";
 import {
   fetchDailyFootprint,
   formatFootprintMarkdown,
@@ -2141,25 +2142,43 @@ function NoteCard({
 
 function TrashModal({
   deletedNotes,
+  isOpen = true,
   onRestore,
   onPermanentDelete,
   onEmptyTrash,
   onClose,
 }: {
   deletedNotes: NoteItem[];
+  isOpen?: boolean;
   onRestore: (id: string) => void;
   onPermanentDelete: (id: string) => void;
   onEmptyTrash: () => void;
   onClose: () => void;
 }) {
+  const { shouldRender, isClosing, handleClose } = useModalAnimation({
+    isOpen,
+    onClose,
+  });
+
+  useEffect(() => {
+    if (!shouldRender || isClosing) return;
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === "Escape") handleClose();
+    };
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [shouldRender, isClosing, handleClose]);
+
+  if (!shouldRender) return null;
+
   return (
     <div
-      className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/30 backdrop-blur-sm select-none animate-in fade-in duration-150"
-      onClick={onClose}
+      className={`fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/30 backdrop-blur-sm select-none arca-modal-backdrop ${isClosing ? "is-closing" : ""}`}
+      onClick={handleClose}
     >
       <div
         onClick={(e) => e.stopPropagation()}
-        className="relative w-full max-w-2xl max-h-[85vh] bg-[var(--bg-card-solid,rgba(255,255,255,0.98))] rounded-3xl shadow-2xl border border-black/[0.06] dark:border-white/[0.08] flex flex-col overflow-hidden animate-in zoom-in-95 duration-150"
+        className={`relative w-full max-w-2xl max-h-[85vh] bg-[var(--bg-card-solid,rgba(255,255,255,0.98))] rounded-3xl shadow-2xl border border-black/[0.06] dark:border-white/[0.08] flex flex-col overflow-hidden arca-modal-window ${isClosing ? "is-closing" : ""}`}
       >
         {/* ヘッダー */}
         <div className="flex items-center justify-between px-6 py-4 border-b border-black/[0.05] dark:border-white/[0.06] shrink-0">
@@ -3512,18 +3531,17 @@ export default function Notes({
         />
       )}
 
-      {showTrash && (
-        <TrashModal
-          deletedNotes={deletedNotes}
-          onRestore={(id) => {
-            mutateNote(id, { isDeleted: false });
-            setShowTrash(false);
-          }}
-          onPermanentDelete={handlePermanentDelete}
-          onEmptyTrash={handleEmptyTrash}
-          onClose={() => setShowTrash(false)}
-        />
-      )}
+      <TrashModal
+        isOpen={showTrash}
+        deletedNotes={deletedNotes}
+        onRestore={(id) => {
+          mutateNote(id, { isDeleted: false });
+          setShowTrash(false);
+        }}
+        onPermanentDelete={handlePermanentDelete}
+        onEmptyTrash={handleEmptyTrash}
+        onClose={() => setShowTrash(false)}
+      />
 
       {/* 親ノート移動モーダル */}
       {movingNote && (

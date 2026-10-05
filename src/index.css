@@ -31,6 +31,18 @@
   --sal: env(safe-area-inset-left, 0px);
   --font-logo: 'Cormorant Garamond', serif;
   --font-serif: 'Cormorant Garamond', serif;
+
+  /* =========================================
+     Motion Tokens (Core/Rules/Motion.md)
+     ========================================= */
+  --ease-apple-spring: cubic-bezier(0.16, 1, 0.3, 1);
+  --ease-apple-exit:   cubic-bezier(0.4, 0, 0.2, 1);
+  --ease-soft-glow:    cubic-bezier(0.25, 0.1, 0.25, 1);
+
+  --duration-instant:  120ms;
+  --duration-fast:     180ms;
+  --duration-normal:   260ms;
+  --duration-smooth:   340ms;
 }
 
 .font-logo {
@@ -314,10 +326,120 @@
   }
 }
 
+/* =========================================
+   Universal Modal / Popover Transition (Apple HIG & Core/Rules/Motion.md)
+   ========================================= */
+
+@keyframes arca-modal-backdrop-enter {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+@keyframes arca-modal-backdrop-exit {
+  from {
+    opacity: 1;
+  }
+  to {
+    opacity: 0;
+  }
+}
+
+@keyframes arca-modal-window-enter {
+  from {
+    opacity: 0;
+    transform: scale(0.97) translateY(8px);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1) translateY(0);
+  }
+}
+
+@keyframes arca-modal-window-exit {
+  from {
+    opacity: 1;
+    transform: scale(1);
+  }
+  to {
+    opacity: 0;
+    transform: scale(0.98);
+  }
+}
+
+/* 汎用モーダル・ポップアップ クラス & PM互換クラス */
+.arca-modal-backdrop,
+.pm-modal-backdrop {
+  animation: arca-modal-backdrop-enter var(--duration-normal) var(--ease-soft-glow) forwards;
+  will-change: opacity;
+}
+
+.arca-modal-backdrop.is-closing,
+.pm-modal-backdrop.is-closing {
+  animation: arca-modal-backdrop-exit var(--duration-fast) var(--ease-apple-exit) forwards;
+}
+
+.arca-modal-window,
+.pm-modal-window {
+  animation: arca-modal-window-enter var(--duration-normal) var(--ease-apple-spring) forwards;
+  will-change: transform, opacity;
+}
+
+.arca-modal-window.is-closing,
+.pm-modal-window.is-closing {
+  animation: arca-modal-window-exit var(--duration-fast) var(--ease-apple-exit) forwards;
+}
+
+/* 視覚効果低減設定 (Accessibility: prefers-reduced-motion) */
+@media (prefers-reduced-motion: reduce) {
+  @keyframes arca-modal-window-enter-reduced {
+    from {
+      opacity: 0;
+    }
+    to {
+      opacity: 1;
+    }
+  }
+
+  @keyframes arca-modal-window-exit-reduced {
+    from {
+      opacity: 1;
+    }
+    to {
+      opacity: 0;
+    }
+  }
+
+  .arca-modal-window,
+  .pm-modal-window {
+    transform: none !important;
+    animation: arca-modal-window-enter-reduced var(--duration-fast) var(--ease-soft-glow) forwards !important;
+  }
+
+  .arca-modal-window.is-closing,
+  .pm-modal-window.is-closing {
+    transform: none !important;
+    animation: arca-modal-window-exit-reduced var(--duration-fast) var(--ease-apple-exit) forwards !important;
+  }
+
+  .arca-modal-backdrop,
+  .pm-modal-backdrop {
+    animation-duration: var(--duration-fast) !important;
+  }
+
+  .arca-modal-backdrop.is-closing,
+  .pm-modal-backdrop.is-closing {
+    animation-duration: var(--duration-fast) !important;
+  }
+}
+
 @keyframes arca-modal-pop {
   from {
     opacity: 0;
-    transform: scale(0.95) translateY(8px);
+    transform: scale(0.97) translateY(8px);
   }
   to {
     opacity: 1;

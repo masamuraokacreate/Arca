@@ -14,8 +14,11 @@ import { useState, useEffect, useRef } from "react";
 import type { ShiftInfo, ShiftOverride } from "../../types/shift";
 import type { CalendarEvent, SyncStatus } from "../../types";
 import { WORK_SHIFT_KEYWORDS, resolveShiftInfo } from "../../services/pmCycleService";
+import { resolveShiftTimes } from "../../services/googleCalendarSync";
 import { C } from "../../lib/designSystem";
 import { MoonIcon, SunIcon } from "./ShiftBadge";
+import { Clock, AlertCircle, Calendar as CalendarIcon, Check } from "lucide-react";
+import { useModalAnimation } from "../../hooks/useModalAnimation";
 
 export interface ShiftOverrideModalProps {
   isOpen: boolean;
@@ -24,10 +27,14 @@ export interface ShiftOverrideModalProps {
   events?: CalendarEvent[];
   googleSyncStatus?: SyncStatus;
   isGoogleSignedIn?: boolean;
+  accessToken?: string | null;
   onGoogleSignIn?: () => void;
   onGoogleSync?: () => void;
   onClose: () => void;
-  onSave: (override: Omit<ShiftOverride, "date" | "updatedAt"> | null) => Promise<void> | void;
+  onSave: (
+    override: Omit<ShiftOverride, "date" | "updatedAt"> | null,
+    details?: { startTime?: string; endTime?: string }
+  ) => Promise<void> | void;
 }
 
 /** 後方互換用プロパティ型 */
@@ -51,7 +58,18 @@ export function ShiftOverrideModal({
   const [type, setType] = useState<"work" | "holiday">(currentShift.type);
   const [streakNumber, setStreakNumber] = useState<number>(currentShift.streakNumber || 1);
   const [shiftName, setShiftName] = useState<string>(currentShift.shiftName || "");
+
+  // 勤務時間（Googleカレンダー連携用）
+  const [startTime, setStartTime] = useState<string>("06:00");
+  const [endTime, setEndTime] = useState<string>("15:00");
+
+  // 誤タップ防止用 確認ポップアップステート ("apply" | "reset" | null)
+  const [confirmAction, setConfirmAction] = useState<"apply" | "reset" | null>(null);
   const [saving, setSaving] = useState(false);
+
+  // 当日のイベント状況
+  const dayEvents = events.filter((e) => e.date === targetDate);
+  const workEvents = dayEvents.filter((e) => WORK_SHIFT_KEYWORDS.test(e.title));
 
   // モーダルが開いた瞬間のみ初期化（ユーザーの操作中のリセットを防止）
   const prevOpenRef = useRef(false);
@@ -59,23 +77,40 @@ export function ShiftOverrideModal({
     if (isOpen && !prevOpenRef.current) {
       setType(currentShift.type);
       setStreakNumber(currentShift.streakNumber || 1);
-      setShiftName(currentShift.shiftName || "");
+      const name = currentShift.shiftName || "";
+      setShiftName(name);
+
+      // 既存の当日出勤イベントから時間を抽出、なければシフト名から自動解決
+      const existingWork = workEvents[0];
+      const defaultTimes = resolveShiftTimes(name);
+      setStartTime(existingWork?.startTime || defaultTimes.startTime);
+      setEndTime(existingWork?.endTime || defaultTimes.endTime);
+
+      setConfirmAction(null);
       setSaving(false);
     }
     prevOpenRef.current = isOpen;
-  }, [isOpen, currentShift]);
+  }, [isOpen, currentShift, targetDate, workEvents]);
+
+  const { shouldRender, isClosing, handleClose } = useModalAnimation({ isOpen, onClose });
 
   // Escape キーで閉じる
   useEffect(() => {
-    if (!isOpen) return;
+    if (!shouldRender || isClosing) return;
     const handleKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") onClose();
+      if (e.key === "Escape") {
+        if (confirmAction) {
+          setConfirmAction(null);
+        } else {
+          handleClose();
+        }
+      }
     };
     window.addEventListener("keydown", handleKey);
     return () => window.removeEventListener("keydown", handleKey);
-  }, [isOpen, onClose]);
+  }, [shouldRender, isClosing, confirmAction, handleClose]);
 
-  if (!isOpen) return null;
+  if (!shouldRender) return null;
 
   // 日付の和風フォーマット
   const dateObj = new Date(`${targetDate}T00:00:00`);
@@ -89,31 +124,42 @@ export function ShiftOverrideModal({
   // 自動判定結果（オーバーライドを無視した純粋な算出結果）
   const autoShift = resolveShiftInfo(targetDate, events, null);
 
-  // 当日のイベント状況
-  const dayEvents = events.filter((e) => e.date === targetDate);
-  const workEvents = dayEvents.filter((e) => WORK_SHIFT_KEYWORDS.test(e.title));
-
-  const handleApply = async () => {
-    if (saving) return;
-    setSaving(true);
-    try {
-      await onSave({
-        type,
-        streakNumber,
-        shiftName: type === "work" ? shiftName.trim() || undefined : undefined,
-      });
-      onClose();
-    } finally {
-      setSaving(false);
-    }
+  // クイックシフト選択ハンドラ（名前と連動して時間もセット）
+  const handleSelectQuickShift = (name: string) => {
+    setShiftName(name);
+    const times = resolveShiftTimes(name);
+    setStartTime(times.startTime);
+    setEndTime(times.endTime);
   };
 
-  const handleResetToAuto = async () => {
+  // 確認ポップアップを開く
+  const handleRequestApply = () => {
+    setConfirmAction("apply");
+  };
+
+  const handleRequestReset = () => {
+    setConfirmAction("reset");
+  };
+
+  // 確認ポップアップで承認された時の実行ハンドラ
+  const handleExecuteConfirm = async () => {
     if (saving) return;
     setSaving(true);
     try {
-      await onSave(null);
-      onClose();
+      if (confirmAction === "reset") {
+        await onSave(null);
+      } else if (confirmAction === "apply") {
+        await onSave(
+          {
+            type,
+            streakNumber,
+            shiftName: type === "work" ? shiftName.trim() || undefined : undefined,
+          },
+          type === "work" ? { startTime: startTime.trim(), endTime: endTime.trim() } : undefined
+        );
+      }
+      setConfirmAction(null);
+      handleClose();
     } finally {
       setSaving(false);
     }
@@ -121,7 +167,8 @@ export function ShiftOverrideModal({
 
   return (
     <div
-      onClick={onClose}
+      onClick={handleClose}
+      className={`arca-modal-backdrop ${isClosing ? "is-closing" : ""}`}
       style={{
         position: "fixed",
         inset: 0,
@@ -134,12 +181,11 @@ export function ShiftOverrideModal({
         justifyContent: "center",
         padding: "1rem",
         boxSizing: "border-box",
-        animation: "pm-overlay-in 0.18s ease",
       }}
     >
       <div
         onClick={(e) => e.stopPropagation()}
-        className="arca-card"
+        className={`arca-card arca-modal-window ${isClosing ? "is-closing" : ""}`}
         style={{
           width: "100%",
           maxWidth: "460px",
@@ -151,7 +197,6 @@ export function ShiftOverrideModal({
           border: "1px solid var(--border-subtle)",
           padding: "1.75rem 1.75rem 1.6rem",
           boxSizing: "border-box",
-          animation: "arca-modal-pop 0.22s cubic-bezier(0.16, 1, 0.3, 1)",
         }}
       >
         {/* ─── ヘッダー ─── */}
@@ -304,8 +349,9 @@ export function ShiftOverrideModal({
           <div style={{ borderTop: "1px solid rgba(0,0,0,0.05)", paddingTop: "0.5rem" }}>
             {googleSyncStatus === "error" ? (
               <div style={{ display: "flex", flexDirection: "column", gap: "0.4rem" }}>
-                <p style={{ margin: 0, fontSize: "0.68rem", color: "#C05621", fontWeight: 600 }}>
-                  ⚠️ Googleカレンダーの同期に失敗しました（権限不足または認証切れ）。
+                <p style={{ margin: 0, fontSize: "0.68rem", color: "#C05621", fontWeight: 600, display: "flex", alignItems: "center", gap: "0.25rem" }}>
+                  <AlertCircle size={13} />
+                  <span>Googleカレンダーの同期に失敗しました（権限不足または認証切れ）。</span>
                 </p>
                 {onGoogleSignIn && (
                   <div>
@@ -349,7 +395,7 @@ export function ShiftOverrideModal({
             {currentShift.isOverridden && (
               <button
                 type="button"
-                onClick={handleResetToAuto}
+                onClick={handleRequestReset}
                 disabled={saving}
                 style={{
                   background: "none",
@@ -464,11 +510,11 @@ export function ShiftOverrideModal({
             </div>
           </div>
 
-          {/* 出勤時のシフト名（任意入力 & クイック選択） */}
+          {/* 出勤時のシフト名（任意入力 & クイック選択 & 時間設定） */}
           {type === "work" && (
             <div>
               <label style={{ display: "block", fontSize: "0.72rem", fontWeight: 650, color: C.charcoalMid, marginBottom: "0.4rem" }}>
-                シフト名・区分（任意）
+                シフト名・区分
               </label>
               <div style={{ display: "flex", flexWrap: "wrap", gap: "0.35rem", marginBottom: "0.45rem" }}>
                 {QUICK_SHIFT_NAMES.map((name) => {
@@ -477,7 +523,7 @@ export function ShiftOverrideModal({
                     <button
                       key={name}
                       type="button"
-                      onClick={() => setShiftName(name)}
+                      onClick={() => handleSelectQuickShift(name)}
                       style={{
                         padding: "0.25rem 0.6rem",
                         borderRadius: "6px",
@@ -511,13 +557,94 @@ export function ShiftOverrideModal({
                   color: C.charcoal,
                   padding: "0.3rem 0",
                   letterSpacing: "0.01em",
+                  marginBottom: "0.85rem",
                 }}
               />
+
+              {/* 勤務時間指定（Googleカレンダー連携用） */}
+              <div
+                style={{
+                  background: "rgba(0, 0, 0, 0.025)",
+                  borderRadius: "10px",
+                  padding: "0.55rem 0.75rem",
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "space-between",
+                  gap: "0.5rem",
+                }}
+              >
+                <div style={{ display: "flex", alignItems: "center", gap: "0.35rem" }}>
+                  <Clock size={14} color={C.goldDark} />
+                  <span style={{ fontSize: "0.72rem", fontWeight: 650, color: C.charcoalMid }}>
+                    勤務時間
+                  </span>
+                </div>
+                <div style={{ display: "flex", alignItems: "center", gap: "0.4rem" }}>
+                  <input
+                    type="time"
+                    value={startTime}
+                    onChange={(e) => setStartTime(e.target.value)}
+                    style={{
+                      border: "none",
+                      background: "var(--bg-card-solid)",
+                      padding: "0.25rem 0.4rem",
+                      borderRadius: "6px",
+                      fontSize: "0.8rem",
+                      color: C.charcoal,
+                      boxShadow: "0 1px 3px rgba(0,0,0,0.06)",
+                    }}
+                  />
+                  <span style={{ fontSize: "0.75rem", color: C.charcoalLight }}>〜</span>
+                  <input
+                    type="time"
+                    value={endTime}
+                    onChange={(e) => setEndTime(e.target.value)}
+                    style={{
+                      border: "none",
+                      background: "var(--bg-card-solid)",
+                      padding: "0.25rem 0.4rem",
+                      borderRadius: "6px",
+                      fontSize: "0.8rem",
+                      color: C.charcoal,
+                      boxShadow: "0 1px 3px rgba(0,0,0,0.06)",
+                    }}
+                  />
+                </div>
+              </div>
             </div>
           )}
 
+          {/* 連動動作の事前案内 */}
+          <div
+            style={{
+              padding: "0.45rem 0.65rem",
+              borderRadius: "8px",
+              background: type === "work" ? "rgba(197, 160, 89, 0.08)" : "rgba(82, 121, 111, 0.08)",
+              display: "flex",
+              alignItems: "center",
+              gap: "0.4rem",
+            }}
+          >
+            <CalendarIcon size={13} color={type === "work" ? C.goldDark : C.sage} />
+            <p
+              style={{
+                margin: 0,
+                fontSize: "0.68rem",
+                color: type === "work" ? C.goldDark : C.sage,
+                fontWeight: 600,
+                lineHeight: 1.35,
+              }}
+            >
+              {isGoogleSignedIn
+                ? type === "work"
+                  ? "確定時にGoogleカレンダーへ出勤予定を登録・更新します"
+                  : "確定時にGoogleカレンダーから該当日の出勤予定を削除します"
+                : "※ Google未接続のため、確定時はアプリ内（Arca）のみ変更されます"}
+            </p>
+          </div>
+
           {/* ボタンエリア */}
-          <div style={{ display: "flex", justifyContent: "flex-end", gap: "0.5rem", marginTop: "0.5rem" }}>
+          <div style={{ display: "flex", justifyContent: "flex-end", gap: "0.5rem", marginTop: "0.3rem" }}>
             <button
               type="button"
               onClick={onClose}
@@ -534,7 +661,7 @@ export function ShiftOverrideModal({
             </button>
             <button
               type="button"
-              onClick={handleApply}
+              onClick={handleRequestApply}
               disabled={saving}
               style={{
                 background: type === "work" ? C.gold : C.sage,
@@ -550,9 +677,244 @@ export function ShiftOverrideModal({
                 opacity: saving ? 0.7 : 1,
               }}
             >
-              {saving ? "保存中…" : "この設定で確定"}
+              変更を確認する
             </button>
           </div>
+        </div>
+      </div>
+
+      {/* ─── 誤タップ防止 確認ポップアップダイアログ ─── */}
+      <ShiftConfirmModal
+        confirmAction={confirmAction}
+        saving={saving}
+        type={type}
+        formattedDate={formattedDate}
+        shiftName={shiftName}
+        startTime={startTime}
+        endTime={endTime}
+        streakNumber={streakNumber}
+        isGoogleSignedIn={isGoogleSignedIn}
+        onConfirm={handleExecuteConfirm}
+        onCancel={() => setConfirmAction(null)}
+      />
+    </div>
+  );
+}
+
+interface ShiftConfirmModalProps {
+  confirmAction: "apply" | "reset" | null;
+  saving: boolean;
+  type: "work" | "holiday";
+  formattedDate: string;
+  shiftName: string;
+  startTime: string;
+  endTime: string;
+  streakNumber: number;
+  isGoogleSignedIn: boolean;
+  onConfirm: () => void;
+  onCancel: () => void;
+}
+
+function ShiftConfirmModal({
+  confirmAction,
+  saving,
+  type,
+  formattedDate,
+  shiftName,
+  startTime,
+  endTime,
+  streakNumber,
+  isGoogleSignedIn,
+  onConfirm,
+  onCancel,
+}: ShiftConfirmModalProps) {
+  const { shouldRender, isClosing, handleClose } = useModalAnimation({
+    isOpen: !!confirmAction,
+    onClose: onCancel,
+  });
+
+  useEffect(() => {
+    if (!shouldRender || isClosing || saving) return;
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === "Escape") {
+        e.stopPropagation();
+        handleClose();
+      }
+    };
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [shouldRender, isClosing, saving, handleClose]);
+
+  if (!shouldRender || !confirmAction) return null;
+
+  return (
+    <div
+      onClick={(e) => {
+        e.stopPropagation();
+        if (!saving) handleClose();
+      }}
+      className={`arca-modal-backdrop ${isClosing ? "is-closing" : ""}`}
+      style={{
+        position: "fixed",
+        inset: 0,
+        background: "rgba(0, 0, 0, 0.42)",
+        backdropFilter: "blur(6px)",
+        WebkitBackdropFilter: "blur(6px)",
+        zIndex: 1200,
+        display: "flex",
+        alignItems: "center",
+        justifyContent: "center",
+        padding: "1rem",
+        boxSizing: "border-box",
+      }}
+    >
+      <div
+        onClick={(e) => e.stopPropagation()}
+        className={`arca-card arca-modal-window ${isClosing ? "is-closing" : ""}`}
+        style={{
+          width: "100%",
+          maxWidth: "400px",
+          background: "var(--bg-card-solid)",
+          boxShadow: "0 24px 60px rgba(0,0,0,0.22), 0 4px 16px rgba(0,0,0,0.08)",
+          borderRadius: "20px",
+          border: "1px solid var(--border-subtle)",
+          padding: "1.6rem 1.6rem 1.4rem",
+          boxSizing: "border-box",
+        }}
+      >
+        {/* ポップアップ ヘッダー */}
+        <div style={{ display: "flex", alignItems: "center", gap: "0.5rem", marginBottom: "0.85rem" }}>
+          <div
+            style={{
+              width: "2rem",
+              height: "2rem",
+              borderRadius: "50%",
+              background: confirmAction === "reset" ? "rgba(0,0,0,0.06)" : type === "work" ? C.goldFaint : "rgba(82, 121, 111, 0.12)",
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+              flexShrink: 0,
+            }}
+          >
+            {confirmAction === "reset" ? (
+              <AlertCircle size={18} color={C.charcoalMid} />
+            ) : type === "work" ? (
+              <SunIcon size="1.1rem" />
+            ) : (
+              <MoonIcon size="1.1rem" />
+            )}
+          </div>
+          <h4 style={{ margin: 0, fontSize: "1.05rem", fontWeight: 750, color: C.charcoal, letterSpacing: "-0.01em" }}>
+            {confirmAction === "reset"
+              ? "自動判定に戻しますか？"
+              : type === "work"
+              ? "Googleカレンダーに出勤予定を反映しますか？"
+              : "Googleカレンダーの出勤予定を削除しますか？"}
+          </h4>
+        </div>
+
+        {/* ポップアップ 本文サマリー */}
+        <div
+          style={{
+            background: "var(--bg-nav-track)",
+            borderRadius: "12px",
+            padding: "0.85rem 0.95rem",
+            marginBottom: "1rem",
+            display: "flex",
+            flexDirection: "column",
+            gap: "0.45rem",
+            fontSize: "0.8rem",
+          }}
+        >
+          <div style={{ display: "flex", justifyContent: "space-between" }}>
+            <span style={{ color: C.charcoalLight, fontWeight: 600 }}>対象日</span>
+            <span style={{ color: C.charcoal, fontWeight: 700 }}>{formattedDate}</span>
+          </div>
+
+          {confirmAction === "reset" ? (
+            <div style={{ color: C.charcoalMid, lineHeight: 1.4, fontSize: "0.78rem", marginTop: "0.2rem" }}>
+              手動上書き設定を解除し、カレンダーからの通常自動判定に戻します。
+            </div>
+          ) : type === "work" ? (
+            <>
+              <div style={{ display: "flex", justifyContent: "space-between" }}>
+                <span style={{ color: C.charcoalLight, fontWeight: 600 }}>シフト</span>
+                <span style={{ color: C.goldDark, fontWeight: 700 }}>
+                  {shiftName || "出勤"} ({startTime}〜{endTime})
+                </span>
+              </div>
+              <div style={{ display: "flex", justifyContent: "space-between" }}>
+                <span style={{ color: C.charcoalLight, fontWeight: 600 }}>連勤</span>
+                <span style={{ color: C.charcoal, fontWeight: 700 }}>{streakNumber}日目</span>
+              </div>
+              <div style={{ borderTop: "1px solid rgba(0,0,0,0.05)", paddingTop: "0.4rem", marginTop: "0.2rem", fontSize: "0.74rem", color: C.charcoalMid }}>
+                {isGoogleSignedIn
+                  ? "✓ Googleカレンダーに出勤予定を登録・更新します。"
+                  : "※ Google未接続のため、アプリ内のみ反映されます。"}
+              </div>
+            </>
+          ) : (
+            <>
+              <div style={{ display: "flex", justifyContent: "space-between" }}>
+                <span style={{ color: C.charcoalLight, fontWeight: 600 }}>設定内容</span>
+                <span style={{ color: C.sage, fontWeight: 700 }}>休日（休み） {streakNumber}日目</span>
+              </div>
+              <div style={{ borderTop: "1px solid rgba(0,0,0,0.05)", paddingTop: "0.4rem", marginTop: "0.2rem", fontSize: "0.74rem", color: C.charcoalMid }}>
+                {isGoogleSignedIn
+                  ? "✓ Googleカレンダーから該当日の出勤予定を削除します。"
+                  : "※ Google未接続のため、アプリ内のみ反映されます。"}
+              </div>
+            </>
+          )}
+        </div>
+
+        {/* ポップアップ アクションボタン */}
+        <div style={{ display: "flex", justifyContent: "flex-end", gap: "0.55rem" }}>
+          <button
+            type="button"
+            onClick={handleClose}
+            disabled={saving}
+            style={{
+              background: "transparent",
+              border: "none",
+              padding: "0.5rem 0.9rem",
+              fontSize: "0.82rem",
+              fontWeight: 600,
+              color: C.charcoalLight,
+              cursor: "pointer",
+            }}
+          >
+            戻る
+          </button>
+          <button
+            type="button"
+            data-testid="confirm-shift-btn"
+            onClick={onConfirm}
+            disabled={saving}
+            style={{
+              background:
+                confirmAction === "reset"
+                  ? C.charcoal
+                  : type === "work"
+                  ? C.gold
+                  : C.sage,
+              color: "#FDFCFA",
+              border: "none",
+              borderRadius: "10px",
+              padding: "0.55rem 1.3rem",
+              fontSize: "0.82rem",
+              fontWeight: 700,
+              cursor: saving ? "default" : "pointer",
+              boxShadow: "0 2px 8px rgba(0,0,0,0.12)",
+              opacity: saving ? 0.7 : 1,
+              display: "inline-flex",
+              alignItems: "center",
+              gap: "0.35rem",
+            }}
+          >
+            <Check size={14} />
+            <span>{saving ? "反映中…" : "変更を反映する"}</span>
+          </button>
         </div>
       </div>
     </div>
@@ -563,3 +925,4 @@ export function ShiftOverrideModal({
 export const PMShiftOverrideModal = ShiftOverrideModal;
 
 export default ShiftOverrideModal;
+

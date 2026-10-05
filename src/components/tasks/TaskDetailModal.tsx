@@ -13,6 +13,7 @@ import { useState, useEffect, useRef } from "react";
 import type { TaskItem, SubTaskItem, TaskListCategory } from "../../types";
 import { breakdownTask } from "../../lib/aetherCore";
 import { C } from "../../lib/designSystem";
+import { useModalAnimation } from "../../hooks/useModalAnimation";
 
 export interface TaskDetailModalProps {
   task: TaskItem;
@@ -98,7 +99,12 @@ export function TaskDetailModal({
     setSubtasks(task.subtasks || []);
   }, [task]);
 
-  if (!isOpen) return null;
+  const { shouldRender, isClosing, handleClose } = useModalAnimation({
+    isOpen,
+    onClose,
+  });
+
+  if (!shouldRender) return null;
 
   const showToast = (msg: string) => {
     setToastMsg(msg);
@@ -170,7 +176,7 @@ export function TaskDetailModal({
         updatedAt: new Date().toISOString(),
       };
       await onSave(updated);
-      onClose();
+      handleClose();
     } finally {
       setIsSaving(false);
     }
@@ -190,9 +196,19 @@ export function TaskDetailModal({
     if (hasChanges && title.trim()) {
       await handleSave();
     } else {
-      onClose();
+      handleClose();
     }
   };
+
+  // Escape キーで閉じる
+  useEffect(() => {
+    if (!shouldRender || isClosing) return;
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === "Escape") handleSafeClose();
+    };
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [shouldRender, isClosing, handleSafeClose]);
 
   // 削除実行
   const handleDelete = async () => {
@@ -200,7 +216,7 @@ export function TaskDetailModal({
     setIsDeleting(true);
     try {
       await onDelete(task);
-      onClose();
+      handleClose();
     } finally {
       setIsDeleting(false);
     }
@@ -210,6 +226,7 @@ export function TaskDetailModal({
     <div
       role="dialog"
       aria-modal="true"
+      className={`arca-modal-backdrop ${isClosing ? "is-closing" : ""}`}
       style={{
         position: "fixed",
         inset: 0,
@@ -221,12 +238,11 @@ export function TaskDetailModal({
         alignItems: "center",
         justifyContent: "center",
         padding: "1rem",
-        animation: "arca-fade-in 0.2s ease",
       }}
       onClick={handleSafeClose}
     >
       <div
-        className="arca-card"
+        className={`arca-card arca-modal-window ${isClosing ? "is-closing" : ""}`}
         style={{
           width: "100%",
           maxWidth: "520px",

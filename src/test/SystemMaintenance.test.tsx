@@ -349,8 +349,15 @@ describe("システム保守・診断コンソール (System Maintenance)", () =
 
       expect(screen.getByText("システム保守・診断コンソール")).toBeInTheDocument();
       expect(screen.getByTestId("maint-tab-db")).toBeInTheDocument();
+      expect(screen.getByTestId("maint-tab-pm")).toBeInTheDocument();
       expect(screen.getByTestId("maint-tab-tracer")).toBeInTheDocument();
       expect(screen.getByTestId("maint-tab-backup")).toBeInTheDocument();
+
+      // PM保全タブに切り替え
+      const pmTab = screen.getByTestId("maint-tab-pm");
+      await user.click(pmTab);
+      expect(screen.getByTestId("maint-col-pm-masters")).toBeInTheDocument();
+      expect(screen.getByTestId("maint-col-pm-logs")).toBeInTheDocument();
 
       // Log Tracer タブに切り替え
       const logTab = screen.getByTestId("maint-tab-tracer");

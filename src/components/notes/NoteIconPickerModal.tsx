@@ -5,6 +5,7 @@
 
 import React, { useState, useMemo, useEffect, useRef } from "react";
 import { createPortal } from "react-dom";
+import { useModalAnimation } from "../../hooks/useModalAnimation";
 import {
   Folder,
   FileText,
@@ -189,27 +190,32 @@ export function NoteIconPickerModal({
     });
   }, [search, activeCategory]);
 
+  const { shouldRender, isClosing, handleClose } = useModalAnimation({
+    isOpen,
+    onClose,
+  });
+
   // モーダル外クリック・Escapeキーで閉じる
   useEffect(() => {
-    if (!isOpen) return;
+    if (!shouldRender || isClosing) return;
     const handleKeyDown = (e: KeyboardEvent) => {
-      if (e.key === "Escape") onClose();
+      if (e.key === "Escape") handleClose();
     };
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [isOpen, onClose]);
+  }, [shouldRender, isClosing, handleClose]);
 
-  if (!isOpen) return null;
+  if (!shouldRender) return null;
 
   return createPortal(
     <div
-      className="fixed inset-0 z-[200] flex items-center justify-center p-4 bg-black/30 backdrop-blur-sm select-none animate-in fade-in duration-150"
-      onClick={onClose}
+      className={`fixed inset-0 z-[200] flex items-center justify-center p-4 bg-black/30 backdrop-blur-sm select-none arca-modal-backdrop ${isClosing ? "is-closing" : ""}`}
+      onClick={handleClose}
     >
       <div
         ref={modalRef}
         onClick={(e) => e.stopPropagation()}
-        className="relative w-full max-w-md max-h-[85vh] bg-[var(--bg-card-solid,rgba(255,255,255,0.98))] rounded-2xl shadow-2xl border border-black/[0.06] dark:border-white/[0.08] flex flex-col overflow-hidden animate-in zoom-in-95 duration-150"
+        className={`relative w-full max-w-md max-h-[85vh] bg-[var(--bg-card-solid,rgba(255,255,255,0.98))] rounded-2xl shadow-2xl border border-black/[0.06] dark:border-white/[0.08] flex flex-col overflow-hidden arca-modal-window ${isClosing ? "is-closing" : ""}`}
       >
         {/* ヘッダー */}
         <div className="flex items-center justify-between px-4 py-3 border-b border-black/[0.05] dark:border-white/[0.06] shrink-0">

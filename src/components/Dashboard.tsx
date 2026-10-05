@@ -37,16 +37,17 @@ import type { Recipe } from "../types/recipe";
 import { subscribeRecipes } from "../lib/recipeStorage";
 import {
   resolveShiftInfo,
-  saveShiftOverride,
   DEFAULT_PM_SETTINGS,
   calculateFourTwoCycleRange,
   getCycleDateRangeLabel,
   getAdjacentCycleAnchor,
+  isWorkEvent,
 } from "../services/pmCycleService";
 import { useGoogleAuth } from "../hooks/useGoogleAuth";
 import {
   syncGoogleCalendarToArca,
   createGoogleCalendarEvent,
+  applyShiftStatusToGoogleCalendar,
 } from "../services/googleCalendarSync";
 import { ShiftOverrideModal } from "./calendar/ShiftOverrideModal";
 import { ShiftGoogleAdjustModal } from "./calendar/ShiftGoogleAdjustModal";
@@ -273,9 +274,12 @@ export default function Dashboard({ onNavigate, onSelectNote, onSelectRecipe }: 
     [isSignedIn, accessToken]
   );
 
-  // 手動オーバーライド保存ハンドラ（楽観的即時反映）
+  // 手動オーバーライド保存ハンドラ（Google カレンダー ＆ Firestore 連携）
   const handleSaveShiftOverride = useCallback(
-    async (override: any) => {
+    async (
+      override: any,
+      details?: { startTime?: string; endTime?: string }
+    ) => {
       setPmSettings((prev) => {
         const current = prev || { ...DEFAULT_PM_SETTINGS };
         const newOverrides = { ...(current.overrides || {}) };
@@ -294,12 +298,53 @@ export default function Dashboard({ onNavigate, onSelectNote, onSelectRecipe }: 
       });
 
       try {
-        await saveShiftOverride(today, override);
+        await applyShiftStatusToGoogleCalendar(
+          isSignedIn ? accessToken : null,
+          {
+            date: today,
+            type: override?.type || "holiday",
+            streakNumber: override?.streakNumber,
+            shiftName: override?.shiftName,
+            startTime: details?.startTime,
+            endTime: details?.endTime,
+            isReset: override === null,
+          },
+          events
+        );
+
+        if (override?.type === "holiday") {
+          setEvents((prev) => prev.filter((e) => !(e.date === today && isWorkEvent(e.title))));
+        } else if (override?.type === "work") {
+          const title = (override.shiftName || "出勤").trim();
+          setEvents((prev) => {
+            const next = [...prev];
+            const idx = next.findIndex((e) => e.date === today && isWorkEvent(e.title));
+            if (idx >= 0) {
+              next[idx] = {
+                ...next[idx],
+                title,
+                startTime: details?.startTime || next[idx].startTime,
+                endTime: details?.endTime || next[idx].endTime,
+              };
+            } else {
+              next.push({
+                id: `opt-${today}-${Date.now()}`,
+                title,
+                date: today,
+                startTime: details?.startTime || "06:00",
+                endTime: details?.endTime || "15:00",
+                note: "",
+                createdAt: null,
+              });
+            }
+            return next;
+          });
+        }
       } catch (err) {
         console.error("Failed to save shift override:", err);
       }
     },
-    [today]
+    [today, isSignedIn, accessToken, events]
   );
 
   return (
@@ -316,9 +361,17 @@ export default function Dashboard({ onNavigate, onSelectNote, onSelectRecipe }: 
             testId="dashboard-shift-badge"
             size="md"
           />
+          {/* シフト調整ボタン（ステータスバッジの横に配置） */}
+          <button
+            type="button"
+            onClick={() => setShowShiftGoogleModal(true)}
+            className="appearance-none text-xs sm:text-sm font-semibold px-3 py-1.5 sm:py-2 rounded-xl bg-white dark:bg-[var(--bg-card-solid)] text-stone-600 dark:text-stone-300 hover:text-amber-800 dark:hover:text-amber-300 hover:bg-amber-500/10 shadow-xs cursor-pointer border-none transition-colors"
+          >
+            シフト調整
+          </button>
         </div>
 
-        {/* 中央〜右側: サイクル切り替え ＆ シフト調整ボタン */}
+        {/* 中央〜右側: サイクル切り替え */}
         <div className="flex items-center gap-2.5 sm:gap-4 flex-wrap">
           {/* サイクル切り替えボタン（左側に独立配置） */}
           <div className="flex items-center gap-0.5 bg-white dark:bg-[var(--bg-card-solid)] rounded-xl p-1 shadow-xs border-none">
@@ -344,15 +397,6 @@ export default function Dashboard({ onNavigate, onSelectNote, onSelectRecipe }: 
           <span className="text-xl sm:text-2xl font-bold text-stone-800 dark:text-stone-100 tracking-tight select-none">
             {cycleDateRangeLabel}
           </span>
-
-          {/* シフト調整ボタン */}
-          <button
-            type="button"
-            onClick={() => setShowShiftGoogleModal(true)}
-            className="appearance-none text-xs sm:text-sm font-semibold px-3 py-2 rounded-xl bg-white dark:bg-[var(--bg-card-solid)] text-stone-600 dark:text-stone-300 hover:text-amber-800 dark:hover:text-amber-300 hover:bg-amber-500/10 shadow-xs cursor-pointer border-none transition-colors"
-          >
-            シフト調整
-          </button>
         </div>
       </div>
 
@@ -376,6 +420,7 @@ export default function Dashboard({ onNavigate, onSelectNote, onSelectRecipe }: 
         events={events}
         googleSyncStatus={syncStatus}
         isGoogleSignedIn={isSignedIn}
+        accessToken={accessToken}
         onGoogleSignIn={signIn}
         onGoogleSync={handleManualSync}
         onClose={() => setShowShiftOverrideModal(false)}

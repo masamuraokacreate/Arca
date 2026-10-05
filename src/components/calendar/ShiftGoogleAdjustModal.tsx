@@ -23,6 +23,7 @@ import {
   isWorkEvent,
 } from "../../services/pmCycleService";
 import { batchUpdateShiftEvents } from "../../services/googleCalendarSync";
+import { useModalAnimation } from "../../hooks/useModalAnimation";
 
 // ── シフトプリセット定義 ──
 interface ShiftPreset {
@@ -169,7 +170,21 @@ export function ShiftGoogleAdjustModal({
     }
   }, [selectedPreset, selectedDates, dayShiftStartTime, dayShiftEndTime, accessToken, events, onDone, onClose]);
 
-  if (!isOpen) return null;
+  const { shouldRender, isClosing, handleClose } = useModalAnimation({ isOpen, onClose });
+
+  // Escapeキーで閉じる
+  useEffect(() => {
+    if (!shouldRender || isClosing) return;
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === "Escape") {
+        handleClose();
+      }
+    };
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [shouldRender, isClosing, handleClose]);
+
+  if (!shouldRender) return null;
 
   // 日付を見やすくフォーマット (MM/DD (曜日))
   const formatDate = (dateStr: string): string => {
@@ -192,13 +207,13 @@ export function ShiftGoogleAdjustModal({
     >
       {/* オーバーレイ */}
       <div
-        className="absolute inset-0 bg-black/35 backdrop-blur-sm transition-opacity"
-        onClick={onClose}
+        className={`absolute inset-0 bg-black/35 backdrop-blur-sm arca-modal-backdrop ${isClosing ? "is-closing" : ""}`}
+        onClick={handleClose}
       />
 
       {/* モーダル本体 */}
       <div
-        className="relative w-full sm:w-[440px] max-h-[92vh] bg-white dark:bg-stone-900 rounded-t-3xl sm:rounded-2xl shadow-2xl flex flex-col overflow-hidden animate-in fade-in zoom-in-95 duration-150"
+        className={`relative w-full sm:w-[440px] max-h-[92vh] bg-white dark:bg-stone-900 rounded-t-3xl sm:rounded-2xl shadow-2xl flex flex-col overflow-hidden arca-modal-window ${isClosing ? "is-closing" : ""}`}
         style={{
           boxShadow: "0 20px 60px rgba(0,0,0,0.18), 0 4px 20px rgba(0,0,0,0.1)",
         }}
@@ -214,7 +229,7 @@ export function ShiftGoogleAdjustModal({
           </div>
           <button
             type="button"
-            onClick={onClose}
+            onClick={handleClose}
             className="appearance-none p-1.5 rounded-full text-stone-400 hover:text-stone-700 dark:hover:text-stone-200 hover:bg-stone-100 dark:hover:bg-stone-800 transition-colors border-none bg-transparent cursor-pointer"
             aria-label="閉じる"
           >

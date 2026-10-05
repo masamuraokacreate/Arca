@@ -8,7 +8,7 @@
  *  - 「タスク期限」セクションには「タスクを追加」フォーム（期限は選択中の日付/今日に自動設定）
  */
 
-import { useState, useEffect, useCallback, useRef } from "react";
+import { useState, useEffect, useCallback, useRef, useMemo } from "react";
 import {
   collection,
   addDoc,
@@ -23,7 +23,7 @@ import {
 } from "firebase/firestore";
 import { db } from "../lib/firebase";
 import { useGoogleAuth } from "../hooks/useGoogleAuth";
-import { Sun, Moon, Clock, ClipboardList, BookOpen } from "lucide-react";
+import { Clock, ClipboardList, BookOpen, RotateCw, Play } from "lucide-react";
 import { logger } from "../services/loggerService";
 import { SchemaLegendCard } from "./maintenance/SchemaLegendCard";
 import {
@@ -32,9 +32,10 @@ import {
   updateGoogleCalendarEvent,
   deleteGoogleCalendarEvent,
   batchUpdateShiftEvents,
+  applyShiftStatusToGoogleCalendar,
 } from "../services/googleCalendarSync";
 import type { CalendarEvent, CalendarTask, SyncStatus } from "../types";
-import type { PMSettings, PMTemplateItem, PMLogItem } from "../types/pm";
+import type { PMSettings, PMTemplateItem, PMLogItem, PMMaster } from "../types/pm";
 import { C } from "../lib/designSystem";
 import { useUndoToast } from "../hooks/useUndoToast";
 import { UndoToast } from "./common/UndoToast";
@@ -45,14 +46,17 @@ import {
   resolveItemStatus,
   resolveDateShiftInfo,
   resolveShiftInfo,
-  saveShiftOverride,
   getActivePMTasksForDate,
   DEFAULT_PM_SETTINGS,
   isWorkEvent,
 } from "../services/pmCycleService";
+import { subscribePMMasters } from "../services/pmMasterService";
 import { ShiftOverrideModal } from "./calendar/ShiftOverrideModal";
 import { ShiftBadge } from "./calendar/ShiftBadge";
 import { ShiftEditModal } from "./calendar/ShiftEditModal";
+import { CalendarDayCell } from "./calendar/CalendarDayCell";
+import { PMMasterModal } from "./pm/PMMasterModal";
+import { PMExecutionPopover } from "./pm/PMExecutionPopover";
 
 type Task = CalendarTask;
 
@@ -707,68 +711,6 @@ function AddTaskForm({
 }
 
 // ─────────────────────────────────────────
-// getShiftTimeStyle — 出勤時間帯に応じたマイクロピルのスタイル
-// ─────────────────────────────────────────
-function getShiftTimeStyle(startTime?: string, isSelected?: boolean): {
-  className: string;
-  style: React.CSSProperties;
-} {
-  const baseClass = "text-[10px] font-medium px-1.5 py-0.5 rounded-full whitespace-nowrap shrink-0";
-
-  if (isSelected) {
-    return {
-      className: `${baseClass} bg-white/25 text-white`,
-      style: {
-        letterSpacing: "-0.02em",
-        lineHeight: 1.2,
-      },
-    };
-  }
-
-  if (!startTime || !/^\d{1,2}:\d{2}$/.test(startTime)) {
-    // 標準日勤
-    return {
-      className: `${baseClass} bg-stone-500/10 text-stone-700 dark:text-stone-300`,
-      style: {
-        letterSpacing: "-0.02em",
-        lineHeight: 1.2,
-      },
-    };
-  }
-
-  const [h] = startTime.split(":").map(Number);
-
-  if (h >= 5 && h < 12) {
-    // 早番（朝: 05:00〜11:59開始）: ソフトアンバー
-    return {
-      className: `${baseClass} bg-amber-500/10 text-amber-800 dark:text-amber-300`,
-      style: {
-        letterSpacing: "-0.02em",
-        lineHeight: 1.2,
-      },
-    };
-  } else if (h >= 15) {
-    // 遅番（夜: 15:00以降開始）: トワイライトインディゴ
-    return {
-      className: `${baseClass} bg-indigo-500/10 text-indigo-800 dark:text-indigo-300`,
-      style: {
-        letterSpacing: "-0.02em",
-        lineHeight: 1.2,
-      },
-    };
-  } else {
-    // 日勤（昼: 12:00〜14:59開始、または標準日勤）: ソフトオリーブ/サンドセージ
-    return {
-      className: `${baseClass} bg-stone-500/10 text-stone-700 dark:text-stone-300`,
-      style: {
-        letterSpacing: "-0.02em",
-        lineHeight: 1.2,
-      },
-    };
-  }
-}
-
-// ─────────────────────────────────────────
 // MonthGrid — 月間カレンダーグリッド（シフト可視化対応）
 // ─────────────────────────────────────────
 function MonthGrid({
@@ -780,10 +722,12 @@ function MonthGrid({
   eventDates,
   taskDueDates,
   pmDates,
+  pmMastersMap,
   settings,
   onSelectDate,
   onPrevMonth,
   onNextMonth,
+  onOpenPMExecution,
   showSchemaLegend,
   onToggleSchemaLegend,
 }: {
@@ -796,10 +740,13 @@ function MonthGrid({
   taskDueDates: Set<string>;
   /** date → Day番号 の Map（PMタスクがある日のみ） */
   pmDates: Map<string, number>;
+  /** date → PMMaster[] の Map（管理台帳マスタの次回予定日） */
+  pmMastersMap?: Map<string, PMMaster[]>;
   settings?: PMSettings | null;
   onSelectDate: (d: string) => void;
   onPrevMonth: () => void;
   onNextMonth: () => void;
+  onOpenPMExecution?: (dateStr: string, masters: PMMaster[]) => void;
   showSchemaLegend?: boolean;
   onToggleSchemaLegend?: () => void;
 }) {
@@ -915,7 +862,8 @@ function MonthGrid({
           const hasEvent = eventDates.has(dateStr);
           const hasTask = taskDueDates.has(dateStr);
           const pmDayIndex = pmDates.get(dateStr);
-          const hasPM = pmDayIndex !== undefined;
+          const mastersForDate = pmMastersMap?.get(dateStr) || [];
+          const hasPM = mastersForDate.length > 0 || pmDayIndex !== undefined;
 
           // シフト状態
           const shift = shiftMap.get(dateStr);
@@ -923,128 +871,25 @@ function MonthGrid({
           const isRest = inMonth && shiftMap.size > 0 && !isWork;
 
           return (
-            <button
+            <CalendarDayCell
               key={dateStr}
-              onClick={() => onSelectDate(dateStr)}
-              style={{
-                position: "relative",
-                display: "flex",
-                flexDirection: "column",
-                alignItems: "center",
-                justifyContent: "space-between",
-                minHeight: "52px",
-                padding: "0.35rem 0.15rem 0.3rem",
-                background: isSelected
-                  ? C.gold
-                  : isToday
-                  ? C.goldFaint2
-                  : isRest
-                  ? "rgba(82, 121, 111, 0.04)"
-                  : "transparent",
-                border: "none",
-                borderRadius: "10px",
-                cursor: "pointer",
-                transition: "all 0.15s ease",
-                outline: "none",
-              }}
-            >
-              {/* 日付数字 */}
-              <span
-                style={{
-                  fontSize: "0.82rem",
-                  fontWeight: isSelected ? 750 : isToday ? 700 : 500,
-                  color: isSelected
-                    ? "#FDFCFA"
-                    : !inMonth
-                    ? C.charcoalXLight
-                    : isToday
-                    ? C.goldDark
-                    : isSun
-                    ? C.danger
-                    : isSat
-                    ? "#5A7DA0"
-                    : C.charcoal,
-                  lineHeight: 1,
-                }}
-              >
-                {day}
-              </span>
-
-              {/* シフト時間マイクロピル または Sun/Moon インジケータ */}
-              {inMonth && shiftMap.size > 0 && (
-                <div style={{ margin: "2px 0", lineHeight: 1, display: "flex", alignItems: "center", justifyContent: "center" }}>
-                  {isWork ? (
-                    shift?.startTime ? (
-                      <span
-                        className={getShiftTimeStyle(shift.startTime, isSelected).className}
-                        style={getShiftTimeStyle(shift.startTime, isSelected).style}
-                        data-testid="shift-time-pill"
-                      >
-                        {shift.startTime}
-                      </span>
-                    ) : (
-                      <Sun
-                        style={{
-                          width: "0.75rem",
-                          height: "0.75rem",
-                          color: isSelected ? "#FDFCFA" : C.goldDark,
-                        }}
-                        aria-label="出勤"
-                        data-testid="cell-work-sun-icon"
-                      />
-                    )
-                  ) : (
-                    <Moon
-                      style={{
-                        width: "0.72rem",
-                        height: "0.72rem",
-                        color: isSelected ? "#FDFCFA" : C.sage,
-                        opacity: 0.85,
-                      }}
-                      aria-label="休日"
-                      data-testid="cell-holiday-moon-icon"
-                    />
-                  )}
-                </div>
-              )}
-
-              {/* ドットインジケータ（予定・タスク・PM） */}
-              <div style={{ display: "flex", gap: "2.5px", minHeight: "5px", alignItems: "center" }}>
-                {hasEvent && (
-                  <span
-                    style={{
-                      width: "4px",
-                      height: "4px",
-                      borderRadius: "50%",
-                      background: isSelected ? "#FDFCFA" : C.gold,
-                    }}
-                    title="予定あり"
-                  />
-                )}
-                {hasTask && (
-                  <span
-                    style={{
-                      width: "4px",
-                      height: "4px",
-                      borderRadius: "50%",
-                      background: isSelected ? "rgba(255,255,255,0.75)" : C.charcoalLight,
-                    }}
-                    title="タスク期限あり"
-                  />
-                )}
-                {hasPM && (
-                  <span
-                    style={{
-                      width: "4px",
-                      height: "4px",
-                      borderRadius: "50%",
-                      background: isSelected ? "#FFF" : "#4A72B2",
-                    }}
-                    title="PMタスクあり"
-                  />
-                )}
-              </div>
-            </button>
+              dateStr={dateStr}
+              day={day}
+              inMonth={inMonth}
+              isSun={isSun}
+              isSat={isSat}
+              isSelected={isSelected}
+              isToday={isToday}
+              hasEvent={hasEvent}
+              hasTask={hasTask}
+              hasPM={hasPM}
+              pmMasters={mastersForDate}
+              shift={shift}
+              isRest={isRest}
+              showShift={shiftMap.size > 0}
+              onSelectDate={onSelectDate}
+              onOpenPMExecution={onOpenPMExecution}
+            />
           );
         })}
       </div>
@@ -1303,6 +1148,14 @@ export default function Calendar() {
   const [showShiftEditModal, setShowShiftEditModal] = useState(false);
   const [showSchemaLegend, setShowSchemaLegend] = useState(false);
 
+  // PM 管理台帳 & カレンダー実行連携ステート
+  const [pmMasters, setPmMasters] = useState<PMMaster[]>([]);
+  const [showPMMasterModal, setShowPMMasterModal] = useState(false);
+  const [selectedMasterIdForModal, setSelectedMasterIdForModal] = useState<string | null>(null);
+  const [showPMExecutionPopover, setShowPMExecutionPopover] = useState(false);
+  const [pmExecutionDate, setPmExecutionDate] = useState<string>(today);
+  const [pmExecutionMasters, setPmExecutionMasters] = useState<PMMaster[]>([]);
+
   const { isReady, isSignedIn, accessToken, signIn, signOut } = useGoogleAuth();
   const { toast, showUndoToast, showMessageToast, dismissToast, triggerUndo } = useUndoToast<CalendarEvent>();
 
@@ -1330,6 +1183,14 @@ export default function Calendar() {
 
       setEvents(deduplicated);
     });
+  }, []);
+
+  // ── Firestore: PMマスタ管理台帳 リアルタイム購読 ──
+  useEffect(() => {
+    const unsub = subscribePMMasters((list) => {
+      setPmMasters(list);
+    });
+    return () => unsub();
   }, []);
 
   // ── Firestore: 勤務シフト設定・PMテンプレート・ログ 購読 ──
@@ -1420,6 +1281,32 @@ export default function Calendar() {
     return buildCalendarPMDates(pmSettings, pmTemplates, fromDate, toDate, false, events);
   })();
 
+  // ── PM 管理台帳マスタの次回予定日マップ ──
+  const pmMastersMap = useMemo(() => {
+    const map = new Map<string, PMMaster[]>();
+    for (const m of pmMasters) {
+      if (m.nextScheduledDate) {
+        const existing = map.get(m.nextScheduledDate) || [];
+        existing.push(m);
+        map.set(m.nextScheduledDate, existing);
+      }
+    }
+    return map;
+  }, [pmMasters]);
+
+  const selectedDateMasters = useMemo(() => {
+    return pmMastersMap.get(selectedDate) || [];
+  }, [pmMastersMap, selectedDate]);
+
+  // ── PM 実行ポップオーバー展開ハンドラ ──
+  const handleOpenPMExecution = useCallback((dateStr: string, masters: PMMaster[]) => {
+    setSelectedDate(dateStr);
+    setPmExecutionDate(dateStr);
+    const targetMasters = masters && masters.length > 0 ? masters : pmMastersMap.get(dateStr) || [];
+    setPmExecutionMasters(targetMasters);
+    setShowPMExecutionPopover(true);
+  }, [pmMastersMap]);
+
   // ── 選択日のシフト情報（手動オーバーライド優先） ──
   const selectedShift = resolveShiftInfo(selectedDate, events, pmSettings);
   const selectedShiftInfo = resolveDateShiftInfo(selectedDate, events, pmSettings);
@@ -1430,10 +1317,13 @@ export default function Calendar() {
     : [];
   const pmLogMap = buildLogMapForDate(pmLogs, selectedDate);
 
-  // ── シフト手動オーバーライド保存（楽観的即時反映） ──
+  // ── シフト手動調整（Google Calendar ＆ Firestore 連携） ──
   const handleSaveShiftOverride = useCallback(
-    async (override: any) => {
-      // 1. ローカルステートを即時楽観的更新（0ms 反映）
+    async (
+      override: any,
+      details?: { startTime?: string; endTime?: string }
+    ) => {
+      // 1. ローカル PM 設定を即時楽観的更新（0ms 反映）
       setPmSettings((prev) => {
         const current = prev || { ...DEFAULT_PM_SETTINGS };
         const newOverrides = { ...(current.overrides || {}) };
@@ -1451,16 +1341,71 @@ export default function Calendar() {
         return { ...current, overrides: newOverrides };
       });
 
-      // 2. 永続化保存
+      // 2. Google カレンダー ＆ Firestore イベント ＆ PM設定 を一括連携
       try {
-        await saveShiftOverride(selectedDate, override);
-        logger.info("firestore", `Calendar: Saved shift override for ${selectedDate}`, override);
-        showMessageToast(override ? "シフト状態を手動設定しました" : "シフト状態を自動判定に戻しました");
+        await applyShiftStatusToGoogleCalendar(
+          isSignedIn ? accessToken : null,
+          {
+            date: selectedDate,
+            type: override?.type || "holiday",
+            streakNumber: override?.streakNumber,
+            shiftName: override?.shiftName,
+            startTime: details?.startTime,
+            endTime: details?.endTime,
+            isReset: override === null,
+          },
+          events
+        );
+
+        // 楽観的ローカル events 更新
+        if (override === null) {
+          showMessageToast("シフト状態を自動判定に戻しました");
+        } else if (override.type === "holiday") {
+          setEvents((prev) => prev.filter((e) => !(e.date === selectedDate && isWorkEvent(e.title))));
+          showMessageToast(
+            isSignedIn
+              ? "休日に設定し、Googleカレンダーの出勤予定を削除しました"
+              : "シフト状態を休日に設定しました"
+          );
+        } else {
+          const title = (override.shiftName || "出勤").trim();
+          setEvents((prev) => {
+            const next = [...prev];
+            const idx = next.findIndex((e) => e.date === selectedDate && isWorkEvent(e.title));
+            if (idx >= 0) {
+              next[idx] = {
+                ...next[idx],
+                title,
+                startTime: details?.startTime || next[idx].startTime,
+                endTime: details?.endTime || next[idx].endTime,
+              };
+            } else {
+              next.push({
+                id: `opt-${selectedDate}-${Date.now()}`,
+                title,
+                date: selectedDate,
+                startTime: details?.startTime || "06:00",
+                endTime: details?.endTime || "15:00",
+                note: "",
+                createdAt: null,
+              });
+            }
+            return next;
+          });
+          showMessageToast(
+            isSignedIn
+              ? `出勤（${title}）をGoogleカレンダーと連携して保存しました`
+              : "シフト状態を出勤に設定しました"
+          );
+        }
+
+        logger.info("firestore", `Calendar: Applied shift status for ${selectedDate}`, override);
       } catch (err) {
-        console.error("Failed to save shift override from calendar:", err);
+        console.error("Failed to apply shift status from calendar:", err);
+        showMessageToast("シフトの保存に失敗しました");
       }
     },
-    [selectedDate, showMessageToast]
+    [selectedDate, isSignedIn, accessToken, events, showMessageToast]
   );
 
   // ── 4連勤ワンシフト一括 / シフト時間一括更新ハンドラ ──
@@ -1768,6 +1713,37 @@ export default function Calendar() {
           <Clock style={{ width: "0.75rem", height: "0.75rem", flexShrink: 0 }} />
           <span>時間変更</span>
         </button>
+
+        {/* PM管理台帳ボタン */}
+        <button
+          type="button"
+          onClick={() => {
+            setSelectedMasterIdForModal(null);
+            setShowPMMasterModal(true);
+          }}
+          data-testid="calendar-pm-master-btn"
+          className="whitespace-nowrap shrink-0"
+          style={{
+            display: "inline-flex",
+            alignItems: "center",
+            gap: "0.3rem",
+            padding: "0.2rem 0.65rem",
+            borderRadius: "9999px",
+            background: "rgba(197, 160, 89, 0.14)",
+            color: "#8C6332",
+            border: "none",
+            fontSize: "0.72rem",
+            fontWeight: 650,
+            letterSpacing: "0.02em",
+            cursor: "pointer",
+            boxShadow: "0 1px 3px rgba(0, 0, 0, 0.04)",
+            transition: "all 0.15s ease",
+          }}
+          title="PM（周期保全・管理台帳）の定義と一覧を表示"
+        >
+          <RotateCw style={{ width: "0.75rem", height: "0.75rem", flexShrink: 0 }} />
+          <span>PM管理台帳</span>
+        </button>
       </div>
 
       {/* ─── 左右2ペイン（PC: 2カラム横並び / モバイル: 縦積み） ─── */}
@@ -1784,10 +1760,12 @@ export default function Calendar() {
             eventDates={eventDates}
             taskDueDates={taskDueDates}
             pmDates={pmDates}
+            pmMastersMap={pmMastersMap}
             settings={pmSettings}
             onSelectDate={setSelectedDate}
             onPrevMonth={goPrevMonth}
             onNextMonth={goNextMonth}
+            onOpenPMExecution={handleOpenPMExecution}
             showSchemaLegend={showSchemaLegend}
             onToggleSchemaLegend={() => setShowSchemaLegend((prev) => !prev)}
           />
@@ -1879,8 +1857,101 @@ export default function Calendar() {
             </div>
           </div>
 
-          {/* ── PM作業セクション ── */}
-          {selectedDatePMItems.length > 0 && (
+          {/* ── PM管理台帳 実行連携セクション ── */}
+          {selectedDateMasters.length > 0 && (
+            <div className="arca-card" style={{ padding: "1.15rem 1.4rem", borderRadius: "20px" }}>
+              <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: "0.75rem" }}>
+                <div style={{ display: "flex", alignItems: "center", gap: "0.45rem" }}>
+                  <RotateCw style={{ width: "0.85rem", height: "0.85rem", color: "#C5A059" }} />
+                  <p style={{ ...sectionLabelStyle, margin: 0 }}>PM周期保全（台帳）</p>
+                </div>
+                <span
+                  style={{
+                    fontSize: "0.65rem",
+                    fontWeight: 700,
+                    color: "#8C6332",
+                    background: "rgba(197, 160, 89, 0.14)",
+                    padding: "0.15rem 0.5rem",
+                    borderRadius: "9999px",
+                    letterSpacing: "0.03em",
+                  }}
+                  data-testid="calendar-pm-master-count-badge"
+                >
+                  {selectedDateMasters.length}件の予定
+                </span>
+              </div>
+
+              <div style={{ display: "flex", flexDirection: "column", gap: "0.6rem" }}>
+                {selectedDateMasters.map((m: PMMaster) => (
+                  <div
+                    key={m.id}
+                    style={{
+                      padding: "0.75rem 0.85rem",
+                      borderRadius: "12px",
+                      backgroundColor: "rgba(0, 0, 0, 0.025)",
+                      display: "flex",
+                      alignItems: "center",
+                      justifyContent: "space-between",
+                      gap: "0.5rem",
+                    }}
+                  >
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      <p
+                        style={{
+                          margin: 0,
+                          fontSize: "0.86rem",
+                          fontWeight: 650,
+                          color: C.charcoal,
+                          overflow: "hidden",
+                          textOverflow: "ellipsis",
+                          whiteSpace: "nowrap",
+                        }}
+                      >
+                        {m.title}
+                      </p>
+                      <div style={{ display: "flex", alignItems: "center", gap: "0.6rem", marginTop: "0.25rem", fontSize: "0.7rem", color: C.charcoalLight }}>
+                        {m.estimatedMinutes !== undefined && m.estimatedMinutes !== null && (
+                          <span style={{ display: "inline-flex", alignItems: "center", gap: "0.2rem" }}>
+                            <Clock size={11} />
+                            <span>目安 {m.estimatedMinutes}分</span>
+                          </span>
+                        )}
+                        <span>{m.taskTemplates?.length || 0}ステップ</span>
+                      </div>
+                    </div>
+
+                    <button
+                      type="button"
+                      onClick={() => handleOpenPMExecution(selectedDate, [m])}
+                      data-testid={`calendar-pm-exec-btn-${m.id}`}
+                      style={{
+                        background: "#52796F",
+                        color: "#FDFCFA",
+                        border: "none",
+                        borderRadius: "8px",
+                        padding: "0.35rem 0.75rem",
+                        fontSize: "0.72rem",
+                        fontWeight: 600,
+                        cursor: "pointer",
+                        display: "inline-flex",
+                        alignItems: "center",
+                        gap: "0.3rem",
+                        flexShrink: 0,
+                        boxShadow: "0 2px 6px rgba(82, 121, 111, 0.25)",
+                        transition: "all 0.15s ease",
+                      }}
+                    >
+                      <Play size={11} fill="currentColor" />
+                      <span>実行</span>
+                    </button>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {/* ── 従来のPM作業セクション（後方互換） ── */}
+          {selectedDatePMItems.length > 0 && selectedDateMasters.length === 0 && (
             <div className="arca-card" style={{ padding: "1.15rem 1.4rem", borderRadius: "20px" }}>
               <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: "0.75rem" }}>
                 <div style={{ display: "flex", alignItems: "center", gap: "0.45rem" }}>
@@ -1993,6 +2064,7 @@ export default function Calendar() {
         events={events}
         googleSyncStatus={syncStatus}
         isGoogleSignedIn={isSignedIn}
+        accessToken={accessToken}
         onGoogleSignIn={signIn}
         onGoogleSync={syncCalendar}
         onClose={() => setShowShiftOverrideModal(false)}
@@ -2009,6 +2081,32 @@ export default function Calendar() {
         isGoogleSignedIn={isSignedIn}
         onClose={() => setShowShiftEditModal(false)}
         onSave={handleSaveShiftBatch}
+      />
+
+      {/* ─── PM（周期保全・管理台帳）定義モーダル (2ペイン) ─── */}
+      <PMMasterModal
+        isOpen={showPMMasterModal}
+        initialSelectedMasterId={selectedMasterIdForModal}
+        onClose={() => {
+          setShowPMMasterModal(false);
+          setSelectedMasterIdForModal(null);
+        }}
+      />
+
+      {/* ─── PM実行ポップオーバー ─── */}
+      <PMExecutionPopover
+        isOpen={showPMExecutionPopover}
+        date={pmExecutionDate}
+        masters={pmExecutionMasters}
+        onClose={() => setShowPMExecutionPopover(false)}
+        onCompleted={(_log) => {
+          showMessageToast("PM作業の実行ログを保存しました");
+        }}
+        onOpenMaster={(masterId) => {
+          setShowPMExecutionPopover(false);
+          setSelectedMasterIdForModal(masterId);
+          setShowPMMasterModal(true);
+        }}
       />
 
       {/* ─── 共通 Undo トースト ─── */}

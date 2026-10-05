@@ -35,12 +35,14 @@ import {
   savePMTemplate,
   deletePMTemplate,
   resolveShiftInfo,
-  saveShiftOverride,
   getActivePMTasksForDate,
   getPMTemplateTimingLabel,
   getPMTemplateCycleLabel,
   DEFAULT_PM_SETTINGS,
+  isWorkEvent,
 } from "../../services/pmCycleService";
+import { useGoogleAuth } from "../../hooks/useGoogleAuth";
+import { applyShiftStatusToGoogleCalendar } from "../../services/googleCalendarSync";
 import { PMSkipReasonModal } from "./PMSkipReasonModal";
 import { PMSettingsModal } from "./PMSettingsModal";
 import { ShiftOverrideModal } from "../calendar/ShiftOverrideModal";
@@ -109,6 +111,7 @@ export function PMSection({ date, events }: PMSectionProps) {
   const [logs, setLogs] = useState<PMLogItem[]>([]);
   const [calendarEvents, setCalendarEvents] = useState<CalendarEvent[]>(events || []);
   const [loading, setLoading] = useState(false);
+  const { isSignedIn, accessToken, signIn } = useGoogleAuth();
 
   const [showSettings, setShowSettings] = useState(false);
   const [showShiftOverrideModal, setShowShiftOverrideModal] = useState(false);
@@ -206,9 +209,12 @@ export function PMSection({ date, events }: PMSectionProps) {
   const skippedCount = todayTemplates.filter((t) => logMap.get(t.id)?.status === "skipped").length;
   const allFinished = todayTemplates.length > 0 && completedCount + skippedCount === todayTemplates.length;
 
-  // ── シフト手動オーバーライド保存（楽観的即時反映） ──
+  // ── シフト手動調整（Google Calendar ＆ Firestore 連携） ──
   const handleSaveShiftOverride = useCallback(
-    async (override: any) => {
+    async (
+      override: any,
+      details?: { startTime?: string; endTime?: string }
+    ) => {
       // 1. ローカルステート即時更新（0ms 反映）
       setSettings((prev) => {
         const current = prev || { ...DEFAULT_PM_SETTINGS };
@@ -227,14 +233,55 @@ export function PMSection({ date, events }: PMSectionProps) {
         return { ...current, overrides: newOverrides };
       });
 
-      // 2. 永続化保存
+      // 2. Google カレンダー ＆ Firestore 連携
       try {
-        await saveShiftOverride(targetDate, override);
+        await applyShiftStatusToGoogleCalendar(
+          isSignedIn ? accessToken : null,
+          {
+            date: targetDate,
+            type: override?.type || "holiday",
+            streakNumber: override?.streakNumber,
+            shiftName: override?.shiftName,
+            startTime: details?.startTime,
+            endTime: details?.endTime,
+            isReset: override === null,
+          },
+          calendarEvents
+        );
+
+        if (override?.type === "holiday") {
+          setCalendarEvents((prev) => prev.filter((e) => !(e.date === targetDate && isWorkEvent(e.title))));
+        } else if (override?.type === "work") {
+          const title = (override.shiftName || "出勤").trim();
+          setCalendarEvents((prev) => {
+            const next = [...prev];
+            const idx = next.findIndex((e) => e.date === targetDate && isWorkEvent(e.title));
+            if (idx >= 0) {
+              next[idx] = {
+                ...next[idx],
+                title,
+                startTime: details?.startTime || next[idx].startTime,
+                endTime: details?.endTime || next[idx].endTime,
+              };
+            } else {
+              next.push({
+                id: `opt-${targetDate}-${Date.now()}`,
+                title,
+                date: targetDate,
+                startTime: details?.startTime || "06:00",
+                endTime: details?.endTime || "15:00",
+                note: "",
+                createdAt: null,
+              });
+            }
+            return next;
+          });
+        }
       } catch (err) {
-        console.error("Failed to save shift override from PMSection:", err);
+        console.error("Failed to apply shift status from PMSection:", err);
       }
     },
-    [targetDate]
+    [targetDate, isSignedIn, accessToken, calendarEvents]
   );
 
   // ── 完了トグルハンドラ ──
@@ -653,6 +700,9 @@ export function PMSection({ date, events }: PMSectionProps) {
         targetDate={targetDate}
         currentShift={currentShift}
         events={calendarEvents}
+        isGoogleSignedIn={isSignedIn}
+        accessToken={accessToken}
+        onGoogleSignIn={signIn}
         onClose={() => setShowShiftOverrideModal(false)}
         onSave={handleSaveShiftOverride}
       />

@@ -24,6 +24,9 @@ import { db } from "../../lib/firebase";
 import type { PMSettings, PMTemplateItem, PMShiftTiming, PMTimingCategory } from "../../types/pm";
 import { getPMTemplateTimingLabel, getPMTemplateCycleLabel } from "../../services/pmCycleService";
 import { C } from "../../lib/designSystem";
+import { useModalAnimation } from "../../hooks/useModalAnimation";
+import { ConfirmModal } from "../notes/ConfirmModal";
+import { RotateCw } from "lucide-react";
 
 // ─────────────────────────────────────────
 // インライン SVG アイコン
@@ -102,6 +105,12 @@ export function PMSettingsModal({
 
   const [isSaving, setIsSaving] = useState(false);
   const [toastMsg, setToastMsg] = useState<string | null>(null);
+  const [templateToDelete, setTemplateToDelete] = useState<PMTemplateItem | null>(null);
+
+  const { shouldRender, isClosing, handleClose } = useModalAnimation({
+    isOpen,
+    onClose,
+  });
 
   const toastTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const showToast = (msg: string) => {
@@ -267,24 +276,38 @@ export function PMSettingsModal({
     }
   };
 
-  // ── テンプレート削除ハンドラ ──
-  const handleDeleteTemplate = async (id: string) => {
-    if (!window.confirm("このPMタスクを削除しますか？")) return;
+  // ── テンプレート削除実行 ──
+  const executeDeleteTemplate = async (template: PMTemplateItem) => {
     try {
       if (onDeleteTemplate) {
-        await onDeleteTemplate(id);
+        await onDeleteTemplate(template.id);
       } else {
-        await deleteDoc(doc(db, "pm_templates", id));
+        await deleteDoc(doc(db, "pm_templates", template.id));
       }
       showToast("タスクを削除しました");
     } catch (err) {
       console.error("Failed to delete template:", err);
       showToast("削除に失敗しました");
+    } finally {
+      setTemplateToDelete(null);
     }
   };
 
+  // Escape キーで閉じる
+  useEffect(() => {
+    if (!shouldRender || isClosing) return;
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === "Escape") handleClose();
+    };
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [shouldRender, isClosing, handleClose]);
+
+  if (!shouldRender) return null;
+
   return (
     <div
+      className={`arca-modal-backdrop ${isClosing ? "is-closing" : ""}`}
       style={{
         position: "fixed",
         inset: 0,
@@ -298,11 +321,11 @@ export function PMSettingsModal({
         padding: "1rem",
       }}
       onClick={(e) => {
-        if (e.target === e.currentTarget) onClose();
+        if (e.target === e.currentTarget) handleClose();
       }}
     >
       <div
-        className="arca-card"
+        className={`arca-card arca-modal-window ${isClosing ? "is-closing" : ""}`}
         style={{
           width: "100%",
           maxWidth: "680px",
@@ -314,7 +337,6 @@ export function PMSettingsModal({
           display: "flex",
           flexDirection: "column",
           overflow: "hidden",
-          animation: "arca-modal-in 0.25s cubic-bezier(0.16, 1, 0.3, 1)",
         }}
       >
         {/* ─── ヘッダー ─── */}
@@ -742,9 +764,13 @@ export function PMSettingsModal({
                                 background: "rgba(197, 160, 89, 0.15)",
                                 padding: "0.15rem 0.55rem",
                                 borderRadius: "9999px",
+                                display: "inline-flex",
+                                alignItems: "center",
+                                gap: "0.25rem",
                               }}
                             >
-                              🔄 {cycleLabel}
+                              <RotateCw size={10} strokeWidth={2.4} />
+                              <span>{cycleLabel}</span>
                             </span>
                           )}
                         </div>
@@ -775,7 +801,7 @@ export function PMSettingsModal({
                         </button>
                         <button
                           type="button"
-                          onClick={() => handleDeleteTemplate(item.id)}
+                          onClick={() => setTemplateToDelete(item)}
                           style={{
                             background: "transparent",
                             border: "none",
@@ -816,6 +842,22 @@ export function PMSettingsModal({
           </div>
         </div>
       </div>
+
+      {/* ─── 削除確認モーダル (ConfirmModal) ─── */}
+      <ConfirmModal
+        isOpen={!!templateToDelete}
+        title="PMタスクを削除しますか？"
+        message={`「${templateToDelete?.title || "このタスク"}」を削除してもよろしいですか？この操作は取り消せません。`}
+        confirmLabel="削除する"
+        cancelLabel="キャンセル"
+        isDestructive={true}
+        onConfirm={() => {
+          if (templateToDelete) {
+            executeDeleteTemplate(templateToDelete);
+          }
+        }}
+        onCancel={() => setTemplateToDelete(null)}
+      />
     </div>
   );
 }

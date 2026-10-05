@@ -3,10 +3,12 @@
  * Arca — CSV照合プレビュー & 一括確定モーダル
  */
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
+import { BarChart3, Check } from "lucide-react";
 import type { ReconcilePreviewResult, ReconcilePreviewItem } from "../../types/finance";
 import { formatCurrency } from "../../utils/financeSummary";
 import { C } from "../../lib/designSystem";
+import { useModalAnimation } from "../../hooks/useModalAnimation";
 
 interface ReconcilePreviewModalProps {
   isOpen: boolean;
@@ -25,8 +27,21 @@ export function ReconcilePreviewModal({
 }: ReconcilePreviewModalProps) {
   const [filterTab, setFilterTab] = useState<FilterTab>("all");
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const { shouldRender, isClosing, handleClose } = useModalAnimation({ isOpen, onClose });
 
-  if (!isOpen || !previewResult) return null;
+  // Escapeキーで閉じる
+  useEffect(() => {
+    if (!shouldRender || isClosing || isSubmitting) return;
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === "Escape") {
+        handleClose();
+      }
+    };
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [shouldRender, isClosing, isSubmitting, handleClose]);
+
+  if (!shouldRender || !previewResult) return null;
 
   const totalCommitted = previewResult.matchedCount + previewResult.createdCount;
 
@@ -40,7 +55,7 @@ export function ReconcilePreviewModal({
     setIsSubmitting(true);
     try {
       await onConfirm(previewResult);
-      onClose();
+      handleClose();
     } catch (err) {
       console.error("[ReconcilePreviewModal] Commit error:", err);
     } finally {
@@ -50,6 +65,7 @@ export function ReconcilePreviewModal({
 
   return (
     <div
+      className={`arca-modal-backdrop ${isClosing ? "is-closing" : ""}`}
       style={{
         position: "fixed",
         inset: 0,
@@ -62,11 +78,11 @@ export function ReconcilePreviewModal({
         backdropFilter: "blur(6px)",
       }}
       onClick={(e) => {
-        if (e.target === e.currentTarget && !isSubmitting) onClose();
+        if (e.target === e.currentTarget && !isSubmitting) handleClose();
       }}
     >
       <div
-        className="arca-card"
+        className={`arca-card arca-modal-window ${isClosing ? "is-closing" : ""}`}
         style={{
           width: "100%",
           maxWidth: "680px",
@@ -102,7 +118,7 @@ export function ReconcilePreviewModal({
                 gap: "0.5rem",
               }}
             >
-              <span>📊</span>
+              <BarChart3 size={18} color={C.goldDark} />
               <span>CSV照合プレビュー（{previewResult.paymentMethod}）</span>
             </h2>
             <p
@@ -117,7 +133,7 @@ export function ReconcilePreviewModal({
           </div>
 
           <button
-            onClick={onClose}
+            onClick={handleClose}
             disabled={isSubmitting}
             style={{
               background: "transparent",
@@ -259,7 +275,7 @@ export function ReconcilePreviewModal({
           }}
         >
           <button
-            onClick={onClose}
+            onClick={handleClose}
             disabled={isSubmitting}
             style={{
               padding: "0.55rem 1.1rem",
@@ -311,7 +327,7 @@ export function ReconcilePreviewModal({
               </>
             ) : (
               <>
-                <span>✓</span>
+                <Check size={14} strokeWidth={2.5} />
                 <span>
                   {totalCommitted > 0
                     ? `すべて登録して確定 (${totalCommitted}件)`

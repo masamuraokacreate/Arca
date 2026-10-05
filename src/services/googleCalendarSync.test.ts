@@ -14,6 +14,8 @@ import {
   cleanDuplicateEvents,
   syncGoogleCalendarToArca,
   batchUpdateShiftEvents,
+  resolveShiftTimes,
+  applyShiftStatusToGoogleCalendar,
   GoogleCalendarApiError,
 } from "./googleCalendarSync";
 import {
@@ -602,6 +604,137 @@ describe("googleCalendarSync", () => {
       expect(globalThis.fetch).toHaveBeenCalledTimes(1);
       // Firestore への addDoc
       expect(addDoc).toHaveBeenCalledTimes(1);
+    });
+  });
+
+  describe("resolveShiftTimes", () => {
+    it("指定されたカスタム時間を最優先で返す", () => {
+      const times = resolveShiftTimes("早番", "07:00", "16:00");
+      expect(times).toEqual({ startTime: "07:00", endTime: "16:00" });
+    });
+
+    it("早番キーワードから 06:00〜15:00 を導出する", () => {
+      const times = resolveShiftTimes("早番(5時)");
+      expect(times.startTime).toBe("06:00");
+      expect(times.endTime).toBe("15:00");
+    });
+
+    it("遅番キーワードから 15:00〜24:00 を導出する", () => {
+      const times = resolveShiftTimes("遅番");
+      expect(times.startTime).toBe("15:00");
+      expect(times.endTime).toBe("24:00");
+    });
+
+    it("日勤キーワードから 08:30〜17:30 を導出する", () => {
+      const times = resolveShiftTimes("日勤");
+      expect(times.startTime).toBe("08:30");
+      expect(times.endTime).toBe("17:30");
+    });
+  });
+
+  describe("applyShiftStatusToGoogleCalendar", () => {
+    it("isReset === true の場合はオーバーライドを解除する", async () => {
+      const res = await applyShiftStatusToGoogleCalendar(
+        "mock-token",
+        {
+          date: "2026-10-05",
+          type: "holiday",
+          isReset: true,
+        },
+        []
+      );
+
+      expect(res.success).toBe(true);
+      expect(setDoc).toHaveBeenCalled();
+    });
+
+    it("休日に変更時、既存の出勤イベントを Google カレンダーおよび Firestore から削除する", async () => {
+      globalThis.fetch = vi.fn().mockResolvedValue({
+        ok: true,
+        status: 204,
+        text: async () => "",
+      });
+
+      const existingEvent = createMockEvent({
+        id: "work-doc-1",
+        date: "2026-10-05",
+        title: "早番",
+        googleEventId: "gid-work-1",
+      });
+
+      const res = await applyShiftStatusToGoogleCalendar(
+        "mock-token",
+        {
+          date: "2026-10-05",
+          type: "holiday",
+          streakNumber: 1,
+        },
+        [existingEvent]
+      );
+
+      expect(res.success).toBe(true);
+      // Google Calendar DELETE が呼ばれる
+      expect(globalThis.fetch).toHaveBeenCalledTimes(1);
+      const call = (globalThis.fetch as Mock).mock.calls[0];
+      expect(call[1].method).toBe("DELETE");
+      expect(deleteDoc).toHaveBeenCalledWith("events/work-doc-1");
+    });
+
+    it("出勤に変更時、既存イベントがなければ Google カレンダー新規作成 & Firestore addDoc", async () => {
+      globalThis.fetch = vi.fn().mockResolvedValue({
+        ok: true,
+        status: 200,
+        text: async () => JSON.stringify({ id: "new-google-event-id" }),
+      });
+
+      const res = await applyShiftStatusToGoogleCalendar(
+        "mock-token",
+        {
+          date: "2026-10-05",
+          type: "work",
+          shiftName: "早番",
+          streakNumber: 1,
+        },
+        []
+      );
+
+      expect(res.success).toBe(true);
+      expect(globalThis.fetch).toHaveBeenCalledTimes(1);
+      const call = (globalThis.fetch as Mock).mock.calls[0];
+      expect(call[1].method).toBe("POST");
+      expect(addDoc).toHaveBeenCalledTimes(1);
+    });
+
+    it("出勤に変更時、既存イベントがあれば Google カレンダー PATCH & Firestore updateDoc", async () => {
+      globalThis.fetch = vi.fn().mockResolvedValue({
+        ok: true,
+        status: 200,
+        text: async () => JSON.stringify({ id: "gid-exist" }),
+      });
+
+      const existingEvent = createMockEvent({
+        id: "work-doc-2",
+        date: "2026-10-05",
+        title: "出勤",
+        googleEventId: "gid-exist",
+      });
+
+      const res = await applyShiftStatusToGoogleCalendar(
+        "mock-token",
+        {
+          date: "2026-10-05",
+          type: "work",
+          shiftName: "遅番",
+          streakNumber: 2,
+        },
+        [existingEvent]
+      );
+
+      expect(res.success).toBe(true);
+      expect(globalThis.fetch).toHaveBeenCalledTimes(1);
+      const call = (globalThis.fetch as Mock).mock.calls[0];
+      expect(call[1].method).toBe("PATCH");
+      expect(updateDoc).toHaveBeenCalledTimes(1);
     });
   });
 });

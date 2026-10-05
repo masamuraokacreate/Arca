@@ -10,6 +10,7 @@
 
 import { useState, useEffect, useRef, useCallback } from "react";
 import { C } from "../lib/designSystem";
+import { useModalAnimation } from "../hooks/useModalAnimation";
 import {
   exportToJsonFile,
   backupToGoogleDrive,
@@ -19,6 +20,7 @@ import {
   type BackupData,
 } from "../services/backupService";
 import { useGoogleAuth } from "../hooks/useGoogleAuth";
+import { ConfirmModal } from "./notes/ConfirmModal";
 
 // ─── アイコン定義 ───
 
@@ -106,6 +108,7 @@ export default function BackupModal({ isOpen, onClose }: BackupModalProps) {
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const [parsedBackup, setParsedBackup] = useState<BackupData | null>(null);
   const [restoreMode, setRestoreMode] = useState<"merge" | "overwrite">("merge");
+  const [showOverwriteConfirm, setShowOverwriteConfirm] = useState(false);
   const [isDragging, setIsDragging] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
@@ -248,15 +251,8 @@ export default function BackupModal({ isOpen, onClose }: BackupModalProps) {
   }, []);
 
   // ─── 復元実行 ───
-  const handleRestore = async () => {
+  const executeRestore = async () => {
     if (!parsedBackup) return;
-
-    if (restoreMode === "overwrite") {
-      const ok = window.confirm(
-        "【警告】「完全上書き」を選択しています。\n現在のすべてのデータが削除され、バックアップの内容で置き換えられます。\n本当に復元を実行しますか？"
-      );
-      if (!ok) return;
-    }
 
     setIsRestoring(true);
     setStatusMessage(null);
@@ -276,13 +272,40 @@ export default function BackupModal({ isOpen, onClose }: BackupModalProps) {
       });
     } finally {
       setIsRestoring(false);
+      setShowOverwriteConfirm(false);
     }
   };
 
-  if (!isOpen) return null;
+  const handleRestore = async () => {
+    if (!parsedBackup) return;
+
+    if (restoreMode === "overwrite") {
+      setShowOverwriteConfirm(true);
+      return;
+    }
+
+    await executeRestore();
+  };
+
+  const { shouldRender, isClosing, handleClose } = useModalAnimation({ isOpen, onClose });
+
+  // Escapeキーで閉じる
+  useEffect(() => {
+    if (!shouldRender || isClosing) return;
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === "Escape") {
+        handleClose();
+      }
+    };
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [shouldRender, isClosing, handleClose]);
+
+  if (!shouldRender) return null;
 
   return (
     <div
+      className={`arca-modal-backdrop ${isClosing ? "is-closing" : ""}`}
       style={{
         position: "fixed",
         inset: 0,
@@ -297,11 +320,11 @@ export default function BackupModal({ isOpen, onClose }: BackupModalProps) {
         boxSizing: "border-box",
       }}
       onClick={(e) => {
-        if (e.target === e.currentTarget) onClose();
+        if (e.target === e.currentTarget) handleClose();
       }}
     >
       <div
-        className="arca-card"
+        className={`arca-card arca-modal-window ${isClosing ? "is-closing" : ""}`}
         style={{
           width: "100%",
           maxWidth: "540px",
@@ -313,7 +336,6 @@ export default function BackupModal({ isOpen, onClose }: BackupModalProps) {
           border: "1px solid var(--border-subtle)",
           boxShadow: "var(--shadow-modal)",
           overflow: "hidden",
-          animation: "arca-module-in 0.24s cubic-bezier(0.16, 1, 0.3, 1)",
         }}
       >
         {/* ── ヘッダー ── */}
@@ -367,7 +389,7 @@ export default function BackupModal({ isOpen, onClose }: BackupModalProps) {
           </div>
 
           <button
-            onClick={onClose}
+            onClick={handleClose}
             aria-label="閉じる"
             style={{
               background: "transparent",
@@ -718,6 +740,17 @@ export default function BackupModal({ isOpen, onClose }: BackupModalProps) {
           </div>
         </div>
       </div>
+
+      <ConfirmModal
+        isOpen={showOverwriteConfirm}
+        title="完全上書き復元の確認"
+        message="「完全上書き」を選択しています。現在のすべてのデータが削除され、バックアップの内容で置き換えられます。本当に復元を実行しますか？"
+        confirmLabel="復元を実行"
+        cancelLabel="キャンセル"
+        isDestructive={true}
+        onConfirm={executeRestore}
+        onCancel={() => setShowOverwriteConfirm(false)}
+      />
     </div>
   );
 }

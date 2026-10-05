@@ -10,6 +10,7 @@
 
 import { useEffect, useRef } from "react";
 import { C } from "../../lib/designSystem";
+import { useModalAnimation } from "../../hooks/useModalAnimation";
 
 export interface ConfirmModalProps {
   isOpen: boolean;
@@ -20,6 +21,9 @@ export interface ConfirmModalProps {
   isDestructive?: boolean;
   onConfirm: () => void;
   onCancel: () => void;
+  confirmTestId?: string;
+  cancelTestId?: string;
+  overlayTestId?: string;
 }
 
 export function ConfirmModal({
@@ -31,35 +35,34 @@ export function ConfirmModal({
   isDestructive = true,
   onConfirm,
   onCancel,
+  confirmTestId,
+  cancelTestId,
+  overlayTestId,
 }: ConfirmModalProps) {
   const modalRef = useRef<HTMLDivElement>(null);
+  const { shouldRender, isClosing, handleClose } = useModalAnimation({
+    isOpen,
+    onClose: onCancel,
+  });
 
   useEffect(() => {
-    if (!isOpen) return;
+    if (!shouldRender || isClosing) return;
     const handleKeyDown = (e: KeyboardEvent) => {
       if (e.key === "Escape") {
-        onCancel();
+        handleClose();
       }
     };
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [isOpen, onCancel]);
+  }, [shouldRender, isClosing, handleClose]);
 
-  useEffect(() => {
-    if (!isOpen) return;
-    const handleMouseDown = (e: MouseEvent) => {
-      if (modalRef.current && !modalRef.current.contains(e.target as Node)) {
-        onCancel();
-      }
-    };
-    document.addEventListener("mousedown", handleMouseDown);
-    return () => document.removeEventListener("mousedown", handleMouseDown);
-  }, [isOpen, onCancel]);
-
-  if (!isOpen) return null;
+  if (!shouldRender) return null;
 
   return (
     <div
+      onClick={handleClose}
+      data-testid={overlayTestId}
+      className={`arca-modal-backdrop ${isClosing ? "is-closing" : ""}`}
       style={{
         position: "fixed",
         inset: 0,
@@ -78,7 +81,8 @@ export function ConfirmModal({
     >
       <div
         ref={modalRef}
-        className="arca-view-in"
+        onClick={(e) => e.stopPropagation()}
+        className={`arca-modal-window ${isClosing ? "is-closing" : ""}`}
         style={{
           width: "100%",
           maxWidth: "400px",
@@ -130,7 +134,8 @@ export function ConfirmModal({
           }}
         >
           <button
-            onClick={onCancel}
+            onClick={handleClose}
+            data-testid={cancelTestId}
             style={{
               padding: "0.55rem 1.1rem",
               borderRadius: "10px",
@@ -154,6 +159,7 @@ export function ConfirmModal({
 
           <button
             onClick={onConfirm}
+            data-testid={confirmTestId}
             style={{
               padding: "0.55rem 1.25rem",
               borderRadius: "10px",

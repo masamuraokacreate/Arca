@@ -51,7 +51,6 @@ import type { TaskItem, TaskListCategory, SyncStatus } from "../types";
 import { C } from "../lib/designSystem";
 import { useUndoToast } from "../hooks/useUndoToast";
 import { UndoToast } from "./common/UndoToast";
-import { PMSection } from "./tasks/PMSection";
 import { TaskDetailModal } from "./tasks/TaskDetailModal";
 import { ConfirmModal } from "./notes/ConfirmModal";
 import { ListIcon, ListIconPicker, type ListIconId } from "./common/ListIcon";
@@ -2102,9 +2101,6 @@ export default function Tasks({ initialTab = "default" }: TasksProps = {}) {
           </div>
         )}
 
-        {/* ─── PM作業セクション（マイタスクグループのみ表示） ─── */}
-        {activeListId === "default" && <PMSection />}
-
       </div>
 
       {/* ─── タスク詳細編集モーダル ─── */}
@@ -2371,82 +2367,16 @@ export default function Tasks({ initialTab = "default" }: TasksProps = {}) {
       )}
 
       {/* ─── リスト削除確認ポップアップ ─── */}
-      {showDeleteListConfirm && editingCategory && (
-        <div
-          role="dialog"
-          aria-modal="true"
-          style={{
-            position: "fixed",
-            inset: 0,
-            zIndex: 1300,
-            background: "rgba(0, 0, 0, 0.5)",
-            backdropFilter: "blur(8px)",
-            WebkitBackdropFilter: "blur(8px)",
-            display: "flex",
-            alignItems: "center",
-            justifyContent: "center",
-            padding: "1rem",
-          }}
-          onClick={() => setShowDeleteListConfirm(false)}
-        >
-          <div
-            className="arca-card"
-            style={{
-              width: "100%",
-              maxWidth: "360px",
-              background: "var(--bg-card-solid)",
-              borderRadius: "18px",
-              border: "1px solid var(--border-subtle)",
-              padding: "1.4rem",
-              display: "flex",
-              flexDirection: "column",
-              gap: "0.8rem",
-              boxShadow: "var(--shadow-modal)",
-            }}
-            onClick={(e) => e.stopPropagation()}
-          >
-            <h4 style={{ margin: 0, fontSize: "0.98rem", fontWeight: 700, color: C.charcoal }}>
-              「{editingCategory.title}」を削除しますか？
-            </h4>
-            <p style={{ margin: 0, fontSize: "0.82rem", color: C.charcoalLight, lineHeight: 1.5 }}>
-              リスト内のタスクもすべて削除されます。よろしいですか？
-            </p>
-            <div style={{ display: "flex", justifyContent: "flex-end", gap: "0.6rem", marginTop: "0.4rem" }}>
-              <button
-                type="button"
-                onClick={() => setShowDeleteListConfirm(false)}
-                style={{
-                  background: "var(--bg-nav-track)",
-                  border: "none",
-                  borderRadius: "8px",
-                  padding: "0.5rem 0.9rem",
-                  fontSize: "0.8rem",
-                  color: C.charcoalMid,
-                  cursor: "pointer",
-                }}
-              >
-                キャンセル
-              </button>
-              <button
-                type="button"
-                onClick={handleDeleteList}
-                style={{
-                  background: C.danger,
-                  border: "none",
-                  borderRadius: "8px",
-                  padding: "0.5rem 1.1rem",
-                  fontSize: "0.8rem",
-                  fontWeight: 650,
-                  color: "#FFFFFF",
-                  cursor: "pointer",
-                }}
-              >
-                削除する
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
+      <ConfirmModal
+        isOpen={showDeleteListConfirm && !!editingCategory}
+        title={`「${editingCategory?.title || ""}」を削除しますか？`}
+        message="リスト内のタスクもすべて削除されます。よろしいですか？"
+        confirmLabel="削除する"
+        cancelLabel="キャンセル"
+        isDestructive={true}
+        onConfirm={handleDeleteList}
+        onCancel={() => setShowDeleteListConfirm(false)}
+      />
 
       {/* ─── 共通 Undo トースト ─── */}
       <UndoToast toast={toast} onUndo={triggerUndo} onDismiss={dismissToast} />

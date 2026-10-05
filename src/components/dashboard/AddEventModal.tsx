@@ -10,6 +10,7 @@
 
 import React, { useState, useEffect, useRef } from "react";
 import { X, Calendar as CalendarIcon, Clock, AlignLeft } from "lucide-react";
+import { useModalAnimation } from "../../hooks/useModalAnimation";
 
 export interface AddEventModalProps {
   isOpen: boolean;
@@ -58,19 +59,21 @@ export const AddEventModal: React.FC<AddEventModalProps> = ({
     }
   }, [isOpen, initialDate]);
 
+  const { shouldRender, isClosing, handleClose } = useModalAnimation({ isOpen, onClose });
+
   // Escapeキーで閉じる
   useEffect(() => {
-    if (!isOpen) return;
+    if (!shouldRender || isClosing) return;
     const handleKeyDown = (e: KeyboardEvent) => {
       if (e.key === "Escape") {
-        onClose();
+        handleClose();
       }
     };
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [isOpen, onClose]);
+  }, [shouldRender, isClosing, handleClose]);
 
-  if (!isOpen) return null;
+  if (!shouldRender) return null;
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -86,7 +89,7 @@ export const AddEventModal: React.FC<AddEventModalProps> = ({
         endTime: isAllDay ? "" : endTime,
         note: note.trim(),
       });
-      onClose();
+      handleClose();
     } catch (err) {
       console.error("Failed to add event:", err);
     } finally {
@@ -96,19 +99,20 @@ export const AddEventModal: React.FC<AddEventModalProps> = ({
 
   return (
     <div
-      className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/40 backdrop-blur-sm animate-fade-in"
+      className={`fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/40 backdrop-blur-sm arca-modal-backdrop ${isClosing ? "is-closing" : ""}`}
       onClick={(e) => {
-        if (e.target === e.currentTarget) onClose();
+        if (e.target === e.currentTarget) handleClose();
       }}
       role="dialog"
       aria-modal="true"
       aria-labelledby="add-event-title"
     >
       <div
-        className="w-full max-w-md bg-white dark:bg-stone-900 rounded-2xl shadow-2xl p-6 transition-all transform scale-100"
+        className={`w-full max-w-md bg-white dark:bg-stone-900 rounded-2xl shadow-2xl p-6 arca-modal-window ${isClosing ? "is-closing" : ""}`}
         style={{
           boxShadow: "0 20px 40px -15px rgba(0, 0, 0, 0.2), 0 0 1px rgba(0, 0, 0, 0.1)",
         }}
+        onClick={(e) => e.stopPropagation()}
       >
         {/* ヘッダー */}
         <div className="flex items-center justify-between pb-3 border-b border-black/[0.05] dark:border-white/[0.06]">
@@ -122,7 +126,7 @@ export const AddEventModal: React.FC<AddEventModalProps> = ({
           </div>
           <button
             type="button"
-            onClick={onClose}
+            onClick={handleClose}
             className="p-1 rounded-full text-charcoal-light hover:text-charcoal hover:bg-black/[0.04] dark:hover:bg-white/[0.06] transition-colors cursor-pointer border-none bg-transparent"
             title="閉じる"
           >
@@ -236,7 +240,7 @@ export const AddEventModal: React.FC<AddEventModalProps> = ({
           <div className="flex items-center justify-end gap-2.5 pt-3 border-t border-black/[0.05] dark:border-white/[0.06]">
             <button
               type="button"
-              onClick={onClose}
+              onClick={handleClose}
               disabled={isSubmitting}
               className="px-4 py-2 rounded-xl text-xs font-semibold text-charcoal-light hover:text-charcoal hover:bg-black/[0.04] dark:hover:bg-white/[0.06] transition-colors cursor-pointer border-none bg-transparent"
             >

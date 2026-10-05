@@ -107,3 +107,63 @@ export interface PMDayResolution {
 
 /** 設定モーダルのアクティブタブ */
 export type PMSettingsTab = "tasks" | "cycle" | "overrides";
+
+// ─────────────────────────────────────────
+// PM 管理台帳（マスタ） & 実行ログ（新仕様）
+// ─────────────────────────────────────────
+
+/** PM周期種別 */
+export type PMCycleType =
+  | "monthly_day"     // 毎月○日 (cycleValue: 1〜31)
+  | "interval_month"  // ○ヶ月ごと (cycleValue: 1, 2, 3...)
+  | "annual"          // 年1回 (cycleValue: MMDD または月)
+  | "interval_days";  // ○日ごと (cycleValue: 日数)
+
+/** 次回起算基準 */
+export type PMCalcBasis =
+  | "fixed_date"       // 予定日基準
+  | "completion_date"; // 実績日基準（完了日基準）
+
+/** 購入物テンプレート（台帳側保持） */
+export interface PMItemTemplate {
+  id: string;
+  masterId: string;
+  itemName: string;
+}
+
+/** 手順マスタ（チェック項目のテンプレート定義） */
+export interface PMTaskTemplate {
+  id: string;
+  masterId: string;
+  content: string;
+  sortOrder: number;
+}
+
+/** PMマスタ（管理台帳定義） */
+export interface PMMaster {
+  id: string;
+  title: string;
+  cycleType: PMCycleType;
+  cycleValue: number;
+  calcBasis: PMCalcBasis;
+  estimatedMinutes?: number; // 設定目安工数（分）
+  noteId?: string;           // 連携ノートID (Aether Core)
+  createdAt: string;         // ISO 8601
+  updatedAt: string;         // ISO 8601
+  itemTemplates?: PMItemTemplate[];
+  taskTemplates?: PMTaskTemplate[];
+  nextScheduledDate?: string; // "YYYY-MM-DD" 次回予定日
+  lastCompletedAt?: string;   // 最終実施日時
+}
+
+/** 実行ログ（カレンダーで完了した実績データ） */
+export interface PMMasterLog {
+  id: string;
+  masterId: string;
+  date?: string;             // "YYYY-MM-DD"
+  startedAt?: string | null; // 開始ボタン押下時刻 (時:分まで "HH:mm" または ISO)
+  completedAt: string;       // 完了ボタン押下時刻 (時:分まで "HH:mm" または ISO)
+  actualMinutes?: number | null; // 実測所要時間（分換算）
+  diffMinutes?: number | null;   // 目安との差分 (actual - estimated)
+  allTasksCompleted?: boolean;
+}

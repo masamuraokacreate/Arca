@@ -13,6 +13,7 @@ import { X, Image as ImageIcon, Trash2, Check } from "lucide-react";
 import type { NoteItem } from "../../types";
 import { C } from "../../lib/designSystem";
 import { NoteEditor, type NoteEditorHandles } from "./NoteEditor";
+import { useModalAnimation } from "../../hooks/useModalAnimation";
 
 interface MemoModalProps {
   note: NoteItem | null;
@@ -81,9 +82,14 @@ export function MemoModal({
     onClose();
   }, [commitChanges, onClose]);
 
+  const { shouldRender, isClosing } = useModalAnimation({
+    isOpen,
+    onClose: handleClose,
+  });
+
   // Escape キーで保存して閉じる
   useEffect(() => {
-    if (!isOpen) return;
+    if (!shouldRender || isClosing) return;
     const handleKeyDown = (e: KeyboardEvent) => {
       if (e.key === "Escape") {
         handleClose();
@@ -91,7 +97,7 @@ export function MemoModal({
     };
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [isOpen, handleClose]);
+  }, [shouldRender, isClosing, handleClose]);
 
   // 画像ファイル挿入
   const handleImageSelected = async (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -106,16 +112,15 @@ export function MemoModal({
     }
   };
 
-  if (!isOpen || !note) return null;
+  if (!shouldRender || !note) return null;
 
   return (
     <div
-      className="fixed inset-0 z-[2000] flex items-center justify-center p-3 sm:p-6"
+      className={`fixed inset-0 z-[2000] flex items-center justify-center p-3 sm:p-6 arca-modal-backdrop ${isClosing ? "is-closing" : ""}`}
       style={{
         background: "rgba(30, 26, 20, 0.35)",
         backdropFilter: "blur(12px) saturate(180%)",
         WebkitBackdropFilter: "blur(12px) saturate(180%)",
-        animation: "arca-fade-in 0.18s cubic-bezier(0.16, 1, 0.3, 1)",
       }}
       onClick={(e) => {
         // 背景クリックで閉じる＆保存
@@ -136,7 +141,7 @@ export function MemoModal({
 
       <div
         ref={modalContentRef}
-        className="w-full max-w-3xl flex flex-col overflow-hidden"
+        className={`w-full max-w-3xl flex flex-col overflow-hidden arca-modal-window ${isClosing ? "is-closing" : ""}`}
         style={{
           height: "min(70vh, 720px)",
           minHeight: "420px",
@@ -144,7 +149,6 @@ export function MemoModal({
           borderRadius: "28px",
           boxShadow: "0 25px 50px -12px rgba(0, 0, 0, 0.25), 0 0 0 1px var(--border-subtle)",
           position: "relative",
-          animation: "arca-scale-up 0.22s cubic-bezier(0.16, 1, 0.3, 1)",
         }}
         onClick={(e) => e.stopPropagation()}
         data-testid="memo-modal-content"

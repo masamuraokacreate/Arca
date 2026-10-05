@@ -31,12 +31,22 @@ import {
   AlertCircle,
   BookOpen,
   RotateCcw,
+  RotateCw,
+  ClipboardList,
   Trash2,
 } from "lucide-react";
 import { logger } from "../../services/loggerService";
 import { SchemaLegendCard } from "./SchemaLegendCard";
 
-export type InspectorCollection = "events" | "finance_transactions";
+export type InspectorCollection =
+  | "events"
+  | "finance_transactions"
+  | "pm_masters"
+  | "pm_logs";
+
+export interface DbInspectorTabProps {
+  defaultCollection?: InspectorCollection;
+}
 
 interface DbDocItem {
   id: string;
@@ -45,8 +55,8 @@ interface DbDocItem {
   updatedAt?: string;
 }
 
-export function DbInspectorTab() {
-  const [selectedCol, setSelectedCol] = useState<InspectorCollection>("events");
+export function DbInspectorTab({ defaultCollection = "events" }: DbInspectorTabProps = {}) {
+  const [selectedCol, setSelectedCol] = useState<InspectorCollection>(defaultCollection);
   const [docs, setDocs] = useState<DbDocItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [searchQuery, setSearchQuery] = useState("");
@@ -71,6 +81,10 @@ export function DbInspectorTab() {
         q = query(collection(db, selectedCol), orderBy("date", "desc"), limit(150));
       } else if (selectedCol === "finance_transactions") {
         q = query(collection(db, selectedCol), orderBy("date", "desc"), limit(150));
+      } else if (selectedCol === "pm_masters") {
+        q = query(collection(db, selectedCol), orderBy("createdAt", "desc"), limit(150));
+      } else if (selectedCol === "pm_logs") {
+        q = query(collection(db, selectedCol), orderBy("completedAt", "desc"), limit(150));
       }
     } catch {
       // orderBy インデックス未作成時のフォールバック
@@ -125,6 +139,12 @@ export function DbInspectorTab() {
           typeof data.googleEventId === "string" && data.googleEventId.toLowerCase().includes(q);
         const emailMsgMatch =
           typeof data.emailMessageId === "string" && data.emailMessageId.toLowerCase().includes(q);
+        const masterIdMatch =
+          typeof data.masterId === "string" && data.masterId.toLowerCase().includes(q);
+        const cycleTypeMatch =
+          typeof data.cycleType === "string" && data.cycleType.toLowerCase().includes(q);
+        const completedAtMatch =
+          typeof data.completedAt === "string" && data.completedAt.toLowerCase().includes(q);
 
         return (
           idMatch ||
@@ -133,7 +153,10 @@ export function DbInspectorTab() {
           memoMatch ||
           dateMatch ||
           gEventMatch ||
-          emailMsgMatch
+          emailMsgMatch ||
+          masterIdMatch ||
+          cycleTypeMatch ||
+          completedAtMatch
         );
       }
 
@@ -298,6 +321,60 @@ export function DbInspectorTab() {
         >
           <CreditCard size={14} color={selectedCol === "finance_transactions" ? C.goldDark : undefined} />
           <span>支出・家計 (finance_transactions)</span>
+        </button>
+
+        <button
+          onClick={() => setSelectedCol("pm_masters")}
+          data-testid="maint-col-pm-masters"
+          style={{
+            display: "inline-flex",
+            alignItems: "center",
+            gap: "0.4rem",
+            padding: "0.45rem 0.85rem",
+            borderRadius: "10px",
+            border: "none",
+            fontSize: "0.78rem",
+            fontWeight: selectedCol === "pm_masters" ? 700 : 550,
+            background: selectedCol === "pm_masters" ? "var(--bg-card-solid, #FDFCFA)" : "transparent",
+            color: selectedCol === "pm_masters" ? C.charcoal : C.charcoalMid,
+            boxShadow:
+              selectedCol === "pm_masters"
+                ? "0 1px 4px rgba(0, 0, 0, 0.06), 0 2px 8px rgba(0, 0, 0, 0.03)"
+                : "none",
+            cursor: "pointer",
+            whiteSpace: "nowrap",
+            transition: "all 0.15s ease",
+          }}
+        >
+          <RotateCw size={14} color={selectedCol === "pm_masters" ? C.goldDark : undefined} />
+          <span>PM保全台帳 (pm_masters)</span>
+        </button>
+
+        <button
+          onClick={() => setSelectedCol("pm_logs")}
+          data-testid="maint-col-pm-logs"
+          style={{
+            display: "inline-flex",
+            alignItems: "center",
+            gap: "0.4rem",
+            padding: "0.45rem 0.85rem",
+            borderRadius: "10px",
+            border: "none",
+            fontSize: "0.78rem",
+            fontWeight: selectedCol === "pm_logs" ? 700 : 550,
+            background: selectedCol === "pm_logs" ? "var(--bg-card-solid, #FDFCFA)" : "transparent",
+            color: selectedCol === "pm_logs" ? C.charcoal : C.charcoalMid,
+            boxShadow:
+              selectedCol === "pm_logs"
+                ? "0 1px 4px rgba(0, 0, 0, 0.06), 0 2px 8px rgba(0, 0, 0, 0.03)"
+                : "none",
+            cursor: "pointer",
+            whiteSpace: "nowrap",
+            transition: "all 0.15s ease",
+          }}
+        >
+          <ClipboardList size={14} color={selectedCol === "pm_logs" ? C.goldDark : undefined} />
+          <span>PM実施ログ (pm_logs)</span>
         </button>
       </div>
 
@@ -567,10 +644,21 @@ export function DbInspectorTab() {
                         textOverflow: "ellipsis",
                       }}
                     >
-                      {String(data.title || data.name || data.shiftName || "無題のドキュメント")}
+                      {String(
+                        data.title ||
+                          data.name ||
+                          data.shiftName ||
+                          (data.completedAt ? `PM実施ログ (${String(data.completedAt).slice(0, 16)})` : "") ||
+                          "無題のドキュメント"
+                      )}
                       {typeof data.totalAmount === "number" && (
                         <span style={{ marginLeft: "0.6rem", color: C.goldDark, fontWeight: 800 }}>
                           ¥{data.totalAmount.toLocaleString()}
+                        </span>
+                      )}
+                      {typeof data.actualMinutes === "number" && (
+                        <span style={{ marginLeft: "0.6rem", color: C.sage, fontWeight: 700, fontSize: "0.75rem" }}>
+                          実測: {data.actualMinutes}分
                         </span>
                       )}
                     </div>
@@ -592,6 +680,19 @@ export function DbInspectorTab() {
                         <span>
                           時間: {data.startTime}〜{String(data.endTime || "")}
                         </span>
+                      )}
+                      {typeof data.cycleType === "string" && (
+                        <span>
+                          周期: {data.cycleType} ({String(data.cycleValue ?? "")})
+                        </span>
+                      )}
+                      {typeof data.diffMinutes === "number" && (
+                        <span>
+                          目安差分: {data.diffMinutes > 0 ? `+${data.diffMinutes}` : data.diffMinutes}分
+                        </span>
+                      )}
+                      {typeof data.masterId === "string" && (
+                        <span>マスタID: {String(data.masterId).slice(0, 12)}…</span>
                       )}
                     </div>
                   </div>

@@ -11,11 +11,12 @@
  * 6. 外部リンクのスマートURLカード表示
  */
 
-import { useState, useCallback, useMemo, type ReactNode, isValidElement } from "react";
+import { useState, useEffect, useCallback, useMemo, type ReactNode, isValidElement } from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import remarkBreaks from "remark-breaks";
-import { FileText, ChevronRight } from "lucide-react";
+import { FileText, ChevronRight, X } from "lucide-react";
+import { useModalAnimation } from "../../hooks/useModalAnimation";
 import { C } from "../../lib/designSystem";
 import type { NoteItem } from "../../types";
 
@@ -350,66 +351,110 @@ function NoteImage({
       </div>
 
       {/* Lightbox 全画面モーダル */}
-      {lightboxOpen && (
-        <div
-          role="dialog"
-          aria-label="画像拡大プレビュー"
+      <MarkdownImageLightbox
+        isOpen={lightboxOpen}
+        src={src}
+        alt={cleanAlt}
+        onClose={() => setLightboxOpen(false)}
+      />
+    </figure>
+  );
+}
+
+function MarkdownImageLightbox({
+  isOpen,
+  src,
+  alt,
+  onClose,
+}: {
+  isOpen: boolean;
+  src?: string;
+  alt: string;
+  onClose: () => void;
+}) {
+  const { shouldRender, isClosing, handleClose } = useModalAnimation({
+    isOpen: isOpen && !!src,
+    onClose,
+  });
+
+  useEffect(() => {
+    if (!shouldRender || isClosing) return;
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === "Escape") handleClose();
+    };
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [shouldRender, isClosing, handleClose]);
+
+  if (!shouldRender || !src) return null;
+
+  return (
+    <div
+      role="dialog"
+      aria-label="画像拡大プレビュー"
+      className={`arca-modal-backdrop ${isClosing ? "is-closing" : ""}`}
+      style={{
+        position: "fixed",
+        inset: 0,
+        background: "rgba(0, 0, 0, 0.82)",
+        backdropFilter: "blur(8px)",
+        WebkitBackdropFilter: "blur(8px)",
+        zIndex: 1000,
+        display: "flex",
+        alignItems: "center",
+        justifyContent: "center",
+        padding: "1.5rem",
+        cursor: "zoom-out",
+      }}
+      onClick={handleClose}
+    >
+      <div
+        className={`arca-modal-window ${isClosing ? "is-closing" : ""}`}
+        style={{
+          position: "relative",
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "center",
+        }}
+        onClick={(e) => e.stopPropagation()}
+      >
+        <button
+          type="button"
+          aria-label="閉じる"
+          onClick={handleClose}
           style={{
-            position: "fixed",
-            inset: 0,
-            background: "rgba(0, 0, 0, 0.82)",
-            backdropFilter: "blur(8px)",
-            WebkitBackdropFilter: "blur(8px)",
-            zIndex: 1000,
+            position: "absolute",
+            top: "-2.5rem",
+            right: "0",
+            background: "rgba(255, 255, 255, 0.2)",
+            border: "none",
+            borderRadius: "50%",
+            width: "36px",
+            height: "36px",
+            color: "#fff",
+            cursor: "pointer",
             display: "flex",
             alignItems: "center",
             justifyContent: "center",
-            padding: "1.5rem",
-            cursor: "zoom-out",
+            backdropFilter: "blur(4px)",
+            transition: "background 0.15s ease",
           }}
-          onClick={() => setLightboxOpen(false)}
         >
-          <button
-            type="button"
-            aria-label="閉じる"
-            onClick={(e) => {
-              e.stopPropagation();
-              setLightboxOpen(false);
-            }}
-            style={{
-              position: "absolute",
-              top: "1.5rem",
-              right: "1.5rem",
-              background: "rgba(255, 255, 255, 0.15)",
-              border: "none",
-              borderRadius: "50%",
-              width: "36px",
-              height: "36px",
-              color: "#fff",
-              fontSize: "1.1rem",
-              cursor: "pointer",
-              display: "flex",
-              alignItems: "center",
-              justifyContent: "center",
-              backdropFilter: "blur(4px)",
-            }}
-          >
-            ✕
-          </button>
-          <img
-            src={src}
-            alt={cleanAlt}
-            style={{
-              maxWidth: "92vw",
-              maxHeight: "90vh",
-              borderRadius: "12px",
-              boxShadow: "0 20px 60px rgba(0,0,0,0.4)",
-              objectFit: "contain",
-            }}
-          />
-        </div>
-      )}
-    </figure>
+          <X size={18} />
+        </button>
+        <img
+          src={src}
+          alt={alt}
+          style={{
+            maxWidth: "92vw",
+            maxHeight: "88vh",
+            borderRadius: "14px",
+            boxShadow: "0 20px 60px rgba(0,0,0,0.45)",
+            objectFit: "contain",
+          }}
+        />
+      </div>
+    </div>
   );
 }
 

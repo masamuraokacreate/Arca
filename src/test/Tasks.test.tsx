@@ -568,19 +568,11 @@ describe("Tasks コンポーネント", () => {
     });
   });
 
-  it("PMSection はマイタスクでのみ表示され、買い物リストなど他のタブでは表示されない", async () => {
+  it("PMSection はTasksモジュールから削除され表示されない（カレンダー連携に移行）", () => {
     mockSnapshot([]);
-    const user = userEvent.setup();
     render(<Tasks />);
 
-    // マイタスク表示時は PMSection（PM作業）が存在する
-    expect(screen.getByText(/PM作業/i)).toBeInTheDocument();
-
-    // 買い物リストに切り替え
-    const shoppingTab = screen.getByTestId("tab-shopping");
-    await user.click(shoppingTab);
-
-    // 買い物リスト表示時は PMSection が非表示になる
+    // PM作業セクションが表示されないことを確認
     expect(screen.queryByText(/PM作業/i)).not.toBeInTheDocument();
   });
 
