@@ -2,6 +2,69 @@
 
 ---
 
+## [2026-10-06] 番外編: Arca × Discord Bot（Arca Excursion）次回休日連携システム・REST APIエンドポイント・定期監視＆動的スタイル切替スラッシュコマンド実装
+
+- **日付**: 2026年10月6日（番外編）
+- **ステータス**: 全体タスク完了（Arca本体次回休日取得REST API実装・Vite開発ミドルウェア/Node.jsスタンドアロンサーバー両対応・勤務サイクル＆特別予定マージ算出ロジック・Discord Bot「Arca Excursion」構築・定期監視自動投稿・第1ブロック終了翌日00:00トリガー・スラッシュコマンド4種（/style, /holidays, /check-holidays, /force-post）・A〜D案スタイル切替＆状態永続化・特権インテント安全化・ワンクリック一括起動バッチスクリプト・全43テストスイート652テスト100%パス・Vite本番ビルド成功）
+
+---
+
+### 2026-10-06 (番外編) で達成したこと
+
+#### 1. Arca本体: 次回休日取得 REST API エンドポイントの実装 (`src/services/scheduleService.ts`, `src/types/scheduleApi.ts`, `src/api/scheduleApiHandler.ts`, `src/api/vitePluginScheduleApi.ts`, `src/api/standaloneServer.ts`)
+- **疎結合な設計思想の徹底**:
+  - Arca本体にはDiscord固有のメッセージ装飾やWebhook通知ロジックを持たせず、純粋なデータ返却API（`GET /api/v1/schedule/next-holidays`）として設計・実装。
+  - クエリパラメータ `?date=YYYY-MM-DD` による基準日指定に対応（未指定時は当日）。
+- **正確な休日ブロック算出ロジック (`scheduleService.ts`)**:
+  - 4勤2休等の勤務サイクル設定（`CycleSettings`）およびカレンダー上の個別特別予定（有給・シフト手動変更など）を自動マージ。
+  - 基準日以降の直近休日である「第1ブロック（`current_or_next_block`）」および、その次の「第2ブロック（`following_block`）」の開始日・終了日・日付配列（例: `["10/11", "10/12"]`）を正確に抽出・返却。
+  - 基準日が休日中の場合はその休日ブロックを第1ブロックとして返却し、勤務日の場合は次の休日ブロックを返却。
+  - 単体テスト `src/services/scheduleService.test.ts`（全18テストケース）を新規作成し、エッジケース含め100%パス。
+- **柔軟なサーバー実行構成**:
+  - `scheduleApiPlugin`: Vite開発サーバー（`npm run dev`）のミドルウェアとしてAPIエンドポイントを統合。
+  - `standaloneServer.ts`: UIブラウザを立ち上げずAPIのみを軽量にバックグラウンド常駐させるNode.js（tsx）スタンドアロンサーバー（ポート3000）を新設。`package.json` に `npm run api` スクリプトを追加。
+
+#### 2. Discord Bot: 「Arca Excursion」の新規構築 (`excursion/`)
+- **Python 3.14 + discord.py 2.6 による軽量非同期Bot**:
+  - `client.py`: aiohttpを用いたArca REST API非同期通信クライアント。エラーハンドリングとタイムアウトを実装。
+  - `formatter.py`: 4種類の自己紹介コピペ用出力フォーマッター。
+    - **A案**: ミニマル・コンパクト（一行形式）
+    - **B案**: 記号アクセント（区切り線入り）
+    - **C案**: カレンダー風ブロック（罫線ボックス）
+    - **D案**: ワンタップコピペ用（コードブロック形式 / デフォルト）
+    - 各スタイルで次回更新予定日（第1ブロック終了翌日 00:00）を自動算出して明記。
+    - 単体テスト `excursion/test_formatter.py`（全6テストケース）を完備。
+  - `bot.py`:
+    - **定期監視タスクループ（`tasks.loop`）**:
+      - 5分おき（環境変数設定可能）のチェックループにより、直近第1ブロックの休日が終了した翌日 00:00（JST）を迎えたタイミングで自動投稿するトリガー判定を実装。
+      - 投稿履歴と次回トリガー予定日を `excursion/state.json` に保存・管理。
+    - **スラッシュコマンド（Application Commands）4種**:
+      - `/style [choice]`: A〜D案のスタイルを動的切り替え。設定を `state.json` に永続化し次回自動投稿に反映。最新データのプレビューを返信。
+      - `/holidays [style] [share]`: 次回休日をその場で表示（スタイル指定可能、全体公開・自分のみ表示の切替対応）。
+      - `/check-holidays`: API疎通確認と生JSONデータの診断表示。
+      - `/force-post [style]`: 管理者用の手動即時チャンネル投稿。
+    - **特権インテント（Privileged Intents）安全化**:
+      - スラッシュコマンド専用設計（`command_prefix=[]`）により、Discord Developer Portalでの特権インテント設定を行わなくても、`Privileged message content intent is missing` 警告および `PrivilegedIntentsRequired` エラーを一切発生させずに安全にログイン・稼働するベストプラクティスを適用。
+
+#### 3. 運用・連携スクリプトの整備 (`start_arca_bot.bat`, `excursion/README.md`)
+- **ワンクリック起動バッチ (`start_arca_bot.bat`)**:
+  - Windows環境にて、ポート3000を使用中の既存ゾンビプロセスの自動検知・強制終了、Arca APIサーバー（`npm run api`）のバックグラウンド起動、Python仮想環境の自動確認、Discord Botの起動を1クリックで完結するバッチスクリプトを作成。
+- **設定とドキュメント**:
+  - `excursion/.env.example`: 設定テンプレート（`ARCA_API_URL`, `DISCORD_BOT_TOKEN`, `DISCORD_CHANNEL_ID` 等）。
+  - `excursion/README.md`: セットアップ手順、スラッシュコマンド一覧、トラブルシューティングを体系化。
+  - `.gitignore`: Pythonキャッシュファイル（`__pycache__`）および実行時状態（`state.json`）の除外、`.env.example` の追跡設定を追加。
+
+#### 4. 品質検証・テスト結果
+- **Arca本体**:
+  - 全43テストスイート、全652テスト 100% パス。
+  - TypeScript 型チェック（`tsc -b`）エラー 0件。
+  - Vite 本番ビルド成功。
+- **Arca Excursion Bot**:
+  - フォーマッター単体テスト全6件 100% パス。
+  - Discord Gateway接続・スラッシュコマンド（4件）同期確認完了。
+
+---
+
 ## [2026-10-05] PM（周期保全・管理台帳）2ペイン刷新・カレンダー連動実行パネル・全ポップアップ開閉アニメーション統一・window.confirm撤廃・保守コンソールPM対応
 
 - **日付**: 2026年10月5日

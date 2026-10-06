@@ -533,11 +533,11 @@ export async function fetchAndProcessCardNoticeEmails(
   const maxPages = 5; // 最大500件まで安全取得
 
   do {
-    const listUrl = `https://gmail.googleapis.com/gmail/v1/users/me/messages?q=${encodeURIComponent(
+    const listUrl: string = `https://gmail.googleapis.com/gmail/v1/users/me/messages?q=${encodeURIComponent(
       query
     )}&maxResults=100${pageToken ? `&pageToken=${encodeURIComponent(pageToken)}` : ""}`;
 
-    const listRes = await fetch(listUrl, {
+    const listRes: Response = await fetch(listUrl, {
       headers: { Authorization: `Bearer ${token}` },
     });
 
@@ -548,7 +548,7 @@ export async function fetchAndProcessCardNoticeEmails(
       throw new Error(`Gmail APIエラー: ${listRes.status} ${listRes.statusText}`);
     }
 
-    const listData = await listRes.json();
+    const listData: any = await listRes.json();
     if (listData.messages && Array.isArray(listData.messages)) {
       messages.push(...listData.messages);
     }
