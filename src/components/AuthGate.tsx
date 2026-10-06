@@ -19,6 +19,7 @@ import {
 import { auth } from "../lib/firebase";
 import { C } from "../lib/designSystem";
 import { saveToken } from "../services/googleAuth";
+import { logAuthError } from "../services/authErrorLogger";
 
 // ─── 管理者メールアドレス定義（コード内ホワイトリスト配列 ＆ 環境変数） ───
 export const DEFAULT_ALLOWED_EMAILS = [
@@ -129,6 +130,13 @@ export default function AuthGate({ children }: { children: ReactNode }) {
       }
     } catch (err: unknown) {
       console.error("Sign in failed:", err);
+
+      // 認証エラー詳細ログを Firestore (auth_errors) に記録（未認証対応・安全なフォールバック）
+      await logAuthError(err, {
+        provider: "google.com",
+        authMethod: "signInWithPopup",
+      });
+
       const e = err as { code?: string; message?: string };
       if (e.code !== "auth/popup-closed-by-user") {
         setErrorMsg("ログイン中にエラーが発生しました。もう一度お試しください。");

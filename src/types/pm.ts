@@ -117,7 +117,8 @@ export type PMCycleType =
   | "monthly_day"     // 毎月○日 (cycleValue: 1〜31)
   | "interval_month"  // ○ヶ月ごと (cycleValue: 1, 2, 3...)
   | "annual"          // 年1回 (cycleValue: MMDD または月)
-  | "interval_days";  // ○日ごと (cycleValue: 日数)
+  | "interval_days"   // ○日ごと (cycleValue: 日数)
+  | "shift_cycle";    // 出勤・シフト連動 (休日/早番/遅番/出勤の○日目)
 
 /** 次回起算基準 */
 export type PMCalcBasis =
@@ -146,6 +147,11 @@ export interface PMMaster {
   cycleType: PMCycleType;
   cycleValue: number;
   calcBasis: PMCalcBasis;
+  // 出勤・シフト連動用フィールド
+  timingCategory?: PMTimingCategory; // "holiday" | "early_shift" | "late_shift" | "work_day"
+  timingDay?: number;                // 何日目か (1, 2, 3, 4...)
+  cycleInterval?: number;            // サイクル頻度 (1: 毎サイクル, 2: 2サイクルに1回/隔週, 3: 3サイクルに1回...)
+  cycleIntervalOffset?: number;      // サイクル開始オフセット (0: 今サイクル, 1: 次サイクル)
   estimatedMinutes?: number; // 設定目安工数（分）
   noteId?: string;           // 連携ノートID (Aether Core)
   createdAt: string;         // ISO 8601

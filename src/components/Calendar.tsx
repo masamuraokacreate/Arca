@@ -23,9 +23,8 @@ import {
 } from "firebase/firestore";
 import { db } from "../lib/firebase";
 import { useGoogleAuth } from "../hooks/useGoogleAuth";
-import { Clock, ClipboardList, BookOpen, RotateCw, Play } from "lucide-react";
+import { Clock, RotateCw, Play } from "lucide-react";
 import { logger } from "../services/loggerService";
-import { SchemaLegendCard } from "./maintenance/SchemaLegendCard";
 import {
   syncGoogleCalendarToArca,
   createGoogleCalendarEvent,
@@ -35,22 +34,16 @@ import {
   applyShiftStatusToGoogleCalendar,
 } from "../services/googleCalendarSync";
 import type { CalendarEvent, CalendarTask, SyncStatus } from "../types";
-import type { PMSettings, PMTemplateItem, PMLogItem, PMMaster } from "../types/pm";
+import type { PMSettings, PMLogItem, PMMaster } from "../types/pm";
 import { C } from "../lib/designSystem";
 import { useUndoToast } from "../hooks/useUndoToast";
 import { UndoToast } from "./common/UndoToast";
 import {
-  buildCalendarPMDates,
-  recordPMLog,
-  buildLogMapForDate,
-  resolveItemStatus,
-  resolveDateShiftInfo,
   resolveShiftInfo,
-  getActivePMTasksForDate,
   DEFAULT_PM_SETTINGS,
   isWorkEvent,
 } from "../services/pmCycleService";
-import { subscribePMMasters } from "../services/pmMasterService";
+import { subscribePMMasters, isMasterShiftTimingMatch } from "../services/pmMasterService";
 import { ShiftOverrideModal } from "./calendar/ShiftOverrideModal";
 import { ShiftBadge } from "./calendar/ShiftBadge";
 import { ShiftEditModal } from "./calendar/ShiftEditModal";
@@ -721,15 +714,13 @@ function MonthGrid({
   events,
   eventDates,
   taskDueDates,
-  pmDates,
+  pmDates: _pmDates,
   pmMastersMap,
   settings,
   onSelectDate,
   onPrevMonth,
   onNextMonth,
   onOpenPMExecution,
-  showSchemaLegend,
-  onToggleSchemaLegend,
 }: {
   year: number;
   month: number;
@@ -747,8 +738,6 @@ function MonthGrid({
   onPrevMonth: () => void;
   onNextMonth: () => void;
   onOpenPMExecution?: (dateStr: string, masters: PMMaster[]) => void;
-  showSchemaLegend?: boolean;
-  onToggleSchemaLegend?: () => void;
 }) {
   const { firstDay, daysInMonth, daysInPrev } = monthMeta(year, month);
 
@@ -861,9 +850,8 @@ function MonthGrid({
           const isToday = dateStr === today;
           const hasEvent = eventDates.has(dateStr);
           const hasTask = taskDueDates.has(dateStr);
-          const pmDayIndex = pmDates.get(dateStr);
           const mastersForDate = pmMastersMap?.get(dateStr) || [];
-          const hasPM = mastersForDate.length > 0 || pmDayIndex !== undefined;
+          const hasPM = mastersForDate.length > 0;
 
           // シフト状態
           const shift = shiftMap.get(dateStr);
@@ -932,31 +920,6 @@ function MonthGrid({
               <span>休日</span>
             </div>
           </>
-        )}
-        {onToggleSchemaLegend && (
-          <button
-            type="button"
-            data-testid="calendar-schema-legend-btn"
-            onClick={onToggleSchemaLegend}
-            style={{
-              display: "inline-flex",
-              alignItems: "center",
-              gap: "0.25rem",
-              background: showSchemaLegend ? "rgba(197, 160, 89, 0.15)" : "rgba(0, 0, 0, 0.04)",
-              border: "none",
-              borderRadius: "4px",
-              padding: "0.18rem 0.45rem",
-              fontSize: "0.68rem",
-              fontWeight: 500,
-              color: showSchemaLegend ? C.goldDark : C.charcoalLight,
-              cursor: "pointer",
-              transition: "all 0.15s ease",
-            }}
-            title="カレンダーのデータ仕様・フィールド定義を表示"
-          >
-            <BookOpen style={{ width: "0.75rem", height: "0.75rem" }} />
-            <span>データ仕様</span>
-          </button>
         )}
       </div>
     </div>
@@ -1142,11 +1105,9 @@ export default function Calendar() {
 
   // PM ステート
   const [pmSettings, setPmSettings] = useState<PMSettings | null>(null);
-  const [pmTemplates, setPmTemplates] = useState<PMTemplateItem[]>([]);
-  const [pmLogs, setPmLogs] = useState<PMLogItem[]>([]);
+  const [_pmLogs, setPmLogs] = useState<PMLogItem[]>([]);
   const [showShiftOverrideModal, setShowShiftOverrideModal] = useState(false);
   const [showShiftEditModal, setShowShiftEditModal] = useState(false);
-  const [showSchemaLegend, setShowSchemaLegend] = useState(false);
 
   // PM 管理台帳 & カレンダー実行連携ステート
   const [pmMasters, setPmMasters] = useState<PMMaster[]>([]);
@@ -1201,11 +1162,6 @@ export default function Calendar() {
       }
     });
 
-    const unsubTemplates = onSnapshot(
-      query(collection(db, "pm_templates"), orderBy("dayIndex", "asc")),
-      (snap) => setPmTemplates(snap.docs.map((d) => ({ id: d.id, ...d.data() } as PMTemplateItem)))
-    );
-
     const unsubLogs = onSnapshot(
       query(collection(db, "pm_logs"), where("date", "==", selectedDate)),
       (snap) => setPmLogs(snap.docs.map((d) => ({ id: d.id, ...d.data() } as PMLogItem)))
@@ -1213,7 +1169,6 @@ export default function Calendar() {
 
     return () => {
       unsubSettings();
-      unsubTemplates();
       unsubLogs();
     };
   }, [selectedDate]);
@@ -1269,30 +1224,52 @@ export default function Calendar() {
   const eventDates = new Set(visibleEvents.map((e) => e.date));
   const taskDueDates = new Set(tasks.filter((t) => t.dueDate).map((t) => t.dueDate as string));
 
-  // ── PM 日付マップ（表示中の月の前後1ヶ月を含む範囲） ──
-  const pmDates = (() => {
-    if (!pmSettings) return new Map<string, number>();
-    const y = viewYear;
-    const m = viewMonth;
-    const fromDate = `${y}-${String(m === 0 ? 12 : m).padStart(2, "0")}-01`;
-    const toYear = m === 11 ? y + 1 : y;
-    const toMonth = m === 11 ? 0 : m + 1;
-    const toDate = `${toYear}-${String(toMonth + 1).padStart(2, "0")}-${String(new Date(toYear, toMonth + 1, 0).getDate()).padStart(2, "0")}`;
-    return buildCalendarPMDates(pmSettings, pmTemplates, fromDate, toDate, false, events);
-  })();
+  // ── PM 日付マップ（PM管理台帳に完全移行済み） ──
+  const pmDates = useMemo(() => new Map<string, number>(), []);
 
-  // ── PM 管理台帳マスタの次回予定日マップ ──
+  // ── PM 管理台帳マスタの実施予定日マップ ──
   const pmMastersMap = useMemo(() => {
     const map = new Map<string, PMMaster[]>();
+
+    // 1. 固定・指定予定日（nextScheduledDate）のマッピング（shift_cycle以外）
     for (const m of pmMasters) {
-      if (m.nextScheduledDate) {
+      if (m.nextScheduledDate && m.cycleType !== "shift_cycle") {
         const existing = map.get(m.nextScheduledDate) || [];
-        existing.push(m);
+        if (!existing.some((item) => item.id === m.id)) {
+          existing.push(m);
+        }
         map.set(m.nextScheduledDate, existing);
       }
     }
+
+    // 2. 出勤・シフト連動（shift_cycle）のマッピング
+    // 表示月（viewYear, viewMonth）の前後カレンダー表示範囲（前月1日〜翌月末日）の日付を走査して合致日に配置
+    const shiftMasters = pmMasters.filter((m) => m.cycleType === "shift_cycle");
+    if (shiftMasters.length > 0) {
+      const startDate = new Date(viewYear, viewMonth - 1, 1);
+      const endDate = new Date(viewYear, viewMonth + 2, 0);
+      const cur = new Date(startDate);
+      while (cur <= endDate) {
+        const y = cur.getFullYear();
+        const m = String(cur.getMonth() + 1).padStart(2, "0");
+        const d = String(cur.getDate()).padStart(2, "0");
+        const dateStr = `${y}-${m}-${d}`;
+
+        for (const sm of shiftMasters) {
+          if (isMasterShiftTimingMatch(dateStr, sm, events, pmSettings)) {
+            const existing = map.get(dateStr) || [];
+            if (!existing.some((item) => item.id === sm.id)) {
+              existing.push(sm);
+            }
+            map.set(dateStr, existing);
+          }
+        }
+        cur.setDate(cur.getDate() + 1);
+      }
+    }
+
     return map;
-  }, [pmMasters]);
+  }, [pmMasters, viewYear, viewMonth, events, pmSettings]);
 
   const selectedDateMasters = useMemo(() => {
     return pmMastersMap.get(selectedDate) || [];
@@ -1309,13 +1286,8 @@ export default function Calendar() {
 
   // ── 選択日のシフト情報（手動オーバーライド優先） ──
   const selectedShift = resolveShiftInfo(selectedDate, events, pmSettings);
-  const selectedShiftInfo = resolveDateShiftInfo(selectedDate, events, pmSettings);
 
-  // ── 選択日の PM 情報（シフト連動タスク抽出） ──
-  const selectedDatePMItems = pmSettings
-    ? getActivePMTasksForDate(selectedDate, pmTemplates, events, pmSettings)
-    : [];
-  const pmLogMap = buildLogMapForDate(pmLogs, selectedDate);
+
 
   // ── シフト手動調整（Google Calendar ＆ Firestore 連携） ──
   const handleSaveShiftOverride = useCallback(
@@ -1470,25 +1442,7 @@ export default function Calendar() {
     [isSignedIn, accessToken, events, showMessageToast]
   );
 
-  // ── PM 完了トグル ──
-  const handleTogglePMComplete = useCallback(async (item: PMTemplateItem) => {
-    const currentStatus = resolveItemStatus(item, pmLogMap);
-    if (currentStatus === "completed") return;
 
-    try {
-      await recordPMLog({
-        date: selectedDate,
-        templateId: item.id,
-        dayIndex: item.dayIndex || selectedShift.streakNumber || 1,
-        title: item.title,
-        status: "completed",
-      });
-      logger.info("firestore", `Calendar: Logged PM completion for "${item.title}" (${selectedDate})`);
-      showMessageToast(`PM「${item.title}」を完了にしました`);
-    } catch (err) {
-      console.error("Failed to record PM log from calendar", err);
-    }
-  }, [selectedDate, selectedShift.streakNumber, pmLogMap, showMessageToast]);
 
 
   // ── 予定追加（Google Calendar 連動） ──
@@ -1640,7 +1594,10 @@ export default function Calendar() {
   })();
 
   return (
-    <div className="w-full max-w-5xl mx-auto" style={{ padding: "2.4rem 1.5rem 6rem", boxSizing: "border-box" }}>
+    <div
+      className="w-full max-w-5xl mx-auto px-3 sm:px-[1.5rem] py-5 sm:py-[2.4rem] pb-24"
+      style={{ boxSizing: "border-box" }}
+    >
       
       {/* ─── ヘッダー（統一された静かなデザイン） ─── */}
       <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", marginBottom: "1.5rem", padding: "0 0.25rem" }}>
@@ -1711,10 +1668,10 @@ export default function Calendar() {
           title="出勤時間・4連勤ワンシフト一括変更"
         >
           <Clock style={{ width: "0.75rem", height: "0.75rem", flexShrink: 0 }} />
-          <span>時間変更</span>
+          <span>シフト変更</span>
         </button>
 
-        {/* PM管理台帳ボタン */}
+        {/* PM管理台帳ボタン（iPhone/モバイルでは非表示） */}
         <button
           type="button"
           onClick={() => {
@@ -1722,11 +1679,8 @@ export default function Calendar() {
             setShowPMMasterModal(true);
           }}
           data-testid="calendar-pm-master-btn"
-          className="whitespace-nowrap shrink-0"
+          className="whitespace-nowrap shrink-0 hidden sm:inline-flex items-center gap-1.5"
           style={{
-            display: "inline-flex",
-            alignItems: "center",
-            gap: "0.3rem",
             padding: "0.2rem 0.65rem",
             borderRadius: "9999px",
             background: "rgba(197, 160, 89, 0.14)",
@@ -1739,10 +1693,10 @@ export default function Calendar() {
             boxShadow: "0 1px 3px rgba(0, 0, 0, 0.04)",
             transition: "all 0.15s ease",
           }}
-          title="PM（周期保全・管理台帳）の定義と一覧を表示"
+          title="PM管理マスターの定義と一覧を表示"
         >
           <RotateCw style={{ width: "0.75rem", height: "0.75rem", flexShrink: 0 }} />
-          <span>PM管理台帳</span>
+          <span>PM管理マスター</span>
         </button>
       </div>
 
@@ -1766,14 +1720,7 @@ export default function Calendar() {
             onPrevMonth={goPrevMonth}
             onNextMonth={goNextMonth}
             onOpenPMExecution={handleOpenPMExecution}
-            showSchemaLegend={showSchemaLegend}
-            onToggleSchemaLegend={() => setShowSchemaLegend((prev) => !prev)}
           />
-          {showSchemaLegend && (
-            <div style={{ marginTop: "1rem", animation: "arca-module-in 0.2s ease" }}>
-              <SchemaLegendCard collection="events" onClose={() => setShowSchemaLegend(false)} />
-            </div>
-          )}
         </div>
 
         {/* 右ペイン: 日別詳細パネル（予定・タスク・PM） */}
@@ -1863,7 +1810,7 @@ export default function Calendar() {
               <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: "0.75rem" }}>
                 <div style={{ display: "flex", alignItems: "center", gap: "0.45rem" }}>
                   <RotateCw style={{ width: "0.85rem", height: "0.85rem", color: "#C5A059" }} />
-                  <p style={{ ...sectionLabelStyle, margin: 0 }}>PM周期保全（台帳）</p>
+                  <p style={{ ...sectionLabelStyle, margin: 0 }}>PM周期保全</p>
                 </div>
                 <span
                   style={{
@@ -1950,108 +1897,7 @@ export default function Calendar() {
             </div>
           )}
 
-          {/* ── 従来のPM作業セクション（後方互換） ── */}
-          {selectedDatePMItems.length > 0 && selectedDateMasters.length === 0 && (
-            <div className="arca-card" style={{ padding: "1.15rem 1.4rem", borderRadius: "20px" }}>
-              <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: "0.75rem" }}>
-                <div style={{ display: "flex", alignItems: "center", gap: "0.45rem" }}>
-                  <ClipboardList style={{ width: "0.85rem", height: "0.85rem", color: "#4A72B2" }} />
-                  <p style={{ ...sectionLabelStyle, margin: 0 }}>PM作業</p>
-                </div>
-                <span
-                  style={{
-                    fontSize: "0.65rem",
-                    fontWeight: 700,
-                    color: selectedShiftInfo.isRestDay ? C.sage : C.goldDark,
-                    background: selectedShiftInfo.isRestDay ? "rgba(82, 121, 111, 0.10)" : C.goldFaint,
-                    padding: "0.15rem 0.5rem",
-                    borderRadius: "9999px",
-                    letterSpacing: "0.03em",
-                  }}
-                  data-testid="calendar-pm-day-badge"
-                >
-                  {selectedShiftInfo.isRestDay ? "休日PM" : "出勤PM"}
-                </span>
-              </div>
-              <ul style={{ listStyle: "none", padding: 0, margin: 0 }}>
-                {selectedDatePMItems.map((item) => {
-                  const status = resolveItemStatus(item, pmLogMap);
-                  const isDone = status === "completed";
-                  const isSkip = status === "skipped";
 
-                  return (
-                    <li
-                      key={item.id}
-                      style={{
-                        display: "flex",
-                        alignItems: "flex-start",
-                        gap: "0.75rem",
-                        padding: "0.6rem 0",
-                        borderBottom: "1px solid rgba(0,0,0,0.035)",
-                        opacity: isDone || isSkip ? 0.6 : 1,
-                        transition: "opacity 0.2s ease",
-                      }}
-                    >
-                      <button
-                        type="button"
-                        onClick={() => handleTogglePMComplete(item)}
-                        disabled={isDone || isSkip}
-                        style={{
-                          background: "none",
-                          border: "none",
-                          padding: 0,
-                          cursor: isDone || isSkip ? "default" : "pointer",
-                          lineHeight: 0,
-                          marginTop: "2px",
-                        }}
-                        title={isDone ? "完了済み" : "完了にする"}
-                      >
-                        <svg
-                          viewBox="0 0 24 24"
-                          fill="none"
-                          strokeWidth={1.75}
-                          style={{
-                            width: "1.15rem",
-                            height: "1.15rem",
-                            stroke: isDone ? C.gold : C.charcoalXLight,
-                            transition: "stroke 0.2s ease",
-                            flexShrink: 0,
-                          }}
-                        >
-                          {isDone ? (
-                            <path strokeLinecap="round" strokeLinejoin="round" d="M9 12.75 11.25 15 15 9.75M21 12a9 9 0 1 1-18 0 9 9 0 0 1 18 0Z" />
-                          ) : (
-                            <circle cx="12" cy="12" r="9" />
-                          )}
-                        </svg>
-                      </button>
-                      <div style={{ flex: 1, minWidth: 0 }}>
-                        <p
-                          style={{
-                            margin: 0,
-                            fontSize: "0.875rem",
-                            fontWeight: 500,
-                            color: isDone ? C.charcoalLight : C.charcoal,
-                            textDecoration: isDone ? "line-through" : "none",
-                          }}
-                        >
-                          {item.title}
-                        </p>
-                        {item.content && (
-                          <p style={{ margin: "0.15rem 0 0", fontSize: "0.74rem", color: C.charcoalLight }}>{item.content}</p>
-                        )}
-                        {isSkip && (
-                          <span style={{ fontSize: "0.68rem", color: C.charcoalLight, fontStyle: "italic", marginTop: "0.15rem", display: "inline-block" }}>
-                            スキップ済
-                          </span>
-                        )}
-                      </div>
-                    </li>
-                  );
-                })}
-              </ul>
-            </div>
-          )}
 
         </div>
       </div>
@@ -2087,6 +1933,8 @@ export default function Calendar() {
       <PMMasterModal
         isOpen={showPMMasterModal}
         initialSelectedMasterId={selectedMasterIdForModal}
+        events={events}
+        settings={pmSettings}
         onClose={() => {
           setShowPMMasterModal(false);
           setSelectedMasterIdForModal(null);

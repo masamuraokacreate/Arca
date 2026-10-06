@@ -48,9 +48,10 @@ import {
   syncGoogleCalendarToArca,
   createGoogleCalendarEvent,
   applyShiftStatusToGoogleCalendar,
+  batchUpdateShiftEvents,
 } from "../services/googleCalendarSync";
 import { ShiftOverrideModal } from "./calendar/ShiftOverrideModal";
-import { ShiftGoogleAdjustModal } from "./calendar/ShiftGoogleAdjustModal";
+import { ShiftEditModal } from "./calendar/ShiftEditModal";
 import { ShiftBadge } from "./calendar/ShiftBadge";
 import { AddEventModal } from "./dashboard/AddEventModal";
 import { CycleBoard } from "./dashboard/CycleBoard";
@@ -347,6 +348,60 @@ export default function Dashboard({ onNavigate, onSelectNote, onSelectRecipe }: 
     [today, isSignedIn, accessToken, events]
   );
 
+  // ── 4連勤ワンシフト一括 / シフト時間一括更新ハンドラ（カレンダーと統合） ──
+  const handleSaveShiftBatch = useCallback(
+    async (params: {
+      dates: string[];
+      title: string;
+      startTime: string;
+      endTime: string;
+      scope: "single" | "four_day";
+    }) => {
+      try {
+        await batchUpdateShiftEvents(
+          isSignedIn ? accessToken : null,
+          params.dates,
+          {
+            title: params.title,
+            startTime: params.startTime,
+            endTime: params.endTime,
+          },
+          events
+        );
+
+        // 楽観的ローカル更新（Firestore snapshot前の即時反映）
+        setEvents((prev) => {
+          const next = [...prev];
+          for (const d of params.dates) {
+            const idx = next.findIndex((e) => e.date === d && isWorkEvent(e.title));
+            if (idx >= 0) {
+              next[idx] = {
+                ...next[idx],
+                title: params.title,
+                startTime: params.startTime,
+                endTime: params.endTime,
+              };
+            } else {
+              next.push({
+                id: `opt-${d}-${Date.now()}`,
+                title: params.title,
+                date: d,
+                startTime: params.startTime,
+                endTime: params.endTime,
+                note: "",
+                createdAt: null,
+              });
+            }
+          }
+          return next;
+        });
+      } catch (err) {
+        console.error("Failed to batch update shift events from Dashboard:", err);
+      }
+    },
+    [isSignedIn, accessToken, events]
+  );
+
   return (
     <div className="w-full max-w-[1440px] mx-auto px-3 sm:px-6 lg:px-8 py-5 sm:py-6 min-h-screen box-border flex flex-col overflow-x-hidden">
       {/* ─── ヘッダー ＆ サイクルナビゲーション（英字キッカー完全撤廃） ─── */}
@@ -400,16 +455,16 @@ export default function Dashboard({ onNavigate, onSelectNote, onSelectRecipe }: 
         </div>
       </div>
 
-      {/* Google カレンダー連動シフト調整モーダル */}
-      <ShiftGoogleAdjustModal
+      {/* 4連勤ワンシフト一括 / シフト時間変更モーダル（カレンダーと統合） */}
+      <ShiftEditModal
         isOpen={showShiftGoogleModal}
-        today={today}
+        targetDate={selectedDate || today}
         events={events}
         pmSettings={pmSettings}
-        accessToken={accessToken}
+        googleSyncStatus={syncStatus}
         isGoogleSignedIn={isSignedIn}
-        onGoogleSignIn={signIn}
         onClose={() => setShowShiftGoogleModal(false)}
+        onSave={handleSaveShiftBatch}
       />
 
       {/* 出勤ステータス確認 & 手動調整モーダル（ShiftBadgeクリック時） */}
@@ -452,12 +507,15 @@ export default function Dashboard({ onNavigate, onSelectNote, onSelectRecipe }: 
         }}
       />
 
-      {/* ─── サブグリッド: 下段3カラム差別化レイアウト (1.5fr : 1fr : 1.2fr) ─── */}
+      {/* ─── サブグリッド: 下段4カラムレイアウト (タスク・献立レシピ・最近のノート・クイックメモ) ─── */}
       <SubGrid
         recipes={recipes}
         tasks={tasks}
         notes={notes}
         currentShift={currentShift}
+        cycleRange={cycleRange}
+        onToggleTask={toggleTask}
+        onAddTask={handleAddTask}
         onNavigate={onNavigate}
         onSelectNote={onSelectNote}
         onSelectRecipe={onSelectRecipe}

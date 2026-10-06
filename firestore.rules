@@ -1,0 +1,167 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // ===============================================================
+    // Assumed Data Model
+    // ===============================================================
+    //
+    // Collection: auth_errors
+    // Document ID: SDK自動生成ID (addDoc)
+    // 用途: クライアント側（認証前・認証失敗時を含む）のエラー診断・セキュリティ監査ログ
+    // フィールド一覧:
+    //   - errorCode: string (必須, 1〜100文字) - Firebase Auth / OAuth 等のエラーコード (例: "auth/user-not-found")
+    //   - errorMessage: string (必須, 1〜2000文字) - エラー内容やスタックの概要
+    //   - timestamp: timestamp (必須, リクエスト時刻 request.time と完全一致) - サーバータイムスタンプ
+    //   - userAgent: string (必須, 1〜500文字) - ブラウザ / クライアント環境の User-Agent
+    //   - authDomain: string (必須, 1〜100文字) - 失敗が発生した認証ドメイン (例: "arca-f3fc6.firebaseapp.com")
+    //   - provider: string (必須, 1〜50文字) - 認証プロバイダID (例: "google.com")
+    //   - authMethod: string (必須, 1〜50文字) - 認証方式 (例: "signInWithPopup", "redirect")
+    //   - platform: string (必須, 1〜100文字) - OS・プラットフォーム識別子 (例: "MacIntel", "Win32", "iPad")
+    //   - currentUrl: string (必須, 1〜2000文字, http/https) - エラー発生時のページURL
+    //   - screen: map (必須) - 画面解像度・レイアウト情報
+    //       - innerWidth: number (必須, 0〜10000) - ウィンドウ幅
+    //       - innerHeight: number (必須, 0〜10000) - ウィンドウ高
+    //       - devicePixelRatio: number (必須, 0〜20) - デバイスピクセル比
+    //       - maxTouchPoints: number (任意, 0〜50) - タッチポイント数 (iPad/タブレット判定用)
+    //   - maxTouchPoints: number (任意, 0〜50) - ルート直下にも配置可能なタッチポイント数
+    //
+    // その他アプリケーションコレクション:
+    //   events, tasks, notes, recipes, shift_settings, pm_templates, pm_logs,
+    //   finance_transactions, task_lists, lists, pm_masters など
+    //   アクセス権限: ホワイトリストに登録された検証済み管理者のみフルアクセス可能
+    //
+    // ===============================================================
+
+    // ===============================================================
+    // Helper Functions
+    // ===============================================================
+
+    // ユーザーが認証済みか確認
+    function isAuthenticated() {
+      return request.auth != null;
+    }
+
+    // ホワイトリスト登録済みの管理者か確認（Googleログインかつメール確認済みを担保）
+    function isAdmin() {
+      return isAuthenticated() &&
+        request.auth.token.email_verified == true &&
+        request.auth.token.email in [
+          'masatomuraoka1028@gmail.com',
+          'masatomuraoka.create@gmail.com'
+        ];
+    }
+
+    // ドキュメントが許可されたフィールドのみで構成されているか検証（スキーマ汚染・余計なプロパティの注入防止）
+    function hasOnlyAllowedFields(fields) {
+      return request.resource.data.keys().hasOnly(fields);
+    }
+
+    // 必須フィールドがすべて存在するか検証（必須項目の欠落防止）
+    function hasRequiredFields(fields) {
+      return request.resource.data.keys().hasAll(fields);
+    }
+
+    // 文字列の型および長さ制約の検証（型安全性確保・DoSおよびリソース枯渇防止）
+    function validStringLength(data, field, minLen, maxLen) {
+      return data[field] is string &&
+        data[field].size() >= minLen &&
+        data[field].size() <= maxLen;
+    }
+
+    // URL形式の検証（http:// または https:// で始まる文字列）
+    function isValidUrl(url) {
+      return url is string &&
+        (url.matches("^https://.*") || url.matches("^http://.*"));
+    }
+
+    // 画面・端末解像度情報の検証 (screen map)
+    function isValidScreen(screenData) {
+      return screenData is map &&
+        screenData.keys().hasOnly(['innerWidth', 'innerHeight', 'devicePixelRatio', 'maxTouchPoints']) &&
+        screenData.keys().hasAll(['innerWidth', 'innerHeight', 'devicePixelRatio']) &&
+        screenData.innerWidth is number && screenData.innerWidth >= 0 && screenData.innerWidth <= 10000 &&
+        screenData.innerHeight is number && screenData.innerHeight >= 0 && screenData.innerHeight <= 10000 &&
+        screenData.devicePixelRatio is number && screenData.devicePixelRatio >= 0 && screenData.devicePixelRatio <= 20 &&
+        (!('maxTouchPoints' in screenData) || (screenData.maxTouchPoints is number && screenData.maxTouchPoints >= 0 && screenData.maxTouchPoints <= 50));
+    }
+
+    // ===============================================================
+    // Domain Validator: auth_errors
+    // ===============================================================
+
+    // auth_errors コレクションの入力検証関数
+    function isValidAuthError(data) {
+      let requiredFields = [
+        'errorCode',
+        'errorMessage',
+        'timestamp',
+        'userAgent',
+        'authDomain',
+        'provider',
+        'authMethod',
+        'platform',
+        'currentUrl',
+        'screen'
+      ];
+
+      let allowedFields = [
+        'errorCode',
+        'errorMessage',
+        'timestamp',
+        'userAgent',
+        'authDomain',
+        'provider',
+        'authMethod',
+        'platform',
+        'currentUrl',
+        'screen',
+        'maxTouchPoints'
+      ];
+
+      return hasRequiredFields(requiredFields) &&
+        hasOnlyAllowedFields(allowedFields) &&
+        validStringLength(data, 'errorCode', 1, 100) &&
+        validStringLength(data, 'errorMessage', 1, 2000) &&
+        data.timestamp is timestamp &&
+        data.timestamp == request.time &&
+        validStringLength(data, 'userAgent', 1, 500) &&
+        validStringLength(data, 'authDomain', 1, 100) &&
+        validStringLength(data, 'provider', 1, 50) &&
+        validStringLength(data, 'authMethod', 1, 50) &&
+        validStringLength(data, 'platform', 1, 100) &&
+        validStringLength(data, 'currentUrl', 1, 2000) &&
+        isValidUrl(data.currentUrl) &&
+        isValidScreen(data.screen) &&
+        (!('maxTouchPoints' in data) || (data.maxTouchPoints is number && data.maxTouchPoints >= 0 && data.maxTouchPoints <= 50));
+    }
+
+    // ===============================================================
+    // Collection Rules
+    // ===============================================================
+
+    // 1. 認証エラーログコレクション (auth_errors)
+    // ログイン失敗時に未認証クライアント（request.auth == null）から直接書き込みを受け付ける追記専用コレクション
+    match /auth_errors/{errorId} {
+      // 未認証ユーザーを含む全クライアントからのドキュメント作成（create）を許可（厳格なバリデーション必須）
+      allow create: if isValidAuthError(request.resource.data);
+
+      // 読み取り（read）および削除（delete）は管理者のみ許可（一般・未認証ユーザーは完全に遮断）
+      allow read, delete: if isAdmin();
+
+      // ログの改ざん防止のため、更新（update）は管理者を含め完全禁止（不可逆・追記専用）
+      allow update: if false;
+    }
+
+    // 2. 一般アプリケーションデータコレクション（ホワイトリスト管理者のみアクセス可能）
+    match /{collectionName}/{docId} {
+      allow read, write: if collectionName != 'auth_errors' && isAdmin();
+    }
+
+    // 3. デフォルト拒否（多層防御・未定義パスへのアクセスを完全遮断）
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}

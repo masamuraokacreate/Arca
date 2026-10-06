@@ -175,9 +175,10 @@ describe("Dashboard コンポーネント", () => {
 
     render(<Dashboard />);
 
-    expect(screen.getByText("本日のレポート提出")).toBeInTheDocument();
-    expect(screen.queryByText("明日のタスク")).not.toBeInTheDocument();
-    expect(screen.getByText("今日のToDo")).toBeInTheDocument();
+    const cycleBoard = screen.getByTestId("cycle-board-container");
+    expect(within(cycleBoard).getByText("本日のレポート提出")).toBeInTheDocument();
+    expect(within(cycleBoard).queryByText("明日のタスク")).not.toBeInTheDocument();
+    expect(within(cycleBoard).getByText("今日のToDo")).toBeInTheDocument();
   });
 
   it("ToDoの完了チェックボックストグル時に updateDoc が正しく呼び出されること", async () => {
@@ -210,8 +211,9 @@ describe("Dashboard コンポーネント", () => {
 
     render(<Dashboard />);
 
-    const taskText = screen.getByText("完了するタスク");
-    expect(taskText).toBeInTheDocument();
+    const taskTexts = screen.getAllByText("完了するタスク");
+    expect(taskTexts.length).toBeGreaterThan(0);
+    const taskText = taskTexts[0];
 
     const checkBtn = taskText.parentElement?.querySelector("button");
     expect(checkBtn).toBeInTheDocument();
@@ -416,7 +418,7 @@ describe("Dashboard コンポーネント", () => {
     expect(memoTextarea).toHaveValue("買いたいものメモ");
   });
 
-  it("シフト調整ボタンクリックでGoogleカレンダー連動シフト調整モーダルが開くこと", async () => {
+  it("シフト調整ボタンクリックでカレンダー統合シフト変更モーダルが開くこと", async () => {
     const user = userEvent.setup();
     render(<Dashboard />);
 
@@ -424,10 +426,11 @@ describe("Dashboard コンポーネント", () => {
     expect(shiftAdjBtn).toBeInTheDocument();
 
     await user.click(shiftAdjBtn);
-    // 新モーダル（ShiftGoogleAdjustModal）のタイトルh2が表示されること
-    expect(screen.getByRole("heading", { name: "シフト調整" })).toBeInTheDocument();
-    expect(screen.getByText("今のサイクル")).toBeInTheDocument();
-    expect(screen.getByText("次のサイクル")).toBeInTheDocument();
+    // カレンダーと統合されたShiftEditModalが表示されること
+    expect(screen.getByTestId("shift-edit-modal")).toBeInTheDocument();
+    expect(screen.getByText("出勤時間・シフト変更")).toBeInTheDocument();
+    expect(screen.getByText("今回の4連勤")).toBeInTheDocument();
+    expect(screen.getByText("次の早番")).toBeInTheDocument();
   });
 
   it("無題の空ノートおよび削除済みノート（isDeleted: true）はダッシュボードに表示されないこと", () => {

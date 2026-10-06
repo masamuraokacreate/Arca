@@ -44,14 +44,70 @@ export function todayStr(): string {
   return formatDateStr(new Date());
 }
 
+import type { CalendarEvent } from "../types";
+import { resolveDateShiftInfo, calculateCycleIndex } from "./pmCycleService";
+import type { PMSettings, PMTimingCategory } from "../types/pm";
+
+/**
+ * 指定日がマスタのシフト連動条件に合致するか判定
+ */
+export function isMasterShiftTimingMatch(
+  targetDate: string,
+  master: Pick<PMMaster, "timingCategory" | "timingDay" | "cycleInterval" | "cycleIntervalOffset">,
+  events: CalendarEvent[] = [],
+  settings?: PMSettings | null
+): boolean {
+  const timingCategory = master.timingCategory || "holiday";
+  const timingDay = master.timingDay || 1;
+  const cycleInterval = master.cycleInterval && master.cycleInterval > 1 ? master.cycleInterval : 1;
+
+  // 1. サイクル頻度判定（2サイクルに1回 = 隔週など）
+  if (cycleInterval > 1) {
+    const cycleIndex = calculateCycleIndex(targetDate, events, settings);
+    const offset = master.cycleIntervalOffset || 0;
+    const mod = (((cycleIndex - offset) % cycleInterval) + cycleInterval) % cycleInterval;
+    if (mod !== 0) return false;
+  }
+
+  // 2. シフト判定
+  const shiftInfo = resolveDateShiftInfo(targetDate, events, settings);
+  switch (timingCategory) {
+    case "holiday":
+      return shiftInfo.isRestDay && shiftInfo.consecutiveIndex === timingDay;
+    case "early_shift":
+      return shiftInfo.isWorkDay && Boolean(shiftInfo.isEarlyShift) && shiftInfo.earlyStreakIndex === timingDay;
+    case "late_shift":
+      return shiftInfo.isWorkDay && Boolean(shiftInfo.isLateShift) && shiftInfo.lateStreakIndex === timingDay;
+    case "work_day":
+      return shiftInfo.isWorkDay && shiftInfo.consecutiveIndex === timingDay;
+    default:
+      return false;
+  }
+}
+
 /**
  * PMマスタの次回予定日を計算する
  * @param master PMマスタ定義
  * @param fromDate 計算の基準日（省略時は今日または前回の予定日/完了日）
+ * @param events カレンダーイベント一覧（シフト計算用）
+ * @param settings PM/シフト設定
  */
 export function calculateNextScheduledDate(
-  master: Pick<PMMaster, "cycleType" | "cycleValue" | "calcBasis" | "lastCompletedAt" | "nextScheduledDate">,
-  fromDate?: string
+  master: Pick<
+    PMMaster,
+    | "cycleType"
+    | "cycleValue"
+    | "calcBasis"
+    | "lastCompletedAt"
+    | "nextScheduledDate"
+    | "timingCategory"
+    | "timingDay"
+    | "cycleInterval"
+    | "cycleIntervalOffset"
+  >,
+  fromDate?: string,
+  events: CalendarEvent[] = [],
+  settings?: PMSettings | null
 ): string {
   const today = todayStr();
   
@@ -73,6 +129,24 @@ export function calculateNextScheduledDate(
   let nextDate: Date;
 
   switch (master.cycleType) {
+    case "shift_cycle": {
+      // 出勤・シフト連動: baseDateStr の翌日（今日より前なら今日）から最大90日間探索
+      const startEpoch = Math.max(
+        Math.floor(new Date(by, bm - 1, bd).getTime() / 86400000) + 1,
+        Math.floor(new Date().setHours(0, 0, 0, 0) / 86400000)
+      );
+      for (let i = 0; i < 90; i++) {
+        const candidateDate = new Date((startEpoch + i) * 86400000);
+        const candidateStr = formatDateStr(candidateDate);
+        if (isMasterShiftTimingMatch(candidateStr, master, events, settings)) {
+          return candidateStr;
+        }
+      }
+      // 見つからない場合のフォールバック（7日後）
+      nextDate = new Date(base.getTime() + 7 * 86_400_000);
+      break;
+    }
+
     case "monthly_day": {
       // 毎月○日
       const targetDay = Math.min(Math.max(master.cycleValue || 1, 1), 31);
@@ -199,6 +273,10 @@ export function subscribePMMasters(
           taskTemplates: Array.isArray(data.taskTemplates) ? data.taskTemplates : [],
           nextScheduledDate: data.nextScheduledDate || undefined,
           lastCompletedAt: data.lastCompletedAt || undefined,
+          timingCategory: (data.timingCategory as PMTimingCategory) || undefined,
+          timingDay: data.timingDay !== undefined && data.timingDay !== null ? Number(data.timingDay) : undefined,
+          cycleInterval: data.cycleInterval !== undefined && data.cycleInterval !== null ? Number(data.cycleInterval) : undefined,
+          cycleIntervalOffset: data.cycleIntervalOffset !== undefined && data.cycleIntervalOffset !== null ? Number(data.cycleIntervalOffset) : undefined,
         });
       });
       callback(items);
@@ -214,7 +292,9 @@ export function subscribePMMasters(
  * PMマスタの作成または更新
  */
 export async function savePMMaster(
-  master: Partial<PMMaster> & { title: string }
+  master: Partial<PMMaster> & { title: string },
+  events?: CalendarEvent[],
+  settings?: PMSettings | null
 ): Promise<string> {
   const id = master.id || `pm-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
   const now = new Date().toISOString();
@@ -222,20 +302,33 @@ export async function savePMMaster(
   // 次回予定日の初期値または再計算
   let nextDate = master.nextScheduledDate;
   if (!nextDate) {
-    nextDate = calculateNextScheduledDate({
-      cycleType: master.cycleType || "monthly_day",
-      cycleValue: master.cycleValue || 25,
-      calcBasis: master.calcBasis || "fixed_date",
-      lastCompletedAt: master.lastCompletedAt,
-      nextScheduledDate: master.nextScheduledDate,
-    });
+    nextDate = calculateNextScheduledDate(
+      {
+        cycleType: master.cycleType || "monthly_day",
+        cycleValue: master.cycleValue || 25,
+        calcBasis: master.calcBasis || "fixed_date",
+        lastCompletedAt: master.lastCompletedAt,
+        nextScheduledDate: master.nextScheduledDate,
+        timingCategory: master.timingCategory,
+        timingDay: master.timingDay,
+        cycleInterval: master.cycleInterval,
+        cycleIntervalOffset: master.cycleIntervalOffset,
+      },
+      undefined,
+      events,
+      settings
+    );
   }
 
   const docData = {
-    title: master.title.trim(),
+    title: typeof master.title === "string" ? master.title.trim() : "",
     cycleType: master.cycleType || "monthly_day",
     cycleValue: Number(master.cycleValue) || 1,
     calcBasis: master.calcBasis || "fixed_date",
+    timingCategory: master.timingCategory || null,
+    timingDay: master.timingDay !== undefined && master.timingDay !== null ? Number(master.timingDay) : null,
+    cycleInterval: master.cycleInterval !== undefined && master.cycleInterval !== null ? Number(master.cycleInterval) : null,
+    cycleIntervalOffset: master.cycleIntervalOffset !== undefined && master.cycleIntervalOffset !== null ? Number(master.cycleIntervalOffset) : null,
     estimatedMinutes: master.estimatedMinutes !== undefined && master.estimatedMinutes !== null ? Number(master.estimatedMinutes) : null,
     noteId: master.noteId || null,
     itemTemplates: (master.itemTemplates || []).map((item, idx) => ({

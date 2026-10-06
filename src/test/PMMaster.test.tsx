@@ -19,6 +19,7 @@ import { PMMasterModal } from "../components/pm/PMMasterModal";
 import { PMExecutionPopover } from "../components/pm/PMExecutionPopover";
 import { CalendarDayCell } from "../components/calendar/CalendarDayCell";
 import type { PMMaster } from "../types/pm";
+import type { CalendarEvent } from "../types";
 import * as pmMasterService from "../services/pmMasterService";
 
 // Firestore / Service のモック
@@ -273,5 +274,88 @@ describe("CalendarDayCell (PM専用インジケータ)", () => {
     // クリックでコールバックが呼ばれること
     fireEvent.click(indicator);
     expect(onOpenMock).toHaveBeenCalledWith("2026-10-25", mockMasters);
+  });
+});
+
+describe("PM管理台帳 出勤・シフト連動 & 新規作成仕様", () => {
+  beforeEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it("9. 新規作成ボタン押下時に題名が空文字（\"\"）で作成され、出勤・シフト連動（shift_cycle）がデフォルト設定されること", async () => {
+    const saveSpy = vi.spyOn(pmMasterService, "savePMMaster").mockResolvedValue("new-pm-id");
+    vi.spyOn(pmMasterService, "subscribePMMasters").mockImplementation((cb) => {
+      cb([]);
+      return () => {};
+    });
+    vi.spyOn(pmMasterService, "subscribePMMasterLogs").mockImplementation((_id, cb) => {
+      cb([]);
+      return () => {};
+    });
+
+    render(<PMMasterModal isOpen={true} onClose={vi.fn()} />);
+
+    const createBtn = screen.getByTestId("pm-create-new-btn");
+    fireEvent.click(createBtn);
+
+    await waitFor(() => {
+      expect(saveSpy).toHaveBeenCalledWith(
+        expect.objectContaining({
+          title: "",
+          cycleType: "shift_cycle",
+          timingCategory: "holiday",
+          timingDay: 1,
+          cycleInterval: 1,
+        })
+      );
+    });
+  });
+
+  it("10. isMasterShiftTimingMatch がシフト連動条件（休日・早番・遅番・出勤）およびサイクル頻度を正しく判定すること", () => {
+    const events = [
+      {
+        id: "ev-1",
+        title: "早番",
+        date: "2026-10-01",
+        startTime: "07:00",
+        endTime: "16:00",
+        note: "",
+        calendarId: "c1",
+        createdAt: "2026-10-01",
+        updatedAt: "2026-10-01",
+      },
+    ];
+
+    // 休日1日目判定
+    const holidayMaster: PMMaster = {
+      ...mockMasters[0],
+      cycleType: "shift_cycle",
+      timingCategory: "holiday",
+      timingDay: 1,
+      cycleInterval: 1,
+    };
+    // 2026-10-02 はイベント無し＝休日1日目
+    const isHolidayMatch = pmMasterService.isMasterShiftTimingMatch(
+      "2026-10-02",
+      holidayMaster,
+      events as unknown as CalendarEvent[]
+    );
+    expect(isHolidayMatch).toBe(true);
+
+    // 早番1日目判定
+    const earlyMaster: PMMaster = {
+      ...mockMasters[0],
+      cycleType: "shift_cycle",
+      timingCategory: "early_shift",
+      timingDay: 1,
+      cycleInterval: 1,
+    };
+    // 2026-10-01 は早番
+    const isEarlyMatch = pmMasterService.isMasterShiftTimingMatch(
+      "2026-10-01",
+      earlyMaster,
+      events as unknown as CalendarEvent[]
+    );
+    expect(isEarlyMatch).toBe(true);
   });
 });

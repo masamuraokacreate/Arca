@@ -18,7 +18,6 @@ import {
   FileText,
   PenLine,
   ChevronRight,
-  Check,
 } from "lucide-react";
 import type { NoteItem } from "../../types";
 
@@ -195,12 +194,7 @@ export const QuickMemoCard: React.FC<QuickMemoCardProps> = ({
         </div>
 
         <div className="flex items-center gap-1 text-[0.68rem] text-stone-500 font-medium">
-          {isSaved ? (
-            <span className="inline-flex items-center gap-1 text-emerald-600 dark:text-emerald-400">
-              <Check size={11} strokeWidth={2.5} />
-              <span>保存済み</span>
-            </span>
-          ) : (
+          {!isSaved && (
             <span className="text-amber-600 dark:text-amber-400">保存中...</span>
           )}
         </div>

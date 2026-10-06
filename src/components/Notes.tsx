@@ -772,7 +772,7 @@ export function NoteViewer({
     const { breadcrumbs: spaceCrumbs, onSelectNote: spaceSelectNote } = docSpace;
     const crumbs = spaceCrumbs.filter((c): c is NoteBreadcrumb & { id: string } => Boolean(c.id));
     return (
-      <div className="flex items-center gap-1 text-xs font-medium text-charcoal-light truncate">
+      <div className="flex items-center gap-1 text-xs font-medium text-charcoal-light overflow-x-auto no-scrollbar scroll-smooth flex-nowrap py-0.5 max-w-full">
         {crumbs.map((crumb, idx) => {
           const isLast = idx === crumbs.length - 1;
           return (
@@ -783,7 +783,7 @@ export function NoteViewer({
               <button
                 type="button"
                 onClick={() => spaceSelectNote(crumb.id)}
-                className={`truncate max-w-[130px] sm:max-w-[200px] px-1.5 py-0.5 rounded hover:bg-black/5 dark:hover:bg-white/5 transition-colors cursor-pointer border-none bg-transparent ${
+                className={`shrink-0 max-w-[140px] sm:max-w-[200px] truncate px-1.5 py-0.5 rounded hover:bg-black/5 dark:hover:bg-white/5 transition-colors cursor-pointer border-none bg-transparent ${
                   isLast
                     ? "font-semibold text-charcoal dark:text-stone-100"
                     : "text-charcoal-light hover:text-charcoal"
@@ -1348,7 +1348,7 @@ export function NoteViewer({
             isFullWidth || isSourceMode ? "max-w-none" : "max-w-4xl"
           }`}
           style={{
-            paddingBottom: "calc(40vh + 5rem + env(safe-area-inset-bottom, 0px))",
+            paddingBottom: "calc(3rem + env(safe-area-inset-bottom, 0px))",
           }}
         >
           <div className="w-full min-w-0 flex-1 flex flex-col">{editorBody}</div>
@@ -1395,20 +1395,6 @@ export function NoteViewer({
                 }}
               />
               <span>保存中...</span>
-            </>
-          )}
-          {saveStatus === "saved" && (
-            <>
-              <span
-                style={{
-                  display: "inline-block",
-                  width: "5px",
-                  height: "5px",
-                  borderRadius: "50%",
-                  background: C.gold,
-                }}
-              />
-              <span>保存済み</span>
             </>
           )}
         </div>
@@ -2729,11 +2715,13 @@ type View = { type: "dashboard" } | { type: "viewer"; noteId: string };
 export interface NotesProps {
   initialNoteId?: string | null;
   onClearSelectedNote?: () => void;
+  onDetailViewChange?: (isViewing: boolean) => void;
 }
 
 export default function Notes({
   initialNoteId = null,
   onClearSelectedNote,
+  onDetailViewChange,
 }: NotesProps = {}) {
   const [notes, setNotes] = useState<NoteItem[]>([]);
   const [activeSpace, setActiveSpace] = useState<NoteSpaceType>(() => {
@@ -3333,6 +3321,14 @@ export default function Notes({
     (activeSpace === "document" && Boolean(activeDocNote)) ||
     (activeSpace === "journal" && view.type !== "dashboard" && Boolean(activeNote)) ||
     Boolean(editingMemo);
+
+  // ノート詳細/エディタ表示状態を親（App）に通知（iPhone・モバイルでの上部ナビバー非表示制御用）
+  useEffect(() => {
+    onDetailViewChange?.(isViewingNote);
+    return () => {
+      onDetailViewChange?.(false);
+    };
+  }, [isViewingNote, onDetailViewChange]);
 
   return (
     <>

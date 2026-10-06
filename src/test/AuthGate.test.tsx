@@ -144,4 +144,70 @@ describe("AuthGate コンポーネント（ホワイトリスト厳格認証）"
     await logoutUser();
     expect(signOut).toHaveBeenCalledTimes(1);
   });
+
+  it("ログイン失敗時にエラーメッセージが表示され、logAuthError が呼び出される", async () => {
+    const authErrorLogger = await import("../services/authErrorLogger");
+    const logSpy = vi.spyOn(authErrorLogger, "logAuthError").mockResolvedValue("mock-log-id");
+
+    (onAuthStateChanged as Mock).mockImplementation((_auth, callback) => {
+      callback(null);
+      return vi.fn();
+    });
+    (signInWithPopup as Mock).mockRejectedValueOnce({
+      code: "auth/popup-blocked",
+      message: "Popup was blocked by iPad Safari",
+    });
+
+    const user = userEvent.setup();
+    render(
+      <AuthGate>
+        <div>メインコンテンツ</div>
+      </AuthGate>
+    );
+
+    const loginBtn = screen.getByText("Googleアカウントで続ける");
+    await user.click(loginBtn);
+
+    expect(signInWithPopup).toHaveBeenCalledTimes(1);
+    expect(logSpy).toHaveBeenCalledTimes(1);
+    expect(logSpy).toHaveBeenCalledWith(
+      expect.objectContaining({
+        code: "auth/popup-blocked",
+      }),
+      expect.objectContaining({
+        provider: "google.com",
+        authMethod: "signInWithPopup",
+      })
+    );
+    expect(screen.getByText("ログイン中にエラーが発生しました。もう一度お試しください。")).toBeInTheDocument();
+  });
+
+  it("ユーザーがポップアップを閉じた場合 (auth/popup-closed-by-user) はUIにエラーは出ないがログは記録される", async () => {
+    const authErrorLogger = await import("../services/authErrorLogger");
+    const logSpy = vi.spyOn(authErrorLogger, "logAuthError").mockResolvedValue("mock-log-id");
+
+    (onAuthStateChanged as Mock).mockImplementation((_auth, callback) => {
+      callback(null);
+      return vi.fn();
+    });
+    (signInWithPopup as Mock).mockRejectedValueOnce({
+      code: "auth/popup-closed-by-user",
+      message: "Popup closed by user",
+    });
+
+    const user = userEvent.setup();
+    render(
+      <AuthGate>
+        <div>メインコンテンツ</div>
+      </AuthGate>
+    );
+
+    const loginBtn = screen.getByText("Googleアカウントで続ける");
+    await user.click(loginBtn);
+
+    expect(signInWithPopup).toHaveBeenCalledTimes(1);
+    expect(logSpy).toHaveBeenCalledTimes(1);
+    expect(screen.queryByText("ログイン中にエラーが発生しました。もう一度お試しください。")).not.toBeInTheDocument();
+  });
 });
+

@@ -45,6 +45,7 @@ export function NoteBreadcrumbs({
   return (
     <nav
       aria-label="階層ナビゲーション"
+      className="no-scrollbar"
       style={{
         display: "flex",
         alignItems: "center",

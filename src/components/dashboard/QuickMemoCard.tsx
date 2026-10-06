@@ -160,19 +160,14 @@ export const QuickMemoCard: React.FC = () => {
         />
       </div>
 
-      {/* ─── フッター: ローカル保存ステータス ─── */}
-      <div className="flex justify-end mt-1.5 shrink-0">
-        <span className="flex items-center gap-0.5 text-[0.62rem] text-stone-300 dark:text-stone-600">
-          {saveStatus === "saving" ? (
-            <span className="text-amber-400 dark:text-amber-500">保存中...</span>
-          ) : (
-            <>
-              <Check size={10} className="text-stone-300 dark:text-stone-600" />
-              <span>自動保存済み</span>
-            </>
-          )}
-        </span>
-      </div>
+      {/* ─── フッター: 保存ステータス（保存中のみ表示） ─── */}
+      {saveStatus === "saving" && (
+        <div className="flex justify-end mt-1 shrink-0">
+          <span className="text-[0.62rem] text-amber-500">
+            保存中...
+          </span>
+        </div>
+      )}
     </div>
   );
 };

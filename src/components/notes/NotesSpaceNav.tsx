@@ -65,7 +65,7 @@ export function NotesSpaceNav({
         aria-label="ノートスペース切り替え"
         className={`fixed left-1/2 -translate-x-1/2 z-40 select-none ${className || ""}`}
         style={{
-          bottom: "calc(1.5rem + env(safe-area-inset-bottom, 0px))",
+          bottom: "calc(var(--bottom-tab-height, 0px) + 1.25rem + env(safe-area-inset-bottom, 0px))",
         }}
       >
         <div

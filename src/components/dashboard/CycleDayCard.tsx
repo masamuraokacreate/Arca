@@ -149,15 +149,8 @@ export const CycleDayCard: React.FC<CycleDayCardProps> = ({
             {/* 予定リスト（最大2〜3件スクロール） */}
             <div data-testid="cycle-day-events-list" className="max-h-[72px] overflow-y-auto no-scrollbar space-y-1">
               {events.length === 0 ? (
-                <div className="flex items-center justify-between py-1 px-1 text-stone-400 text-[0.72rem]">
+                <div className="py-1 px-1 text-stone-400 dark:text-stone-500 text-[0.72rem]">
                   <span>予定なし</span>
-                  <button
-                    type="button"
-                    onClick={() => onAddEvent(day.date)}
-                    className="appearance-none text-[0.68rem] text-stone-500 hover:text-amber-700 transition-colors cursor-pointer bg-transparent border-none p-0"
-                  >
-                    + 予定を追加
-                  </button>
                 </div>
               ) : (
                 events.map((e) => (

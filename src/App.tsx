@@ -13,65 +13,17 @@ import Finance from "./components/finance/Finance";
 import SystemMaintenanceModal from "./components/maintenance/SystemMaintenanceModal";
 import ThemeModal from "./components/ThemeModal";
 import { C } from "./lib/designSystem";
-import { useNetworkStatus } from "./hooks/useNetworkStatus";
 import { logoutUser } from "./components/AuthGate";
 import { getSavedToken, syncAllGoogleData } from "./services/googleAuth";
 import { useGoogleAuth } from "./hooks/useGoogleAuth";
-
-
-// ---------- ネットワーク接続状態バッジ ----------
-function NetworkStatusBadge({ isOnline }: { isOnline: boolean }) {
-  if (isOnline) {
-    return (
-      <div
-        className="flex items-center justify-center w-5 h-5 rounded-full bg-emerald-500/10 dark:bg-emerald-400/15 shrink-0"
-        title="クラウドとリアルタイム同期中"
-      >
-        <span
-          style={{
-            width: "6px",
-            height: "6px",
-            borderRadius: "50%",
-            backgroundColor: "#5A8B5F",
-            display: "inline-block",
-          }}
-        />
-      </div>
-    );
-  }
-
-  return (
-    <div
-      style={{
-        display: "flex",
-        alignItems: "center",
-        gap: "0.35rem",
-        padding: "0.2rem 0.55rem",
-        borderRadius: "9999px",
-        background: "rgba(184, 150, 106, 0.18)",
-        color: "#8C6332",
-        fontSize: "0.68rem",
-        fontWeight: 600,
-        letterSpacing: "0.02em",
-        userSelect: "none",
-        transition: "all 0.2s ease",
-        flexShrink: 0,
-      }}
-      title="オフラインです。データは端末内に安全に保存されています。"
-    >
-      <span
-        style={{
-          width: "5px",
-          height: "5px",
-          borderRadius: "50%",
-          backgroundColor: "#C5934E",
-          display: "inline-block",
-        }}
-      />
-      <span>オフライン（ローカル保存中）</span>
-    </div>
-  );
-}
+import {
+  Home as HomeIcon,
+  CheckSquare,
+  Calendar as CalendarIcon,
+  FileText,
+  UtensilsCrossed,
+  Wallet,
+} from "lucide-react";
 
 // ---------- Google データ同期インジケータ ＆ 手動同期ボタン ----------
 export type GoogleSyncStatus = "idle" | "syncing" | "done" | "error";
@@ -193,6 +145,20 @@ const NAV_ITEMS: { id: Module; label: string; sub: string }[] = [
   { id: "finance", label: "Finance", sub: "家計・支出" },
 ];
 
+// ---------- iPhone 専用下部グローバルタブバー定義 ----------
+const IPHONE_NAV_ITEMS: {
+  id: Module;
+  label: string;
+  icon: React.ComponentType<{ size?: number; strokeWidth?: number; className?: string; style?: React.CSSProperties }>;
+}[] = [
+  { id: "dashboard", label: "ホーム", icon: HomeIcon },
+  { id: "tasks", label: "タスク", icon: CheckSquare },
+  { id: "calendar", label: "カレンダー", icon: CalendarIcon },
+  { id: "notes", label: "ノート", icon: FileText },
+  { id: "recipes", label: "レシピ", icon: UtensilsCrossed },
+  { id: "finance", label: "家計", icon: Wallet },
+];
+
 // ---------- ナビゲーションバー ----------
 function NavBar({
   active,
@@ -201,6 +167,7 @@ function NavBar({
   onOpenTheme,
   googleSyncStatus,
   onManualSync,
+  isIPhone = false,
 }: {
   active: Module;
   onChange: (m: Module) => void;
@@ -208,8 +175,8 @@ function NavBar({
   onOpenTheme?: () => void;
   googleSyncStatus: GoogleSyncStatus;
   onManualSync: () => void;
+  isIPhone?: boolean;
 }) {
-  const { isOnline } = useNetworkStatus();
   const navTrackRef = useRef<HTMLDivElement>(null);
   const buttonRefs = useRef<Map<Module, HTMLButtonElement>>(new Map());
   const [isMobile, setIsMobile] = useState(typeof window !== "undefined" ? window.innerWidth < 640 : false);
@@ -330,7 +297,9 @@ function NavBar({
         left: 0,
         right: 0,
         zIndex: 100,
-        height: isMobile
+        height: isIPhone
+          ? "calc(52px + env(safe-area-inset-top, 0px))"
+          : isMobile
           ? "calc(94px + env(safe-area-inset-top, 0px))"
           : "calc(52px + env(safe-area-inset-top, 0px))",
         transition: "height 0.2s ease",
@@ -360,26 +329,28 @@ function NavBar({
           width: "100%",
           height: "100%",
           boxSizing: "border-box",
-          paddingTop: "env(safe-area-inset-top, 0px)",
+          paddingTop: isIPhone
+            ? "calc(6px + env(safe-area-inset-top, 0px))"
+            : "env(safe-area-inset-top, 0px)",
           paddingLeft: "calc(1rem + env(safe-area-inset-left, 0px))",
           paddingRight: "calc(1rem + env(safe-area-inset-right, 0px))",
-          paddingBottom: isMobile ? "0.4rem" : "0",
+          paddingBottom: isMobile && !isIPhone ? "0.4rem" : "0",
           display: "flex",
-          flexDirection: isMobile ? "column" : "row",
-          alignItems: isMobile ? "stretch" : "center",
+          flexDirection: isIPhone ? "row" : isMobile ? "column" : "row",
+          alignItems: isIPhone ? "center" : isMobile ? "stretch" : "center",
           justifyContent: "space-between",
           WebkitFontSmoothing: "antialiased",
           MozOsxFontSmoothing: "grayscale",
         }}
       >
-      {/* ─── 上段（PC時は左と右、モバイル時はロゴと右コントロールが1行） ─── */}
+      {/* ─── 上段（PC時は左と右、モバイル/iPhone時はロゴと右コントロールが1行） ─── */}
       <div
         style={{
           display: "flex",
           alignItems: "center",
           justifyContent: "space-between",
-          height: isMobile ? "44px" : "100%",
-          width: isMobile ? "100%" : "auto",
+          height: isIPhone ? "100%" : isMobile ? "44px" : "100%",
+          width: isMobile || isIPhone ? "100%" : "auto",
           zIndex: 2,
         }}
       >
@@ -451,10 +422,9 @@ function NavBar({
           </span>
         </div>
 
-        {/* モバイル表示時の右端コントロール */}
-        {isMobile && (
+        {/* モバイル/iPhone 表示時の右端コントロール */}
+        {(isMobile || isIPhone) && (
           <div style={{ display: "flex", alignItems: "center", gap: "0.35rem" }}>
-            <NetworkStatusBadge isOnline={isOnline} />
             <GoogleSyncBadge status={googleSyncStatus} onSync={onManualSync} isMobile={true} />
 
             {/* 外観・テーマ設定 */}
@@ -509,11 +479,12 @@ function NavBar({
         )}
       </div>
 
-      {/* ─── スライディングピル型モジュールタブバー（PC: 幾何学的中央に完全固定 / モバイル: 2段目に広々配置） ─── */}
-      <div
-        style={{
-          display: "flex",
-          justifyContent: "center",
+      {/* ─── スライディングピル型モジュールタブバー（PC: 幾何学的中央に完全固定 / モバイル: 2段目に広々配置 / iPhone: 下部バーへ移行のため非表示） ─── */}
+      {!isIPhone && (
+        <div
+          style={{
+            display: "flex",
+            justifyContent: "center",
           position: isMobile ? "relative" : "absolute",
           left: isMobile ? "auto" : "50%",
           top: isMobile ? "auto" : "50%",
@@ -605,11 +576,11 @@ function NavBar({
           })}
         </nav>
       </div>
+      )}
 
       {/* ─── PC表示時の右端コントロール ─── */}
-      {!isMobile && (
+      {!isMobile && !isIPhone && (
         <div style={{ display: "flex", alignItems: "center", justifyContent: "flex-end", gap: "0.45rem", flexShrink: 0, minWidth: "24px", zIndex: 2 }}>
-          <NetworkStatusBadge isOnline={isOnline} />
           <GoogleSyncBadge status={googleSyncStatus} onSync={onManualSync} isMobile={false} />
 
           {/* 外観・テーマ設定 */}
@@ -689,6 +660,163 @@ function NavBar({
   );
 }
 
+// ---------- iPhone 専用下部グローバルタブバー ----------
+function IPhoneBottomTabBar({
+  active,
+  onChange,
+}: {
+  active: Module;
+  onChange: (m: Module) => void;
+}) {
+  const navRef = useRef<HTMLElement>(null);
+  const tabRefs = useRef<Map<Module, HTMLButtonElement>>(new Map());
+  const [pill, setPill] = useState<{ left: number; width: number; ready: boolean }>({
+    left: 0,
+    width: 0,
+    ready: false,
+  });
+
+  const updatePill = useCallback(() => {
+    const el = tabRefs.current.get(active);
+    const nav = navRef.current;
+    if (!el || !nav) return;
+    const navRect = nav.getBoundingClientRect();
+    const elRect = el.getBoundingClientRect();
+    setPill({
+      left: elRect.left - navRect.left,
+      width: elRect.width,
+      ready: true,
+    });
+  }, [active]);
+
+  useEffect(() => {
+    updatePill();
+    const raf = requestAnimationFrame(updatePill);
+    const handleResize = () => updatePill();
+    window.addEventListener("resize", handleResize);
+    return () => {
+      cancelAnimationFrame(raf);
+      window.removeEventListener("resize", handleResize);
+    };
+  }, [updatePill]);
+
+  const handleTabClick = (id: Module) => {
+    if (typeof navigator !== "undefined" && "vibrate" in navigator) {
+      try {
+        navigator.vibrate([10]);
+      } catch {}
+    }
+    onChange(id);
+  };
+
+  return (
+    <nav
+      ref={navRef}
+      role="navigation"
+      aria-label="iPhone下部グローバルナビゲーション"
+      data-testid="iphone-bottom-tab-bar"
+      style={{
+        position: "fixed",
+        bottom: 0,
+        left: 0,
+        right: 0,
+        zIndex: 100,
+        height: "calc(58px + env(safe-area-inset-bottom, 0px))",
+        paddingBottom: "calc(10px + env(safe-area-inset-bottom, 0px))",
+        paddingLeft: "6px",
+        paddingRight: "6px",
+        background: "var(--bg-surface-glass)",
+        backdropFilter: "blur(20px) saturate(180%)",
+        WebkitBackdropFilter: "blur(20px) saturate(180%)",
+        boxShadow: "0 -1px 0 var(--border-subtle)",
+        display: "flex",
+        alignItems: "stretch",
+        justifyContent: "space-around",
+        boxSizing: "border-box",
+        touchAction: "manipulation",
+      }}
+    >
+      {/* 移動する白い角丸ブロック（Sliding Pill） */}
+      <div
+        style={{
+          position: "absolute",
+          top: "4px",
+          left: 0,
+          transform: `translateX(${pill.left + 4}px)`,
+          WebkitTransform: `translateX(${pill.left + 4}px)`,
+          width: Math.max(0, pill.width - 8),
+          height: "46px",
+          borderRadius: "14px",
+          background: "var(--bg-card-solid)",
+          boxShadow: "0 2px 10px rgba(0, 0, 0, 0.08), 0 1px 3px rgba(0, 0, 0, 0.04)",
+          transition: pill.ready
+            ? "transform 0.28s cubic-bezier(0.16, 1, 0.3, 1), width 0.28s cubic-bezier(0.16, 1, 0.3, 1)"
+            : "none",
+          pointerEvents: "none",
+          zIndex: 0,
+          opacity: pill.width > 0 ? 1 : 0,
+        }}
+      />
+
+      {IPHONE_NAV_ITEMS.map(({ id, label, icon: Icon }) => {
+        const isActive = active === id;
+        return (
+          <button
+            key={id}
+            ref={(el) => {
+              if (el) tabRefs.current.set(id, el);
+              else tabRefs.current.delete(id);
+            }}
+            type="button"
+            data-testid={`iphone-tab-${id}`}
+            aria-label={label}
+            aria-current={isActive ? "page" : undefined}
+            onClick={() => handleTabClick(id)}
+            style={{
+              position: "relative",
+              zIndex: 1,
+              flex: 1,
+              display: "flex",
+              flexDirection: "column",
+              alignItems: "center",
+              justifyContent: "center",
+              gap: "2px",
+              background: "transparent",
+              border: "none",
+              padding: "4px 0",
+              cursor: "pointer",
+              userSelect: "none",
+              WebkitUserSelect: "none",
+              WebkitTapHighlightColor: "transparent",
+              color: isActive ? "var(--accent-gold)" : "var(--text-muted)",
+              transition: "color 0.18s ease",
+            }}
+          >
+            <Icon
+              size={19}
+              strokeWidth={isActive ? 2.3 : 1.7}
+              style={{
+                transition: "transform 0.18s ease",
+                transform: isActive ? "scale(1.08)" : "scale(1)",
+              }}
+            />
+            <span
+              style={{
+                fontSize: "0.62rem",
+                fontWeight: isActive ? 650 : 500,
+                letterSpacing: "-0.01em",
+                lineHeight: 1,
+              }}
+            >
+              {label}
+            </span>
+          </button>
+        );
+      })}
+    </nav>
+  );
+}
+
 // ---------- App ----------
 function App() {
   const [activeModule, setActiveModule] = useState<Module>("dashboard");
@@ -698,13 +826,20 @@ function App() {
   const [isSystemMaintenanceOpen, setIsSystemMaintenanceOpen] = useState(false);
   const [isThemeModalOpen, setIsThemeModalOpen] = useState(false);
   const [isMobile, setIsMobile] = useState(typeof window !== "undefined" ? window.innerWidth < 640 : false);
+  const [isIPhone, setIsIPhone] = useState(() =>
+    typeof navigator !== "undefined" ? /iPhone|iPod/i.test(navigator.userAgent) : false
+  );
   const [isRecipeDetailActive, setIsRecipeDetailActive] = useState(false);
+  const [isNoteDetailActive, setIsNoteDetailActive] = useState(false);
 
-  // 画面幅監視
+  // 画面幅 & デバイス監視
   useEffect(() => {
     const handleResize = () => {
       setIsMobile(window.innerWidth < 640);
     };
+    if (typeof navigator !== "undefined") {
+      setIsIPhone(/iPhone|iPod/i.test(navigator.userAgent));
+    }
     window.addEventListener("resize", handleResize);
     return () => window.removeEventListener("resize", handleResize);
   }, []);
@@ -801,6 +936,7 @@ function App() {
 
   const handleNavigate = useCallback((module: Module, tab: string = "default") => {
     if (module !== "notes") {
+      setIsNoteDetailActive(false);
       setSelectedNoteId(null);
     }
     if (module !== "recipes") {
@@ -828,13 +964,22 @@ function App() {
     setSelectedNoteId(null);
   }, []);
 
-  const isRecipeDetailMobile = isMobile && activeModule === "recipes" && isRecipeDetailActive;
-  const headerHeight = isMobile ? "94px" : "52px";
+  const isRecipeDetailMobile = (isMobile || isIPhone) && activeModule === "recipes" && isRecipeDetailActive;
+  const isNoteDetailMobile = (isMobile || isIPhone) && activeModule === "notes" && isNoteDetailActive;
+  const isFullscreenDetailMobile = isRecipeDetailMobile || isNoteDetailMobile;
+  const headerHeight = isIPhone ? "52px" : isMobile ? "94px" : "52px";
 
   return (
-    <div style={{ minHeight: "100vh", position: "relative" }}>
-      {/* ナビゲーションバー (モバイルのレシピ詳細画面では非表示) */}
-      {!isRecipeDetailMobile && (
+    <div
+      style={{
+        minHeight: "100vh",
+        position: "relative",
+        ["--header-height" as any]: isFullscreenDetailMobile ? "0px" : headerHeight,
+        ["--bottom-tab-height" as any]: isIPhone ? "58px" : "0px",
+      }}
+    >
+      {/* ナビゲーションバー (モバイル・iPhoneのレシピ詳細/ノートページ閲覧画面では非表示) */}
+      {!isFullscreenDetailMobile && (
         <NavBar
           active={activeModule}
           onChange={(m) => handleNavigate(m, "tasks")}
@@ -842,21 +987,28 @@ function App() {
           onOpenTheme={() => setIsThemeModalOpen(true)}
           googleSyncStatus={googleSyncStatus}
           onManualSync={handleManualGoogleSync}
+          isIPhone={isIPhone}
         />
       )}
 
       {/* メインコンテンツ領域（ナビバー分の余白 & セーフエリア） */}
       <main
         style={{
-          paddingTop: isRecipeDetailMobile
+          paddingTop: isFullscreenDetailMobile
             ? "0px"
             : `calc(${headerHeight} + env(safe-area-inset-top, 0px))`,
-          paddingBottom: "env(safe-area-inset-bottom, 0px)",
-          minHeight: isRecipeDetailMobile
+          paddingBottom: isRecipeDetailMobile
+            ? "0px"
+            : isIPhone
+            ? "calc(58px + env(safe-area-inset-bottom, 0px))"
+            : "env(safe-area-inset-bottom, 0px)",
+          minHeight: isFullscreenDetailMobile
             ? "100vh"
+            : isIPhone
+            ? `calc(100vh - ${headerHeight} - env(safe-area-inset-top, 0px) - 58px - env(safe-area-inset-bottom, 0px))`
             : `calc(100vh - ${headerHeight} - env(safe-area-inset-top, 0px))`,
           width: "100%",
-          transition: "padding-top 0.2s ease",
+          transition: "padding-top 0.2s ease, padding-bottom 0.2s ease",
         }}
       >
         <div
@@ -885,6 +1037,7 @@ function App() {
             <Notes
               initialNoteId={selectedNoteId}
               onClearSelectedNote={handleClearSelectedNote}
+              onDetailViewChange={setIsNoteDetailActive}
             />
           )}
           {activeModule === "recipes" && (
@@ -897,6 +1050,14 @@ function App() {
           {activeModule === "finance" && <Finance />}
         </div>
       </main>
+
+      {/* iPhone 専用下部グローバルタブバー */}
+      {isIPhone && !isRecipeDetailMobile && (
+        <IPhoneBottomTabBar
+          active={activeModule}
+          onChange={(m) => handleNavigate(m, "tasks")}
+        />
+      )}
 
       {/* システム保守・診断コンソール（Arca Inspector & Logging） */}
       <SystemMaintenanceModal

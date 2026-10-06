@@ -118,11 +118,38 @@ export const DocumentSpace: React.FC<DocumentSpaceProps> = ({
 
   return (
     <DocumentSpaceContext.Provider value={contextValue}>
-      <div className="flex flex-row w-full h-[calc(100dvh-94px-env(safe-area-inset-top,0px))] md:h-[calc(100dvh-52px-env(safe-area-inset-top,0px))] overflow-hidden relative">
+      {/* スライドインアニメーション用スタイル */}
+      <style>{`
+        @keyframes docDrawerSlideIn {
+          from {
+            transform: translateX(-100%);
+          }
+          to {
+            transform: translateX(0);
+          }
+        }
+        @keyframes docDimmerFadeIn {
+          from {
+            opacity: 0;
+          }
+          to {
+            opacity: 1;
+          }
+        }
+        .doc-drawer-slide-in {
+          animation: docDrawerSlideIn 0.28s cubic-bezier(0.16, 1, 0.3, 1) both;
+          will-change: transform;
+        }
+        .doc-dimmer-fade-in {
+          animation: docDimmerFadeIn 0.22s ease-out both;
+        }
+      `}</style>
+
+      <div className="flex flex-row w-full h-[calc(100dvh-var(--header-height,52px)-var(--bottom-tab-height,0px)-env(safe-area-inset-top,0px)-env(safe-area-inset-bottom,0px))] md:h-[calc(100dvh-52px-env(safe-area-inset-top,0px))] overflow-hidden relative">
         {/* ── デスクトップ サイドバー ── */}
         <div
-          className={`hidden md:block transition-all duration-300 ease-in-out shrink-0 overflow-hidden ${
-            isSidebarOpen ? "w-64 lg:w-72 opacity-100" : "w-0 opacity-0 pointer-events-none"
+          className={`hidden md:block transition-all duration-300 ease-out shrink-0 overflow-hidden ${
+            isSidebarOpen ? "w-64 lg:w-72 opacity-100 translate-x-0" : "w-0 opacity-0 -translate-x-4 pointer-events-none"
           }`}
         >
           <div className="w-64 lg:w-72 h-full">
@@ -149,7 +176,7 @@ export const DocumentSpace: React.FC<DocumentSpaceProps> = ({
           </div>
         </div>
 
-        {/* ── モバイル ドロワー（オーバーレイ） ── */}
+        {/* ── モバイル ドロワー（オーバーレイ：左からスライドイン） ── */}
         {isMobile && isSidebarOpen && (
           <div
             className="fixed inset-0 z-50 flex md:hidden"
@@ -158,12 +185,12 @@ export const DocumentSpace: React.FC<DocumentSpaceProps> = ({
           >
             {/* 背景ディマー */}
             <div
-              className="fixed inset-0 bg-black/25 backdrop-blur-sm transition-opacity"
+              className="fixed inset-0 bg-black/30 backdrop-blur-sm doc-dimmer-fade-in"
               onClick={() => setIsSidebarOpen(false)}
             />
 
-            {/* ドロワーパネル */}
-            <div className="relative w-4/5 max-w-xs h-full bg-[var(--bg-card-solid)] shadow-2xl z-10 flex flex-col">
+            {/* ドロワーパネル（左からスライドイン） */}
+            <div className="relative w-4/5 max-w-xs h-full bg-[var(--bg-card-solid)] shadow-2xl z-10 flex flex-col doc-drawer-slide-in">
               <DocumentTreeSidebar
                 notes={notes}
                 activeNoteId={activeNoteId}

@@ -294,20 +294,21 @@ describe("Calendar コンポーネント", () => {
     // モーダルヘッダー
     expect(screen.getByText("出勤時間・シフト変更")).toBeInTheDocument();
 
-    // 範囲セグメント（4連勤一括変更・単日）
-    expect(screen.getByTestId("scope-four-day-btn")).toBeInTheDocument();
-    expect(screen.getByTestId("scope-single-btn")).toBeInTheDocument();
+    // サイクルタブ（今回の4連勤）
+    expect(screen.getByTestId("cycle-tab-current")).toBeInTheDocument();
 
-    // プリセット（遅番 15:00〜24:00）を選択
-    const latePreset = screen.getByTestId("preset-late-15");
+    // 対象日の行（チェックボックス）
+    expect(screen.getByTestId(`shift-date-row-${TODAY}`)).toBeInTheDocument();
+
+    // 遅番カテゴリを選択
+    const lateCatBtn = screen.getByTestId("shift-cat-late");
+    expect(lateCatBtn).toBeInTheDocument();
+    await user.click(lateCatBtn);
+
+    // プリセット（遅番 15:00）を選択
+    const latePreset = screen.getByTestId("preset-late-1500");
     expect(latePreset).toBeInTheDocument();
     await user.click(latePreset);
-
-    // 開始時刻と終了時刻が入力フィールドに反映されていること
-    const startInput = screen.getByTestId("shift-start-time-input") as HTMLInputElement;
-    const endInput = screen.getByTestId("shift-end-time-input") as HTMLInputElement;
-    expect(startInput.value).toBe("15:00");
-    expect(endInput.value).toBe("24:00");
 
     // 保存実行
     const saveBtn = screen.getByTestId("shift-edit-save-btn");

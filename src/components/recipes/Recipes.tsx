@@ -288,11 +288,10 @@ export default function Recipes({ onNavigateToLists, onDetailViewChange, initial
       {/* ── 一覧モード ── */}
       {viewMode === "list" && (
         <div
-          className="arca-view-in"
+          className="arca-view-in px-3.5 sm:px-8 pt-5 sm:pt-[2.4rem] pb-24 sm:pb-[6rem]"
           style={{
             minHeight: "100vh",
             width: "100%",
-            padding: "2.4rem clamp(1.5rem, 5vw, 4rem) 6rem",
             boxSizing: "border-box",
           }}
         >
@@ -670,7 +669,7 @@ export default function Recipes({ onNavigateToLists, onDetailViewChange, initial
         <div
           className="fixed sm:hidden"
           style={{
-            bottom: "calc(1.5rem + env(safe-area-inset-bottom, 0px))",
+            bottom: "calc(var(--bottom-tab-height, 0px) + 1.25rem + env(safe-area-inset-bottom, 0px))",
             right: "1.25rem",
             zIndex: 100,
           }}
@@ -713,7 +712,7 @@ export default function Recipes({ onNavigateToLists, onDetailViewChange, initial
             display: "flex",
             flexDirection: "column",
             justifyContent: "flex-end",
-            padding: "1rem 1.25rem calc(5.5rem + env(safe-area-inset-bottom, 0px))",
+            padding: "1rem 1.25rem calc(var(--bottom-tab-height, 0px) + 5.25rem + env(safe-area-inset-bottom, 0px))",
             animation: "arca-fade-in 0.18s ease-out",
           }}
           onClick={() => setIsFabMenuOpen(false)}

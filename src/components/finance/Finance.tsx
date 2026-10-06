@@ -10,7 +10,7 @@
  * - 5秒間復元可能な UndoToast ＆ 削除確認ダイアログ
  */
 
-import { useState, useEffect, useMemo, useRef } from "react";
+import { useState, useEffect, useMemo, useRef, useCallback } from "react";
 import type {
   CreditCardCsvRow,
   ExpenseCategory,
@@ -65,6 +65,51 @@ export default function Finance() {
   const [transactions, setTransactions] = useState<ExpenseTransaction[]>([]);
   const [selectedMonth, setSelectedMonth] = useState<string>(getCurrentMonth());
   const [activeTab, setActiveTab] = useState<FinanceViewTab>("transactions");
+
+  // スライディングピル型タブインジケーター位置とサイズ
+  const tabTrackRef = useRef<HTMLDivElement>(null);
+  const tabButtonRefs = useRef<Map<FinanceViewTab, HTMLButtonElement>>(new Map());
+  const [tabIndicator, setTabIndicator] = useState<{
+    left: number;
+    top: number;
+    width: number;
+    height: number;
+    ready: boolean;
+  }>({
+    left: 0,
+    top: 3,
+    width: 0,
+    height: 0,
+    ready: false,
+  });
+
+  const updateTabIndicator = useCallback(() => {
+    const activeBtn = tabButtonRefs.current.get(activeTab);
+    const track = tabTrackRef.current;
+    if (!activeBtn || !track) return;
+
+    setTabIndicator({
+      left: activeBtn.offsetLeft,
+      top: activeBtn.offsetTop,
+      width: activeBtn.offsetWidth,
+      height: activeBtn.offsetHeight,
+      ready: true,
+    });
+  }, [activeTab]);
+
+  useEffect(() => {
+    updateTabIndicator();
+    const raf = requestAnimationFrame(updateTabIndicator);
+    const timer = setTimeout(updateTabIndicator, 50);
+    const handleResize = () => updateTabIndicator();
+    window.addEventListener("resize", handleResize);
+
+    return () => {
+      cancelAnimationFrame(raf);
+      clearTimeout(timer);
+      window.removeEventListener("resize", handleResize);
+    };
+  }, [updateTabIndicator]);
 
   // フィルタ状態
   const [searchQuery, setSearchQuery] = useState("");
@@ -461,7 +506,7 @@ export default function Finance() {
       />
 
       <div
-        className="arca-view-in p-3.5 pb-28 sm:p-8 sm:pb-24"
+        className="arca-view-in px-3.5 sm:px-8 py-5 sm:py-8 pb-28 sm:pb-24"
         style={{
           minHeight: "100vh",
           width: "100%",
@@ -486,13 +531,13 @@ export default function Finance() {
               className="text-2xl sm:text-[1.75rem] font-[750] tracking-[-0.03em] leading-tight text-charcoal dark:text-stone-100"
               style={{ margin: 0 }}
             >
-              家計・支出管理
+              家計簿
             </h1>
           </div>
 
           {/* 右側: 月ナビゲーター ＆ デスクトップ用ボタングループ */}
           <div style={{ display: "flex", alignItems: "center", gap: "0.5rem" }}>
-            {/* 月ナビゲーター */}
+            {/* 月ナビゲーター（右側ボタンと完全同サイズに統一） */}
             <div
               style={{
                 display: "flex",
@@ -500,8 +545,10 @@ export default function Finance() {
                 background: "var(--bg-card-solid)",
                 border: "1px solid var(--border-subtle)",
                 borderRadius: "10px",
-                padding: "2px",
-                boxShadow: "0 1px 3px rgba(0,0,0,0.03)",
+                padding: "3px 4px",
+                height: "38px",
+                boxSizing: "border-box",
+                boxShadow: "0 1px 3px rgba(0, 0, 0, 0.04)",
               }}
             >
               <button
@@ -510,27 +557,29 @@ export default function Finance() {
                 style={{
                   background: "transparent",
                   border: "none",
-                  padding: "0.35rem 0.45rem",
+                  padding: "0.35rem 0.5rem",
                   cursor: "pointer",
                   color: C.charcoalMid,
                   borderRadius: "8px",
                   display: "flex",
                   alignItems: "center",
+                  justifyContent: "center",
+                  height: "100%",
                 }}
               >
-                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
                   <polyline points="15 18 9 12 15 6" />
                 </svg>
               </button>
 
               <span
                 style={{
-                  fontSize: "0.78rem",
+                  fontSize: "0.82rem",
                   fontWeight: 700,
                   color: C.charcoal,
-                  padding: "0.15rem 0.45rem",
+                  padding: "0 0.45rem",
                   letterSpacing: "0.02em",
-                  minWidth: "70px",
+                  minWidth: "76px",
                   textAlign: "center",
                   whiteSpace: "nowrap",
                 }}
@@ -544,15 +593,17 @@ export default function Finance() {
                 style={{
                   background: "transparent",
                   border: "none",
-                  padding: "0.35rem 0.45rem",
+                  padding: "0.35rem 0.5rem",
                   cursor: "pointer",
                   color: C.charcoalMid,
                   borderRadius: "8px",
                   display: "flex",
                   alignItems: "center",
+                  justifyContent: "center",
+                  height: "100%",
                 }}
               >
-                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
                   <polyline points="9 18 15 12 9 6" />
                 </svg>
               </button>
@@ -562,13 +613,12 @@ export default function Finance() {
                 style={{
                   background: "var(--bg-nav-track)",
                   border: "none",
-                  borderRadius: "6px",
-                  padding: "0.22rem 0.45rem",
-                  fontSize: "0.68rem",
+                  borderRadius: "7px",
+                  padding: "0.3rem 0.65rem",
+                  fontSize: "0.74rem",
                   fontWeight: 650,
                   color: C.charcoalMid,
                   cursor: "pointer",
-                  marginRight: "2px",
                   whiteSpace: "nowrap",
                 }}
               >
@@ -665,9 +715,11 @@ export default function Finance() {
           </div>
         </div>
 
-        {/* ── メインタブバー（横幅均等セグメントコントロール） ── */}
+        {/* ── メインタブバー（横幅均等セグメントコントロール ＆ スライディングピルアニメーション） ── */}
         <div
+          ref={tabTrackRef}
           style={{
+            position: "relative",
             maxWidth: "1280px",
             marginInline: "auto",
             marginBottom: "0.85rem",
@@ -680,20 +732,47 @@ export default function Finance() {
             boxSizing: "border-box",
           }}
         >
+          {/* 移動する白い背景（Sliding Pill） */}
+          <div
+            style={{
+              position: "absolute",
+              top: tabIndicator.top,
+              left: 0,
+              transform: `translateX(${tabIndicator.left}px)`,
+              WebkitTransform: `translateX(${tabIndicator.left}px)`,
+              width: tabIndicator.width,
+              height: tabIndicator.height,
+              background: "var(--bg-nav-pill)",
+              borderRadius: "9px",
+              boxShadow: "0 1px 4px rgba(0, 0, 0, 0.08), 0 0 1px rgba(0, 0, 0, 0.04)",
+              transition: tabIndicator.ready
+                ? "transform 0.28s cubic-bezier(0.16, 1, 0.3, 1), width 0.28s cubic-bezier(0.16, 1, 0.3, 1)"
+                : "none",
+              pointerEvents: "none",
+              zIndex: 0,
+              opacity: tabIndicator.width > 0 ? 1 : 0,
+            }}
+          />
+
           <button
+            ref={(el) => {
+              if (el) tabButtonRefs.current.set("transactions", el);
+              else tabButtonRefs.current.delete("transactions");
+            }}
             onClick={() => setActiveTab("transactions")}
             style={{
+              position: "relative",
+              zIndex: 1,
               flex: 1,
-              background: activeTab === "transactions" ? "var(--bg-nav-pill)" : "transparent",
+              background: "transparent",
               border: "none",
               borderRadius: "9px",
-              padding: "0.42rem 0.25rem",
-              fontSize: "0.76rem",
+              padding: "0.45rem 0.25rem",
+              fontSize: "0.78rem",
               fontWeight: activeTab === "transactions" ? 700 : 550,
               color: activeTab === "transactions" ? "var(--text-main)" : "#555",
               cursor: "pointer",
-              boxShadow: activeTab === "transactions" ? "0 1px 3px rgba(0,0,0,0.06)" : "none",
-              transition: "all 0.15s ease",
+              transition: "color 0.15s ease",
               whiteSpace: "nowrap",
               display: "flex",
               alignItems: "center",
@@ -706,19 +785,24 @@ export default function Finance() {
           </button>
 
           <button
+            ref={(el) => {
+              if (el) tabButtonRefs.current.set("analytics", el);
+              else tabButtonRefs.current.delete("analytics");
+            }}
             onClick={() => setActiveTab("analytics")}
             style={{
+              position: "relative",
+              zIndex: 1,
               flex: 1,
-              background: activeTab === "analytics" ? "var(--bg-nav-pill)" : "transparent",
+              background: "transparent",
               border: "none",
               borderRadius: "9px",
-              padding: "0.42rem 0.25rem",
-              fontSize: "0.76rem",
+              padding: "0.45rem 0.25rem",
+              fontSize: "0.78rem",
               fontWeight: activeTab === "analytics" ? 700 : 550,
               color: activeTab === "analytics" ? "var(--text-main)" : "#555",
               cursor: "pointer",
-              boxShadow: activeTab === "analytics" ? "0 1px 3px rgba(0,0,0,0.06)" : "none",
-              transition: "all 0.15s ease",
+              transition: "color 0.15s ease",
               whiteSpace: "nowrap",
               display: "flex",
               alignItems: "center",
@@ -729,19 +813,24 @@ export default function Finance() {
           </button>
 
           <button
+            ref={(el) => {
+              if (el) tabButtonRefs.current.set("reconcile", el);
+              else tabButtonRefs.current.delete("reconcile");
+            }}
             onClick={() => setActiveTab("reconcile")}
             style={{
+              position: "relative",
+              zIndex: 1,
               flex: 1,
-              background: activeTab === "reconcile" ? "var(--bg-nav-pill)" : "transparent",
+              background: "transparent",
               border: "none",
               borderRadius: "9px",
-              padding: "0.42rem 0.25rem",
-              fontSize: "0.76rem",
+              padding: "0.45rem 0.25rem",
+              fontSize: "0.78rem",
               fontWeight: activeTab === "reconcile" ? 700 : 550,
               color: activeTab === "reconcile" ? "var(--text-main)" : "#555",
               cursor: "pointer",
-              boxShadow: activeTab === "reconcile" ? "0 1px 3px rgba(0,0,0,0.06)" : "none",
-              transition: "all 0.15s ease",
+              transition: "color 0.15s ease",
               whiteSpace: "nowrap",
               display: "flex",
               alignItems: "center",
@@ -1015,7 +1104,7 @@ export default function Finance() {
       <div
         className="fixed sm:hidden"
         style={{
-          bottom: "calc(1.5rem + env(safe-area-inset-bottom, 0px))",
+          bottom: "calc(var(--bottom-tab-height, 0px) + 1.25rem + env(safe-area-inset-bottom, 0px))",
           right: "1.25rem",
           zIndex: 100,
         }}
@@ -1057,7 +1146,7 @@ export default function Finance() {
             display: "flex",
             flexDirection: "column",
             justifyContent: "flex-end",
-            padding: "1rem 1.25rem calc(5.5rem + env(safe-area-inset-bottom, 0px))",
+            padding: "1rem 1.25rem calc(var(--bottom-tab-height, 0px) + 5.25rem + env(safe-area-inset-bottom, 0px))",
             animation: "arca-fade-in 0.18s ease-out",
           }}
           onClick={() => setIsFabMenuOpen(false)}

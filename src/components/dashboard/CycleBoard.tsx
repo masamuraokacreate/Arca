@@ -150,8 +150,14 @@ export const CycleBoard: React.FC<CycleBoardProps> = ({
             .filter((e) => e.date === day.date && !e.isShiftOnly)
             .sort((a, b) => (a.startTime || "").localeCompare(b.startTime || ""));
 
-          // この日のタスク（dueDate === day.date）
-          const dayTasks = tasks.filter((t) => t.dueDate === day.date);
+          // この日のタスク（dueDate === day.date、今日の場合は未完了の期限なし・期限超過タスクも含める）
+          const dayTasks = tasks.filter((t) => {
+            if (t.dueDate === day.date) return true;
+            if (day.isToday && !t.completed) {
+              return !t.dueDate || t.dueDate < day.date;
+            }
+            return false;
+          });
 
           return (
             <CycleDayCard

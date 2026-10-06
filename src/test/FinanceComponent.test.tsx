@@ -80,7 +80,7 @@ describe("Finance コンポーネント", () => {
   it("ヘッダーと支出取引一覧が正常にレンダリングされる", async () => {
     render(<Finance />);
 
-    expect(screen.getByText("家計・支出管理")).toBeInTheDocument();
+    expect(screen.getByText("家計簿")).toBeInTheDocument();
     expect(screen.getByText("イオンモール")).toBeInTheDocument();
     expect(screen.getByText("マツモトキヨシ")).toBeInTheDocument();
   });

@@ -178,7 +178,7 @@ export function NoteToolbar({
   onToggleSourceMode,
 }: NoteToolbarProps) {
   return (
-    <header className="sticky top-0 z-50 w-full bg-[var(--bg-surface-glass)] backdrop-blur-xl -webkit-backdrop-blur-xl border-b border-black/[0.06] dark:border-white/[0.08] flex items-center justify-between px-2 sm:px-4 h-12 w-full gap-2">
+    <header className="sticky top-0 z-50 w-full bg-[var(--bg-surface-glass)] backdrop-blur-xl -webkit-backdrop-blur-xl border-b border-black/[0.06] dark:border-white/[0.08] flex items-center justify-between px-2 sm:px-4 h-[calc(3rem+env(safe-area-inset-top,0px))] pt-[env(safe-area-inset-top,0px)] w-full gap-2">
       {/* ── 左端: タブのアイコン（サイドバー展開） ＆ 戻るボタン ＆ パンくずスロット ── */}
       <div className="flex items-center gap-1 min-w-0 flex-1 overflow-hidden">
         {sidebarToggleSlot && (
@@ -206,11 +206,11 @@ export function NoteToolbar({
 
       {/* ── 右端: 保存ステータス ＆ 書式・挿入ツールバー ＆ 目次 ＆ ごみ箱（右詰め統合） ── */}
       <div className="flex flex-row items-center justify-end gap-1 sm:gap-1.5 overflow-x-auto no-scrollbar shrink-0 ml-auto py-0.5">
-        {/* 中央: 控えめな保存ステータス（保存中・保存済みのアニメーション通知のみ） */}
-        {saveStatus && saveStatus !== "idle" && (
+        {/* 中央: 控えめな保存ステータス（保存中のみアニメーション通知） */}
+        {saveStatus === "saving" && (
           <span className="text-[11px] font-medium text-charcoal-light flex items-center gap-1.5 shrink-0 animate-pulse mr-1">
             <span className="w-1.5 h-1.5 rounded-full bg-[#B58D3D]" />
-            {saveStatus === "saving" ? "保存中…" : "保存済み"}
+            保存中…
           </span>
         )}
 

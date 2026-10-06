@@ -57,6 +57,124 @@ const CustomTaskItem = TaskItem.extend({
       }),
     ];
   },
+  addNodeView() {
+    return ({ node, HTMLAttributes, getPos, editor }) => {
+      const listItem = document.createElement("li");
+      const checkboxWrapper = document.createElement("label");
+      const checkbox = document.createElement("input");
+      const content = document.createElement("div");
+
+      // 横並び（flex-row）をインラインスタイルで完全保証（勝手な行替え・改行を完全防止）
+      listItem.style.display = "flex";
+      listItem.style.flexDirection = "row";
+      listItem.style.alignItems = "flex-start";
+      listItem.style.gap = "0.55rem";
+      listItem.style.listStyle = "none";
+      listItem.style.marginBottom = "0.35rem";
+      listItem.setAttribute("data-type", "taskItem");
+
+      checkboxWrapper.style.display = "inline-flex";
+      checkboxWrapper.style.alignItems = "center";
+      checkboxWrapper.style.flexShrink = "0";
+      checkboxWrapper.style.marginTop = "0.26rem";
+      checkboxWrapper.style.userSelect = "none";
+      checkboxWrapper.style.lineHeight = "1";
+
+      checkbox.type = "checkbox";
+      checkbox.tabIndex = -1;
+      checkbox.style.cursor = "pointer";
+      checkbox.style.margin = "0";
+      checkbox.style.width = "15px";
+      checkbox.style.height = "15px";
+      checkbox.style.accentColor = "var(--accent-gold)";
+
+      content.style.flex = "1 1 auto";
+      content.style.minWidth = "0";
+      content.style.lineHeight = "1.6";
+      content.style.margin = "0";
+      content.style.padding = "0";
+
+      if (node.attrs.checked) {
+        checkbox.setAttribute("checked", "checked");
+        checkbox.checked = true;
+        listItem.setAttribute("data-checked", "true");
+        content.style.textDecoration = "line-through";
+        content.style.color = "var(--text-muted)";
+      }
+
+      checkbox.addEventListener("change", (event) => {
+        if (!editor.isEditable) {
+          checkbox.checked = !checkbox.checked;
+          return;
+        }
+
+        const { checked } = event.target as HTMLInputElement;
+
+        if (typeof getPos === "function") {
+          const pos = getPos();
+          if (typeof pos !== "number") return;
+
+          // 親スクロールコンテナの scrollTop を保持（一番上にジャンプするのを完全防止）
+          const scrollParent =
+            listItem.closest(".arca-scroll") ||
+            listItem.closest(".overflow-y-auto") ||
+            listItem.parentElement?.closest(".overflow-y-auto");
+          const savedScrollTop = scrollParent ? scrollParent.scrollTop : null;
+
+          editor.view.dispatch(
+            editor.view.state.tr.setNodeMarkup(pos, undefined, {
+              checked,
+            })
+          );
+
+          if (scrollParent && savedScrollTop !== null) {
+            requestAnimationFrame(() => {
+              scrollParent.scrollTop = savedScrollTop;
+            });
+          }
+        }
+      });
+
+      // チェックボックスタップ時にフォーカス飛びやイベントバブリングによる予期せぬスクロールを防ぐ
+      checkbox.addEventListener("click", (e) => {
+        e.stopPropagation();
+      });
+
+      checkboxWrapper.append(checkbox);
+      checkboxWrapper.contentEditable = "false";
+      listItem.append(checkboxWrapper, content);
+
+      Object.entries(HTMLAttributes).forEach(([key, value]) => {
+        listItem.setAttribute(key, value);
+      });
+
+      return {
+        dom: listItem,
+        contentDOM: content,
+        update: (updatedNode) => {
+          if (updatedNode.type !== this.type) {
+            return false;
+          }
+
+          if (updatedNode.attrs.checked) {
+            checkbox.setAttribute("checked", "checked");
+            checkbox.checked = true;
+            listItem.setAttribute("data-checked", "true");
+            content.style.textDecoration = "line-through";
+            content.style.color = "var(--text-muted)";
+          } else {
+            checkbox.removeAttribute("checked");
+            checkbox.checked = false;
+            listItem.removeAttribute("data-checked");
+            content.style.textDecoration = "none";
+            content.style.color = "";
+          }
+
+          return true;
+        },
+      };
+    };
+  },
 });
 
 /**
@@ -641,6 +759,7 @@ export const NoteEditor = forwardRef<NoteEditorHandles, NoteEditorProps>(functio
   const cursorPositionRef = useRef<{ start: number; end: number } | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const sourceTextareaRef = useRef<HTMLTextAreaElement>(null);
+  const lastInternalChangeTimeRef = useRef<number>(0);
 
   // ソースモード時: 画面全体の残り高さを全画面表示スペースとして確保し、コンテンツ量に応じて自動リサイズ & カーソル位置復元
   useEffect(() => {
@@ -796,6 +915,7 @@ export const NoteEditor = forwardRef<NoteEditorHandles, NoteEditorProps>(functio
     onUpdate: ({ editor: ed }) => {
       try {
         isInternalChangeRef.current = true;
+        lastInternalChangeTimeRef.current = Date.now();
         const rawMd = (ed.storage as any).markdown?.getMarkdown?.() ?? ed.getHTML();
         const cleanMd = normalizeMarkdown(rawMd);
         onChange(cleanMd);
@@ -840,8 +960,9 @@ export const NoteEditor = forwardRef<NoteEditorHandles, NoteEditorProps>(functio
       return;
     }
 
-    // ユーザー自身による入力の直後のエコーバックならsetContentを絶対に呼ばない（カーソル飛び完全防止）
-    if (isInternalChangeRef.current) {
+    // 直近2秒以内の内部操作による変更、またはフラグが立っているならsetContentを呼ばない（エコーバックによるスクロールジャンプ・カーソル飛び完全防止）
+    const isRecentInternalChange = Date.now() - lastInternalChangeTimeRef.current < 2000;
+    if (isInternalChangeRef.current || isRecentInternalChange) {
       isInternalChangeRef.current = false;
       return;
     }
@@ -852,7 +973,20 @@ export const NoteEditor = forwardRef<NoteEditorHandles, NoteEditorProps>(functio
       const cleanCurrent = normalizeMarkdown(currentMd);
       const cleanProp = normalizeMarkdown(content);
       if (cleanProp !== cleanCurrent) {
+        // スクロールコンテナの scrollTop を保持・復元
+        const scrollParent =
+          editor.view.dom.closest(".arca-scroll") ||
+          editor.view.dom.closest(".overflow-y-auto") ||
+          editor.view.dom.parentElement?.closest(".overflow-y-auto");
+        const savedScrollTop = scrollParent ? scrollParent.scrollTop : null;
+
         editor.commands.setContent(content || "");
+
+        if (scrollParent && savedScrollTop !== null) {
+          requestAnimationFrame(() => {
+            scrollParent.scrollTop = savedScrollTop;
+          });
+        }
       }
     }
   }, [content, editor, noteId]);
@@ -1116,7 +1250,7 @@ export const NoteEditor = forwardRef<NoteEditorHandles, NoteEditorProps>(functio
         position: "relative",
         width: "100%",
         minHeight: "120px",
-        paddingBottom: "calc(25vh + 3rem)",
+        paddingBottom: "2.5rem",
       }}
       onClick={() => {
         if (editor && !editor.isFocused) {

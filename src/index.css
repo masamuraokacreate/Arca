@@ -56,6 +56,7 @@
 /* ── 1. Ivory (Light / デフォルト) ── */
 :root,
 [data-theme="ivory"] {
+  color-scheme: light;
   --bg-base: #FAF8F5;
   --bg-base-tint: #F5F0E8;
   --bg-grad: linear-gradient(155deg, #FAF8F5 0%, #F5F0E8 50%, #F0EAE0 100%);
@@ -93,6 +94,7 @@
 /* ── 2. Deep Space (Dark) ── */
 .dark,
 [data-theme="dark"] {
+  color-scheme: dark;
   --bg-base: #0D0E12;
   --bg-base-tint: #1B202E;
   --bg-grad: linear-gradient(155deg, #0D0E12 0%, #191E2C 50%, #202638 100%);
@@ -129,6 +131,7 @@
 
 /* ── 3. Warm Sand (Warm Neutral) ── */
 [data-theme="sand"] {
+  color-scheme: light;
   --bg-base: #F5EFE6;
   --bg-base-tint: #ECE3D4;
   --bg-grad: linear-gradient(155deg, #F7F2EB 0%, #EFE7DA 50%, #E8DEC9 100%);
@@ -165,6 +168,7 @@
 
 /* ── 4. Midnight Sage (Forest Dark) ── */
 [data-theme="sage"] {
+  color-scheme: dark;
   --bg-base: #101715;
   --bg-base-tint: #1E2D29;
   --bg-grad: linear-gradient(155deg, #101715 0%, #1C2D27 50%, #243932 100%);
@@ -202,6 +206,18 @@
 @layer base {
   * {
     box-sizing: border-box;
+  }
+
+  /* チェックボックス共通スタイル（ダークモードで白浮きしないよう最適化） */
+  input[type="checkbox"] {
+    accent-color: var(--accent-gold);
+    cursor: pointer;
+  }
+  .dark input[type="checkbox"],
+  [data-theme="dark"] input[type="checkbox"],
+  [data-theme="sage"] input[type="checkbox"] {
+    color-scheme: dark;
+    accent-color: var(--accent-gold);
   }
 
   html, body {
@@ -907,6 +923,21 @@
   .arca-segment-btn {
     padding: 0 0.5rem;
     font-size: 0.72rem;
+  }
+}
+
+/* ─── グローバルボタン ホバー＆触感フィードバック (Apple HIG準拠) ─── */
+@media (hover: hover) and (pointer: fine) {
+  button:not(:disabled):not([aria-disabled="true"]):not(.no-hover-lift) {
+    transition: transform 0.18s cubic-bezier(0.16, 1, 0.3, 1), box-shadow 0.18s cubic-bezier(0.16, 1, 0.3, 1), background-color 0.18s ease, color 0.18s ease;
+  }
+
+  button:not(:disabled):not([aria-disabled="true"]):not(.no-hover-lift):hover {
+    transform: translateY(-1px);
+  }
+
+  button:not(:disabled):not([aria-disabled="true"]):not(.no-hover-lift):active {
+    transform: translateY(0);
   }
 }
 

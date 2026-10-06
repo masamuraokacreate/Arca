@@ -1697,7 +1697,10 @@ export default function Tasks({ initialTab = "default" }: TasksProps = {}) {
   }, [done, showUndoToast, isSignedIn, accessToken, categories]);
 
   return (
-    <div className="w-full max-w-3xl mx-auto" style={{ padding: "2.4rem 1.2rem 6rem", boxSizing: "border-box" }}>
+    <div
+      className="w-full max-w-3xl mx-auto px-3 sm:px-[1.2rem] py-5 sm:py-[2.4rem] pb-24"
+      style={{ boxSizing: "border-box" }}
+    >
       
       {/* ─── ヘッダー ─── */}
       <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", marginBottom: "1.5rem", padding: "0 0.25rem" }}>

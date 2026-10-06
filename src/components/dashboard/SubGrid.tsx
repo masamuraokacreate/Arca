@@ -1,19 +1,22 @@
 /**
  * src/components/dashboard/SubGrid.tsx
- * Arca — ダッシュボード下段サブグリッド（1.5fr : 1fr : 1.2fr 差別化3カラムレイアウト）
+ * Arca — ダッシュボード下段サブグリッド（タスク・レシピ・ノート・クイックメモ 4カラムレイアウト）
  *
  * 設計原則 (Core/Rules.md):
- *  - 機械的な均等分割を廃止し、情報の重要度・操作性に応じた面積配分
- *    - 左 (1.5fr): レシピ
- *    - 中 (1fr): 最近のノート
- *    - 右 (1.2fr): クイックメモ (Scratchpad)
- *  - PC: lg:grid-cols-[1.5fr_1fr_1.2fr] lg:h-[265px]
+ *  - ダッシュボード司令塔として、主要アクション（タスク・献立レシピ・ノート・メモ）を俯瞰
+ *    - カラム1: タスク（ToDo一覧 & クイック追加）
+ *    - カラム2: 献立・買い物
+ *    - カラム3: 最近のノート
+ *    - カラム4: クイックメモ (Scratchpad)
+ *  - PC: lg:grid-cols-4 lg:h-[275px]
  *  - モバイル: 縦スタック（grid-cols-1 gap-4）
  */
 
 import React from "react";
 import type { Recipe } from "../../types/recipe";
 import type { TaskItem, NoteItem, ShiftInfo } from "../../types";
+import type { FourTwoCycleRange } from "../../services/pmCycleService";
+import { DashboardTasksCard } from "./DashboardTasksCard";
 import { MealShoppingCard } from "./MealShoppingCard";
 import { RecentNotesCard } from "./RecentNotesCard";
 import { QuickMemoCard } from "./QuickMemoCard";
@@ -23,6 +26,9 @@ export interface SubGridProps {
   tasks: TaskItem[];
   notes: NoteItem[];
   currentShift: ShiftInfo;
+  cycleRange?: FourTwoCycleRange;
+  onToggleTask?: (id: string, completed: boolean) => void;
+  onAddTask?: (title: string, listId?: string, dueDate?: string) => Promise<void> | void;
   onNavigate?: (module: "dashboard" | "tasks" | "lists" | "calendar" | "notes" | "recipes" | "finance") => void;
   onSelectNote?: (noteId: string) => void;
   /** レシピIDを渡してレシピ詳細に直接遷移するコールバック */
@@ -34,6 +40,9 @@ export const SubGrid: React.FC<SubGridProps> = ({
   tasks,
   notes,
   currentShift: _currentShift,
+  cycleRange,
+  onToggleTask,
+  onAddTask,
   onNavigate,
   onSelectNote,
   onSelectRecipe,
@@ -41,10 +50,21 @@ export const SubGrid: React.FC<SubGridProps> = ({
   return (
     <div
       data-testid="subgrid-container"
-      className="w-full grid grid-cols-1 md:grid-cols-2 lg:grid-cols-[1.5fr_1fr_1.2fr] gap-3.5 sm:gap-4 items-stretch lg:h-[265px] pb-4"
+      className="w-full grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-3.5 sm:gap-4 items-stretch lg:h-[275px] pb-4"
     >
-      {/* 左カラム (1.5fr): レシピ */}
-      <div className="h-[250px] sm:h-[265px] lg:h-full">
+      {/* カラム1: タスク */}
+      <div className="h-[250px] sm:h-[275px] lg:h-full">
+        <DashboardTasksCard
+          tasks={tasks}
+          cycleRange={cycleRange}
+          onToggleTask={onToggleTask}
+          onAddTask={onAddTask}
+          onNavigate={onNavigate}
+        />
+      </div>
+
+      {/* カラム2: レシピ */}
+      <div className="h-[250px] sm:h-[275px] lg:h-full">
         <MealShoppingCard
           recipes={recipes}
           tasks={tasks}
@@ -53,8 +73,8 @@ export const SubGrid: React.FC<SubGridProps> = ({
         />
       </div>
 
-      {/* 中央カラム (1fr): 最近のノート */}
-      <div className="h-[250px] sm:h-[265px] lg:h-full">
+      {/* カラム3: 最近のノート */}
+      <div className="h-[250px] sm:h-[275px] lg:h-full">
         <RecentNotesCard
           notes={notes}
           onNavigate={onNavigate}
@@ -62,8 +82,8 @@ export const SubGrid: React.FC<SubGridProps> = ({
         />
       </div>
 
-      {/* 右カラム (1.2fr): クイックメモ */}
-      <div className="h-[250px] sm:h-[265px] lg:h-full md:col-span-2 lg:col-span-1">
+      {/* カラム4: クイックメモ */}
+      <div className="h-[250px] sm:h-[275px] lg:h-full">
         <QuickMemoCard />
       </div>
     </div>

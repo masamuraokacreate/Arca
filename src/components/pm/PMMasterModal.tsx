@@ -29,8 +29,10 @@ import type {
   PMMasterLog,
   PMCycleType,
   PMCalcBasis,
+  PMTimingCategory,
+  PMSettings,
 } from "../../types/pm";
-import type { NoteItem } from "../../types";
+import type { NoteItem, CalendarEvent } from "../../types";
 import {
   subscribePMMasters,
   savePMMaster,
@@ -45,6 +47,8 @@ export interface PMMasterModalProps {
   isOpen: boolean;
   onClose: () => void;
   initialSelectedMasterId?: string | null;
+  events?: CalendarEvent[];
+  settings?: PMSettings | null;
 }
 
 type SortOrder = "next_date" | "cycle" | "title" | "recent";
@@ -53,6 +57,8 @@ export function PMMasterModal({
   isOpen,
   onClose,
   initialSelectedMasterId,
+  events = [],
+  settings,
 }: PMMasterModalProps) {
   // 開閉アニメーション用ステート (Core/Rules/Motion.md)
   const [shouldRender, setShouldRender] = useState(isOpen);
@@ -112,8 +118,11 @@ export function PMMasterModal({
 
   // 選択中マスタの編集用フォームステート
   const [title, setTitle] = useState("");
-  const [cycleType, setCycleType] = useState<PMCycleType>("monthly_day");
-  const [cycleValue, setCycleValue] = useState<number>(25);
+  const [cycleType, setCycleType] = useState<PMCycleType>("shift_cycle");
+  const [cycleValue, setCycleValue] = useState<number>(1);
+  const [timingCategory, setTimingCategory] = useState<PMTimingCategory>("holiday");
+  const [timingDay, setTimingDay] = useState<number>(1);
+  const [cycleInterval, setCycleInterval] = useState<number>(1);
   const [calcBasis, setCalcBasis] = useState<PMCalcBasis>("fixed_date");
   const [estimatedMinutes, setEstimatedMinutes] = useState<string>("");
   const [noteId, setNoteId] = useState<string>("");
@@ -192,6 +201,9 @@ export function PMMasterModal({
       setCycleType(selectedMaster.cycleType);
       setCycleValue(selectedMaster.cycleValue);
       setCalcBasis(selectedMaster.calcBasis);
+      setTimingCategory(selectedMaster.timingCategory || "holiday");
+      setTimingDay(selectedMaster.timingDay || 1);
+      setCycleInterval(selectedMaster.cycleInterval || 1);
       setEstimatedMinutes(
         selectedMaster.estimatedMinutes !== undefined && selectedMaster.estimatedMinutes !== null
           ? String(selectedMaster.estimatedMinutes)
@@ -253,11 +265,14 @@ export function PMMasterModal({
 
   // ── 新規作成ハンドラ ──
   const handleCreateNew = async () => {
-    const newTitle = "新規PM管理台帳";
+    const newTitle = "";
     const newId = await savePMMaster({
       title: newTitle,
-      cycleType: "monthly_day",
-      cycleValue: 25,
+      cycleType: "shift_cycle",
+      cycleValue: 1,
+      timingCategory: "holiday",
+      timingDay: 1,
+      cycleInterval: 1,
       calcBasis: "fixed_date",
       estimatedMinutes: 30,
       itemTemplates: [],
@@ -280,11 +295,15 @@ export function PMMasterModal({
     if (!selectedId || !title.trim()) return;
     setSaving(true);
     try {
+      const isShift = cycleType === "shift_cycle";
       await savePMMaster({
         id: selectedId,
         title: title.trim(),
         cycleType,
         cycleValue: Number(cycleValue) || 1,
+        timingCategory: isShift ? timingCategory : undefined,
+        timingDay: isShift ? Number(timingDay) || 1 : undefined,
+        cycleInterval: isShift ? Number(cycleInterval) || 1 : undefined,
         calcBasis,
         estimatedMinutes: estimatedMinutes ? Number(estimatedMinutes) : undefined,
         noteId: noteId || undefined,
@@ -292,13 +311,21 @@ export function PMMasterModal({
         taskTemplates: tasks,
         createdAt: selectedMaster?.createdAt,
         lastCompletedAt: selectedMaster?.lastCompletedAt,
-        nextScheduledDate: calculateNextScheduledDate({
-          cycleType,
-          cycleValue: Number(cycleValue) || 1,
-          calcBasis,
-          lastCompletedAt: selectedMaster?.lastCompletedAt,
-          nextScheduledDate: selectedMaster?.nextScheduledDate,
-        }),
+        nextScheduledDate: calculateNextScheduledDate(
+          {
+            cycleType,
+            cycleValue: Number(cycleValue) || 1,
+            timingCategory: isShift ? timingCategory : undefined,
+            timingDay: isShift ? Number(timingDay) || 1 : undefined,
+            cycleInterval: isShift ? Number(cycleInterval) || 1 : undefined,
+            calcBasis,
+            lastCompletedAt: selectedMaster?.lastCompletedAt,
+            nextScheduledDate: selectedMaster?.nextScheduledDate,
+          },
+          undefined,
+          events,
+          settings
+        ),
       });
       setToastMsg("管理台帳を更新しました");
       setTimeout(() => setToastMsg(null), 2500);
@@ -381,6 +408,18 @@ export function PMMasterModal({
   // 周期表示文字列のヘルパー
   const formatCycleBadge = (m: PMMaster) => {
     switch (m.cycleType) {
+      case "shift_cycle": {
+        const catMap: Record<string, string> = {
+          holiday: "休日",
+          early_shift: "早番",
+          late_shift: "遅番",
+          work_day: "出勤",
+        };
+        const cat = catMap[m.timingCategory || "holiday"] || "勤務";
+        const day = m.timingDay ? `${m.timingDay}日目` : "";
+        const interval = m.cycleInterval && m.cycleInterval > 1 ? `(${m.cycleInterval}周期)` : "";
+        return `${cat}${day}${interval}`;
+      }
       case "monthly_day":
         return `毎月${m.cycleValue}日`;
       case "interval_month":
@@ -407,7 +446,7 @@ export function PMMasterModal({
       }}
       role="dialog"
       aria-modal="true"
-      aria-label="PM管理台帳"
+      aria-label="PM管理マスター"
     >
       <div
         onClick={(e) => e.stopPropagation()}
@@ -453,10 +492,10 @@ export function PMMasterModal({
                   fontSize: "1.18rem",
                   fontWeight: 750,
                   letterSpacing: "-0.02em",
-                  color: C.charcoal,
+                  color: "var(--text-main)",
                 }}
               >
-                PM 周期保全・管理台帳
+                PM管理マスター
               </h2>
             </div>
           </div>
@@ -549,7 +588,7 @@ export function PMMasterModal({
                   borderRadius: "10px",
                   border: "none",
                   background: "var(--bg-card-solid)",
-                  color: C.charcoal,
+                  color: "var(--text-main)",
                   outline: "none",
                   boxShadow: "0 1px 3px rgba(0,0,0,0.05)",
                 }}
@@ -570,7 +609,7 @@ export function PMMasterModal({
                   borderRadius: "10px",
                   border: "none",
                   background: "var(--bg-card-solid)",
-                  color: C.charcoalMid,
+                  color: "var(--text-main)",
                   cursor: "pointer",
                   outline: "none",
                   boxShadow: "0 1px 3px rgba(0,0,0,0.04)",
@@ -653,32 +692,39 @@ export function PMMasterModal({
                       key={m.id}
                       onClick={() => setSelectedId(m.id)}
                       data-testid={`pm-card-${m.id}`}
+                      className={`pm-card-item ${
+                        isSelected
+                          ? "bg-white dark:bg-white/[0.14] shadow-xs dark:shadow-none ring-1 ring-black/[0.04] dark:ring-white/[0.08]"
+                          : "bg-black/[0.03] dark:bg-white/[0.04] hover:bg-black/[0.05] dark:hover:bg-white/[0.07]"
+                      }`}
                       style={{
                         padding: "0.65rem 0.8rem",
                         borderRadius: "12px",
                         cursor: "pointer",
                         transition: "all 0.15s ease",
-                        background: isSelected ? "#FFFFFF" : "rgba(0, 0, 0, 0.04)",
-                        boxShadow: isSelected
-                          ? "0 2px 8px rgba(0, 0, 0, 0.06)"
-                          : "none",
                       }}
                     >
                       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: "0.25rem" }}>
                         <span
+                          className={
+                            isSelected
+                              ? "bg-amber-500/15 text-amber-900 dark:bg-amber-400/25 dark:text-amber-200"
+                              : "bg-black/[0.04] dark:bg-white/[0.08] text-stone-600 dark:text-stone-400"
+                          }
                           style={{
                             fontSize: "0.65rem",
                             fontWeight: 700,
                             padding: "0.15rem 0.4rem",
                             borderRadius: "5px",
-                            background: isSelected ? C.goldFaint : "rgba(0,0,0,0.04)",
-                            color: isSelected ? C.goldDark : C.charcoalMid,
                           }}
                         >
                           {formatCycleBadge(m)}
                         </span>
                         {m.nextScheduledDate && (
-                          <span style={{ fontSize: "0.68rem", color: C.charcoalLight, fontWeight: 500 }}>
+                          <span
+                            className="text-stone-500 dark:text-stone-400"
+                            style={{ fontSize: "0.68rem", fontWeight: 500 }}
+                          >
                             次回: {m.nextScheduledDate.slice(5)}
                           </span>
                         )}
@@ -686,19 +732,24 @@ export function PMMasterModal({
 
                       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: "0.4rem" }}>
                         <p
+                          className={
+                            isSelected
+                              ? "text-stone-900 dark:text-stone-100 font-bold"
+                              : "text-stone-700 dark:text-stone-300 font-semibold"
+                          }
                           style={{
                             margin: 0,
                             fontSize: "0.82rem",
-                            fontWeight: isSelected ? 700 : 600,
-                            color: isSelected ? C.charcoal : C.charcoalMid,
                             lineHeight: 1.3,
                             flex: 1,
                             overflow: "hidden",
                             textOverflow: "ellipsis",
                             whiteSpace: "nowrap",
+                            fontStyle: m.title.trim() ? "normal" : "italic",
+                            opacity: m.title.trim() ? 1 : 0.65,
                           }}
                         >
-                          {m.title}
+                          {m.title.trim() ? m.title : "名称未設定"}
                         </p>
                         <button
                           type="button"
@@ -806,7 +857,7 @@ export function PMMasterModal({
                           boxSizing: "border-box",
                           fontSize: "1.05rem",
                           fontWeight: 700,
-                          color: C.charcoal,
+                          color: "var(--text-main)",
                           background: "var(--bg-card-solid)",
                           border: "none",
                           borderRadius: "10px",
@@ -873,10 +924,11 @@ export function PMMasterModal({
                           border: "none",
                           background: "var(--bg-card-solid)",
                           fontSize: "0.8rem",
-                          color: C.charcoal,
+                          color: "var(--text-main)",
                           outline: "none",
                         }}
                       >
+                        <option value="shift_cycle">出勤・シフト連動（勤務サイクル）</option>
                         <option value="monthly_day">毎月指定日（毎月○日）</option>
                         <option value="interval_month">月間インターバル（○ヶ月ごと）</option>
                         <option value="annual">年次（年1回）</option>
@@ -884,36 +936,118 @@ export function PMMasterModal({
                       </select>
                     </div>
 
-                    {/* 周期値 */}
-                    <div>
-                      <label style={{ display: "block", fontSize: "0.7rem", fontWeight: 700, color: C.charcoalLight, marginBottom: "0.3rem" }}>
-                        {cycleType === "monthly_day"
-                          ? "実施日（1〜31日）"
-                          : cycleType === "interval_month"
-                          ? "間隔（ヶ月）"
-                          : cycleType === "annual"
-                          ? "年次指定"
-                          : "間隔（日数）"}
-                      </label>
-                      <input
-                        type="number"
-                        min={1}
-                        max={cycleType === "monthly_day" ? 31 : 365}
-                        value={cycleValue}
-                        onChange={(e) => setCycleValue(Number(e.target.value) || 1)}
-                        style={{
-                          width: "100%",
-                          boxSizing: "border-box",
-                          padding: "0.5rem 0.7rem",
-                          borderRadius: "10px",
-                          border: "none",
-                          background: "var(--bg-card-solid)",
-                          fontSize: "0.8rem",
-                          color: C.charcoal,
-                          outline: "none",
-                        }}
-                      />
-                    </div>
+                    {cycleType === "shift_cycle" ? (
+                      <>
+                        {/* シフト種別 */}
+                        <div>
+                          <label style={{ display: "block", fontSize: "0.7rem", fontWeight: 700, color: C.charcoalLight, marginBottom: "0.3rem" }}>
+                            対象シフト
+                          </label>
+                          <select
+                            value={timingCategory}
+                            onChange={(e) => setTimingCategory(e.target.value as PMTimingCategory)}
+                            style={{
+                              width: "100%",
+                              padding: "0.5rem 0.7rem",
+                              borderRadius: "10px",
+                              border: "none",
+                              background: "var(--bg-card-solid)",
+                              fontSize: "0.8rem",
+                              color: "var(--text-main)",
+                              outline: "none",
+                            }}
+                          >
+                            <option value="holiday">休日</option>
+                            <option value="early_shift">早番</option>
+                            <option value="late_shift">遅番</option>
+                            <option value="work_day">出勤日（全般）</option>
+                          </select>
+                        </div>
+
+                        {/* 何日目 */}
+                        <div>
+                          <label style={{ display: "block", fontSize: "0.7rem", fontWeight: 700, color: C.charcoalLight, marginBottom: "0.3rem" }}>
+                            実施日
+                          </label>
+                          <select
+                            value={timingDay}
+                            onChange={(e) => setTimingDay(Number(e.target.value) || 1)}
+                            style={{
+                              width: "100%",
+                              padding: "0.5rem 0.7rem",
+                              borderRadius: "10px",
+                              border: "none",
+                              background: "var(--bg-card-solid)",
+                              fontSize: "0.8rem",
+                              color: "var(--text-main)",
+                              outline: "none",
+                            }}
+                          >
+                            <option value={1}>1日目</option>
+                            <option value={2}>2日目</option>
+                            <option value={3}>3日目</option>
+                            <option value={4}>4日目</option>
+                          </select>
+                        </div>
+
+                        {/* サイクル頻度 */}
+                        <div>
+                          <label style={{ display: "block", fontSize: "0.7rem", fontWeight: 700, color: C.charcoalLight, marginBottom: "0.3rem" }}>
+                            サイクル頻度
+                          </label>
+                          <select
+                            value={cycleInterval}
+                            onChange={(e) => setCycleInterval(Number(e.target.value) || 1)}
+                            style={{
+                              width: "100%",
+                              padding: "0.5rem 0.7rem",
+                              borderRadius: "10px",
+                              border: "none",
+                              background: "var(--bg-card-solid)",
+                              fontSize: "0.8rem",
+                              color: "var(--text-main)",
+                              outline: "none",
+                            }}
+                          >
+                            <option value={1}>毎サイクル（毎回）</option>
+                            <option value={2}>2サイクルに1回（隔サイクル）</option>
+                            <option value={3}>3サイクルに1回</option>
+                            <option value={4}>4サイクルに1回</option>
+                          </select>
+                        </div>
+                      </>
+                    ) : (
+                      /* 周期値 */
+                      <div>
+                        <label style={{ display: "block", fontSize: "0.7rem", fontWeight: 700, color: C.charcoalLight, marginBottom: "0.3rem" }}>
+                          {cycleType === "monthly_day"
+                            ? "実施日（1〜31日）"
+                            : cycleType === "interval_month"
+                            ? "間隔（ヶ月）"
+                            : cycleType === "annual"
+                            ? "年次指定"
+                            : "間隔（日数）"}
+                        </label>
+                        <input
+                          type="number"
+                          min={1}
+                          max={cycleType === "monthly_day" ? 31 : 365}
+                          value={cycleValue}
+                          onChange={(e) => setCycleValue(Number(e.target.value) || 1)}
+                          style={{
+                            width: "100%",
+                            boxSizing: "border-box",
+                            padding: "0.5rem 0.7rem",
+                            borderRadius: "10px",
+                            border: "none",
+                            background: "var(--bg-card-solid)",
+                            fontSize: "0.8rem",
+                            color: "var(--text-main)",
+                            outline: "none",
+                          }}
+                        />
+                      </div>
+                    )}
 
                     {/* 次回起算基準 (トグルボタン) */}
                     <div>
@@ -989,7 +1123,7 @@ export function PMMasterModal({
                             border: "none",
                             background: "var(--bg-card-solid)",
                             fontSize: "0.8rem",
-                            color: C.charcoal,
+                            color: "var(--text-main)",
                             outline: "none",
                           }}
                         />
