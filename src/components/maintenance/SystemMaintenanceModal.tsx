@@ -155,7 +155,7 @@ export function SystemMaintenanceModal({
           </button>
         </div>
 
-        {/* ─── セグメントピル切替タブ ─── */}
+        {/* ─── セグメントピル切替タブ（横スライド可能） ─── */}
         <div
           style={{
             display: "flex",
@@ -166,6 +166,8 @@ export function SystemMaintenanceModal({
             border: "none",
             flexShrink: 0,
             overflowX: "auto",
+            WebkitOverflowScrolling: "touch",
+            flexWrap: "nowrap",
           }}
           className="no-scrollbar"
         >
@@ -185,6 +187,7 @@ export function SystemMaintenanceModal({
               color: activeTab === "db" ? C.goldDark : C.charcoalMid,
               cursor: "pointer",
               whiteSpace: "nowrap",
+              flexShrink: 0,
               transition: "all 0.15s ease",
             }}
           >
@@ -208,6 +211,7 @@ export function SystemMaintenanceModal({
               color: activeTab === "pm" ? C.goldDark : C.charcoalMid,
               cursor: "pointer",
               whiteSpace: "nowrap",
+              flexShrink: 0,
               transition: "all 0.15s ease",
             }}
           >
@@ -231,6 +235,7 @@ export function SystemMaintenanceModal({
               color: activeTab === "tracer" ? C.goldDark : C.charcoalMid,
               cursor: "pointer",
               whiteSpace: "nowrap",
+              flexShrink: 0,
               transition: "all 0.15s ease",
             }}
           >
@@ -254,6 +259,7 @@ export function SystemMaintenanceModal({
               color: activeTab === "backup" ? C.goldDark : C.charcoalMid,
               cursor: "pointer",
               whiteSpace: "nowrap",
+              flexShrink: 0,
               transition: "all 0.15s ease",
             }}
           >

@@ -933,11 +933,17 @@ export function NoteViewer({
     }
   }, [note.title, note.content, onToastMessage]);
 
-  // ノート切替時のリセット
+  // ノート切替時のリセット（同一ノート編集中の不要なshowTocリセットを防止）
+  const prevNoteIdRef = useRef(note.id);
   useEffect(() => {
-    setTagInput("");
-    setShowToc(Boolean(note.showToc));
-    setExtractedData(null);
+    if (prevNoteIdRef.current !== note.id) {
+      prevNoteIdRef.current = note.id;
+      setTagInput("");
+      setShowToc(Boolean(note.showToc));
+      setExtractedData(null);
+    } else if (note.showToc !== undefined) {
+      setShowToc(Boolean(note.showToc));
+    }
   }, [note.id, note.showToc]);
 
   const handleCommitTag = () => {
@@ -1015,12 +1021,31 @@ export function NoteViewer({
                   href={`#${t.id}`}
                   onClick={(e) => {
                     e.preventDefault();
-                    const el = document.getElementById(t.id);
-                    if (el) {
-                      const headerOffset = 80;
-                      const elementPosition = el.getBoundingClientRect().top;
-                      const offsetPosition = elementPosition + window.pageYOffset - headerOffset;
-                      window.scrollTo({ top: offsetPosition, behavior: "smooth" });
+                    // 1. id属性で検索
+                    let targetEl: HTMLElement | null = document.getElementById(t.id);
+
+                    // 2. idで見つからない場合、Tiptap等の見出し要素(h1〜h6)のテキストで検索
+                    if (!targetEl) {
+                      const headings = Array.from(document.querySelectorAll<HTMLElement>("h1, h2, h3, h4, h5, h6"));
+                      const cleanItemText = t.text.replace(/[*_`#]/g, "").trim().toLowerCase();
+
+                      targetEl =
+                        headings.find((h) => {
+                          const hText = (h.textContent || "").replace(/[*_`#]/g, "").trim().toLowerCase();
+                          return hText === cleanItemText || hText.startsWith(cleanItemText) || cleanItemText.startsWith(hText);
+                        }) || null;
+                    }
+
+                    if (targetEl) {
+                      // ツールバー余白を確保してスムーズスクロール
+                      targetEl.style.scrollMarginTop = "88px";
+                      targetEl.scrollIntoView({ behavior: "smooth", block: "start" });
+
+                      // ハイライトフィードバック
+                      targetEl.classList.add("arca-toc-highlight");
+                      setTimeout(() => {
+                        targetEl?.classList.remove("arca-toc-highlight");
+                      }, 1600);
                     }
                   }}
                   style={{
@@ -2805,6 +2830,7 @@ export default function Notes({
           contextSnapshot: data.contextSnapshot || undefined,
           icon: data.icon || undefined,
           order: typeof data.order === "number" ? data.order : undefined,
+          showToc: typeof data.showToc === "boolean" ? data.showToc : undefined,
         });
       });
       setNotes(fetched);

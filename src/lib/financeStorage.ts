@@ -316,6 +316,20 @@ export async function createExpenseTransaction(
     paymentMethod: sanitized.paymentMethod,
     source: sanitized.source,
   });
+
+  // 店舗名・取引名とカテゴリのマッピングをサイレント自動学習（「その他」防止）
+  if (
+    typeof sanitized.title === "string" &&
+    typeof sanitized.category === "string" &&
+    sanitized.category !== "その他"
+  ) {
+    const storeTitle = sanitized.title;
+    const storeCategory = sanitized.category as ExpenseCategory;
+    import("../services/merchantCategoryService").then(({ learnMerchantCategory }) => {
+      learnMerchantCategory(storeTitle, storeCategory).catch(() => {});
+    }).catch(() => {});
+  }
+
   return docRef.id;
 }
 
@@ -337,6 +351,19 @@ export async function updateExpenseTransaction(
 
   await updateDoc(docRef, sanitized);
   logger.info("firestore", `Finance: Updated transaction (ID: ${id})`, sanitized);
+
+  // カテゴリやタイトルが更新された場合、マッピングをサイレント自動学習
+  if (
+    typeof sanitized.title === "string" &&
+    typeof sanitized.category === "string" &&
+    sanitized.category !== "その他"
+  ) {
+    const storeTitle = sanitized.title;
+    const storeCategory = sanitized.category as ExpenseCategory;
+    import("../services/merchantCategoryService").then(({ learnMerchantCategory }) => {
+      learnMerchantCategory(storeTitle, storeCategory).catch(() => {});
+    }).catch(() => {});
+  }
 }
 
 /**

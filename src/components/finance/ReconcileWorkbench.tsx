@@ -7,20 +7,25 @@ import { useState, useMemo } from "react";
 import { Check } from "lucide-react";
 import type {
   CreditCardCsvRow,
+  ExpenseCategory,
   ExpenseTransaction,
   PaymentMethod,
   ReconcilePreviewResult,
 } from "../../types/finance";
 import {
   parseCreditCardCsv,
-  runAutoReconcile,
   decodeCsvBuffer,
   buildReconcilePreview,
+  isStoreNameSimilar,
 } from "../../utils/csvReconcile";
 import {
-  markMonthCardReconciled,
   commitBatchReconcile,
 } from "../../services/csvReconcileService";
+import { createExpenseTransaction } from "../../lib/financeStorage";
+import {
+  predictCategory,
+  normalizeMerchantKey,
+} from "../../services/merchantCategoryService";
 import { ReconcilePreviewModal } from "./ReconcilePreviewModal";
 import { formatCurrency } from "../../utils/financeSummary";
 import { C } from "../../lib/designSystem";
@@ -116,45 +121,109 @@ export function ReconcileWorkbench({
     setTimeout(() => setBatchSuccessMessage(null), 4500);
   };
 
-  // 自動突合の実行と候補算出 (個別突合UI用)
-  const reconcileResult = useMemo(() => {
-    if (csvRows.length === 0) {
-      return { candidates: [], reconciledCount: 0, unmatchedCsvRows: [] };
-    }
-    return runAutoReconcile(csvRows, transactions);
+  // ── 日付と名前（店名/品目）による照合判定 ──
+  const matchResults = useMemo(() => {
+    if (csvRows.length === 0) return [];
+    const activeTxs = transactions.filter((t) => !t.isDeleted);
+
+    return csvRows.map((csvRow) => {
+      const rowDateNorm = (csvRow.date || "").replace(/\//g, "-");
+      const rowTitleNorm = normalizeMerchantKey(csvRow.title);
+
+      // 日付と名前が一致する取引を探索
+      const matched = activeTxs.find((tx) => {
+        const txDateNorm = (tx.date || "").replace(/\//g, "-");
+        if (rowDateNorm && txDateNorm && rowDateNorm !== txDateNorm) {
+          return false;
+        }
+        const txTitleNorm = normalizeMerchantKey(tx.title);
+        if (rowTitleNorm === txTitleNorm) return true;
+        if (rowTitleNorm.length >= 2 && txTitleNorm.includes(rowTitleNorm)) return true;
+        if (txTitleNorm.length >= 2 && rowTitleNorm.includes(txTitleNorm)) return true;
+        if (isStoreNameSimilar(csvRow.title, tx.title)) return true;
+
+        return false;
+      });
+
+      // 過去の履歴学習から最適なカテゴリを自動推論（「その他」防止）
+      const suggestedCategory = predictCategory(csvRow.title, "食料品");
+
+      return {
+        csvRow,
+        isMatched: Boolean(matched),
+        matchedTransaction: matched,
+        suggestedCategory,
+      };
+    });
   }, [csvRows, transactions]);
 
-  // 高信頼度の候補を一括突合
-  const handleBatchReconcile = async () => {
+  // 未登録明細の個別登録ハンドラ（日付と名前がヒットしなかった場合のみ呼び出し可能）
+  const handleRegisterUnmatched = async (csvRow: CreditCardCsvRow, category?: ExpenseCategory) => {
     setIsProcessing(true);
     try {
-      let matchedCount = 0;
-      const affectedMonths = new Set<string>();
-
-      for (const candidate of reconcileResult.candidates) {
-        if (
-          candidate.matchedTransaction &&
-          (candidate.confidence === "exact" || candidate.confidence === "high") &&
-          !candidate.matchedTransaction.isReconciled
-        ) {
-          await onReconcile(candidate.matchedTransaction.id, candidate.csvRow.rowId);
-          matchedCount++;
-          if (candidate.csvRow.date) {
-            affectedMonths.add(candidate.csvRow.date.slice(0, 7));
-          }
-        }
-      }
-
-      // 該当月×カードの照合完了ステータスを自動更新
-      for (const m of affectedMonths) {
-        await markMonthCardReconciled(m, detectedMethod, matchedCount);
-      }
+      const finalCategory = category || predictCategory(csvRow.title, "食料品");
+      await createExpenseTransaction({
+        date: csvRow.date,
+        title: csvRow.title,
+        totalAmount: csvRow.amount,
+        category: finalCategory,
+        paymentMethod: csvRow.paymentMethod || detectedMethod,
+        items: [],
+        isReconciled: true,
+        matchedCsvRowId: csvRow.rowId,
+        csvRowFingerprint: csvRow.fingerprint || "",
+        source: "manual",
+        memo: "クレジットカード明細より登録",
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+        isDeleted: false,
+      });
+      setBatchSuccessMessage(`✓ 「${csvRow.title}」を支出一覧に登録しました`);
+      setTimeout(() => setBatchSuccessMessage(null), 3500);
     } catch (err) {
-      console.error("Batch reconcile failed:", err);
+      console.error("Failed to register transaction from CSV:", err);
     } finally {
       setIsProcessing(false);
     }
   };
+
+  // 未登録明細の一括登録ハンドラ
+  const handleRegisterAllUnmatched = async () => {
+    const unmatched = matchResults.filter((m) => !m.isMatched);
+    if (unmatched.length === 0) return;
+
+    setIsProcessing(true);
+    try {
+      let count = 0;
+      for (const item of unmatched) {
+        await createExpenseTransaction({
+          date: item.csvRow.date,
+          title: item.csvRow.title,
+          totalAmount: item.csvRow.amount,
+          category: item.suggestedCategory,
+          paymentMethod: item.csvRow.paymentMethod || detectedMethod,
+          items: [],
+          isReconciled: true,
+          matchedCsvRowId: item.csvRow.rowId,
+          csvRowFingerprint: item.csvRow.fingerprint || "",
+          source: "manual",
+          memo: "クレジットカード明細より登録",
+          createdAt: new Date().toISOString(),
+          updatedAt: new Date().toISOString(),
+          isDeleted: false,
+        });
+        count++;
+      }
+      setBatchSuccessMessage(`✓ 未登録の明細 ${count}件 を支出一覧に登録しました`);
+      setTimeout(() => setBatchSuccessMessage(null), 4500);
+    } catch (err) {
+      console.error("Batch register all unmatched failed:", err);
+    } finally {
+      setIsProcessing(false);
+    }
+  };
+
+
 
   // 手動選択用の未突合取引候補
   const unreconciledTransactions = useMemo(() => {
@@ -350,7 +419,7 @@ export function ReconcileWorkbench({
               display: "flex",
               alignItems: "center",
               justifyContent: "space-between",
-              background: "rgba(197, 160, 89, 0.08)",
+              background: "var(--accent-gold-faint, rgba(138, 194, 221, 0.12))",
               padding: "0.8rem 1.2rem",
               borderRadius: "10px",
               flexWrap: "wrap",
@@ -361,28 +430,22 @@ export function ReconcileWorkbench({
               <span style={{ fontSize: "0.82rem", fontWeight: 700, color: C.charcoal }}>
                 {detectedMethod} 明細: {csvRows.length}件 読み込み完了
               </span>
-              {previewResult && (
-                <div style={{ display: "flex", gap: "0.4rem" }}>
-                  <span style={{ fontSize: "0.72rem", color: "#2E7D32", fontWeight: 650 }}>
-                    確認: {previewResult.matchedCount}件
-                  </span>
-                  <span style={{ fontSize: "0.72rem", color: "#1565C0", fontWeight: 650 }}>
-                    新規: {previewResult.createdCount}件
-                  </span>
-                  {previewResult.skippedCount > 0 && (
-                    <span style={{ fontSize: "0.72rem", color: C.charcoalLight, fontWeight: 600 }}>
-                      スキップ: {previewResult.skippedCount}件
-                    </span>
-                  )}
-                </div>
-              )}
+              <div style={{ display: "flex", gap: "0.4rem" }}>
+                <span style={{ fontSize: "0.72rem", color: "#2E7D32", fontWeight: 650 }}>
+                  登録済み: {matchResults.filter((m) => m.isMatched).length}件
+                </span>
+                <span style={{ fontSize: "0.72rem", color: "#1565C0", fontWeight: 650 }}>
+                  未登録: {matchResults.filter((m) => !m.isMatched).length}件
+                </span>
+              </div>
             </div>
 
             <div style={{ display: "flex", alignItems: "center", gap: "0.5rem" }}>
-              {previewResult && (previewResult.matchedCount > 0 || previewResult.createdCount > 0) && (
+              {matchResults.some((m) => !m.isMatched) && (
                 <button
-                  onClick={() => setIsPreviewModalOpen(true)}
-                  data-testid="open-preview-modal-btn"
+                  onClick={handleRegisterAllUnmatched}
+                  disabled={isProcessing}
+                  data-testid="register-all-unmatched-btn"
                   style={{
                     background: C.gold,
                     color: "#FFF",
@@ -391,8 +454,8 @@ export function ReconcileWorkbench({
                     padding: "0.45rem 1.1rem",
                     fontSize: "0.78rem",
                     fontWeight: 700,
-                    cursor: "pointer",
-                    boxShadow: "0 2px 8px rgba(197, 160, 89, 0.3)",
+                    cursor: isProcessing ? "not-allowed" : "pointer",
+                    boxShadow: "0 2px 8px var(--accent-gold-glow, rgba(138, 194, 221, 0.3))",
                     display: "flex",
                     alignItems: "center",
                     gap: "0.35rem",
@@ -400,29 +463,8 @@ export function ReconcileWorkbench({
                 >
                   <Check size={14} strokeWidth={2.5} />
                   <span>
-                    すべて登録して確定 (
-                    {previewResult.matchedCount + previewResult.createdCount}件)
+                    未登録の明細を一括で支出一覧に登録 ({matchResults.filter((m) => !m.isMatched).length}件)
                   </span>
-                </button>
-              )}
-
-              {reconcileResult.reconciledCount > 0 && (
-                <button
-                  onClick={handleBatchReconcile}
-                  disabled={isProcessing}
-                  style={{
-                    background: "#2E7D32",
-                    color: "#FFF",
-                    border: "none",
-                    borderRadius: "8px",
-                    padding: "0.45rem 0.9rem",
-                    fontSize: "0.76rem",
-                    fontWeight: 650,
-                    cursor: isProcessing ? "not-allowed" : "pointer",
-                    boxShadow: "0 2px 8px rgba(46, 125, 50, 0.25)",
-                  }}
-                >
-                  {isProcessing ? "確認処理中..." : "高信頼度のみ確認"}
                 </button>
               )}
             </div>
@@ -435,23 +477,13 @@ export function ReconcileWorkbench({
         <div style={{ display: "flex", flexDirection: "column", gap: "0.8rem" }}>
           <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "0 0.5rem" }}>
             <span style={{ fontSize: "0.82rem", fontWeight: 700, color: C.charcoalMid }}>
-              照合結果一覧（{reconcileResult.candidates.length}件）
+              照合結果一覧（{matchResults.length}件）
             </span>
           </div>
 
           <div style={{ display: "flex", flexDirection: "column", gap: "0.75rem" }}>
-            {reconcileResult.candidates.map((candidate, idx) => {
-              const { csvRow, matchedTransaction, confidence, matchReason } = candidate;
-
-              // 信頼度バッジのスタイル
-              const confidenceBadges = {
-                exact: { label: "100% 完全一致", color: "#2E7D32", bg: "rgba(46, 125, 50, 0.12)" },
-                high: { label: "高信頼度一致", color: "#1976D2", bg: "rgba(25, 118, 210, 0.12)" },
-                medium: { label: "日付近似", color: "#C05621", bg: "rgba(192, 86, 33, 0.12)" },
-                low: { label: "参考一致", color: "#616161", bg: "rgba(97, 97, 97, 0.12)" },
-                none: { label: "未記録（Arcaに未登録）", color: "#C62828", bg: "rgba(198, 40, 40, 0.12)" },
-              };
-              const confBadge = confidenceBadges[confidence] || confidenceBadges.none;
+            {matchResults.map((item, idx) => {
+              const { csvRow, isMatched, matchedTransaction, suggestedCategory } = item;
               const isManualOpen = manualSelectCsvRowId === csvRow.rowId;
 
               return (
@@ -463,33 +495,63 @@ export function ReconcileWorkbench({
                     borderRadius: C.radiusCard,
                     boxShadow: C.cardShadow,
                     padding: "1rem 1.2rem",
-                    border:
-                      confidence === "exact"
-                        ? "1px solid rgba(46, 125, 50, 0.35)"
-                        : confidence === "none"
-                        ? "1px solid rgba(198, 40, 40, 0.25)"
-                        : "1px solid var(--border-subtle)",
+                    border: isMatched
+                      ? "1px solid rgba(46, 125, 50, 0.35)"
+                      : "1px solid var(--border-subtle)",
                     display: "flex",
                     flexDirection: "column",
                     gap: "0.8rem",
                   }}
                 >
-                  {/* カード上部: 信頼度 ＆ 理由 */}
-                  <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: "0.5rem" }}>
-                    <span
-                      style={{
-                        fontSize: "0.68rem",
-                        fontWeight: 700,
-                        color: confBadge.color,
-                        background: confBadge.bg,
-                        padding: "0.18rem 0.5rem",
-                        borderRadius: "9999px",
-                      }}
-                    >
-                      {confBadge.label}
-                    </span>
-                    <span style={{ fontSize: "0.72rem", color: C.charcoalLight }}>
-                      {matchReason}
+                  {/* カード上部: 照合ステータス ＆ 金額 */}
+                  <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: "0.5rem", flexWrap: "wrap" }}>
+                    <div style={{ display: "flex", alignItems: "center", gap: "0.45rem", flexWrap: "wrap" }}>
+                      {isMatched ? (
+                        <span
+                          style={{
+                            fontSize: "0.68rem",
+                            fontWeight: 700,
+                            color: "#2E7D32",
+                            background: "rgba(46, 125, 50, 0.12)",
+                            padding: "0.18rem 0.55rem",
+                            borderRadius: "9999px",
+                          }}
+                        >
+                          100% 完全一致（支出一覧に登録済み）
+                        </span>
+                      ) : (
+                        <span
+                          style={{
+                            fontSize: "0.68rem",
+                            fontWeight: 700,
+                            color: "var(--accent-gold-dark, #8C6332)",
+                            background: "var(--accent-gold-faint, rgba(197, 160, 89, 0.14))",
+                            padding: "0.18rem 0.55rem",
+                            borderRadius: "9999px",
+                          }}
+                        >
+                          支出一覧に未登録
+                        </span>
+                      )}
+
+                      {!isMatched && (
+                        <span
+                          style={{
+                            fontSize: "0.68rem",
+                            fontWeight: 650,
+                            color: C.charcoalMid,
+                            background: "var(--bg-nav-track)",
+                            padding: "0.18rem 0.5rem",
+                            borderRadius: "6px",
+                          }}
+                        >
+                          自動推論分類: {suggestedCategory}
+                        </span>
+                      )}
+                    </div>
+
+                    <span style={{ fontSize: "0.92rem", fontWeight: 750, color: C.charcoal }}>
+                      {formatCurrency(csvRow.amount)}
                     </span>
                   </div>
 
@@ -514,8 +576,8 @@ export function ReconcileWorkbench({
                       </div>
                       <div style={{ display: "flex", alignItems: "baseline", gap: "0.4rem", marginTop: "0.15rem" }}>
                         <span style={{ fontSize: "0.72rem", color: C.charcoalLight }}>{csvRow.date}</span>
-                        <span style={{ fontSize: "0.92rem", fontWeight: 750, color: C.charcoal }}>
-                          {formatCurrency(csvRow.amount)}
+                        <span style={{ fontSize: "0.72rem", color: C.charcoalLight }}>
+                          ({csvRow.paymentMethod || detectedMethod})
                         </span>
                       </div>
                     </div>
@@ -542,7 +604,7 @@ export function ReconcileWorkbench({
                         </div>
                       ) : (
                         <div style={{ fontSize: "0.78rem", color: C.charcoalLight, fontStyle: "italic", paddingTop: "0.2rem" }}>
-                          対応する記録がありません
+                          対応する記録がありません（未登録）
                         </div>
                       )}
                     </div>
@@ -550,47 +612,53 @@ export function ReconcileWorkbench({
 
                   {/* カード下部: アクションボタン */}
                   <div style={{ display: "flex", alignItems: "center", justifyContent: "flex-end", gap: "0.5rem", flexWrap: "wrap" }}>
-                    {matchedTransaction ? (
-                      <>
-                        {matchedTransaction.isReconciled ? (
+                    {isMatched ? (
+                      <div style={{ display: "flex", alignItems: "center", gap: "0.5rem" }}>
+                        <span style={{ fontSize: "0.74rem", color: "#2E7D32", fontWeight: 650 }}>
+                          ✓ 登録済み（重複登録防止のため登録不可）
+                        </span>
+                        {matchedTransaction && (
                           <button
                             onClick={() => onUnreconcile(matchedTransaction.id)}
                             style={{
                               background: "transparent",
                               border: "1px solid rgba(0,0,0,0.12)",
                               borderRadius: "6px",
-                              padding: "0.32rem 0.7rem",
-                              fontSize: "0.74rem",
+                              padding: "0.28rem 0.6rem",
+                              fontSize: "0.7rem",
                               fontWeight: 600,
                               color: C.charcoalLight,
                               cursor: "pointer",
                             }}
                           >
-                            確認を解除
-                          </button>
-                        ) : (
-                          <button
-                            onClick={() => onReconcile(matchedTransaction.id, csvRow.rowId)}
-                            style={{
-                              background: "#2E7D32",
-                              color: "#FFF",
-                              border: "none",
-                              borderRadius: "6px",
-                              padding: "0.35rem 0.85rem",
-                              fontSize: "0.74rem",
-                              fontWeight: 650,
-                              cursor: "pointer",
-                              boxShadow: "0 1px 4px rgba(46,125,50,0.25)",
-                            }}
-                          >
-                            この紐付けを確定
+                            照合解除
                           </button>
                         )}
+                      </div>
+                    ) : (
+                      <>
                         <button
-                          onClick={() => setManualSelectCsvRowId(isManualOpen ? null : csvRow.rowId)}
+                          onClick={() => handleRegisterUnmatched(csvRow, suggestedCategory)}
+                          disabled={isProcessing}
+                          style={{
+                            background: C.gold,
+                            color: "#FFF",
+                            border: "none",
+                            borderRadius: "6px",
+                            padding: "0.38rem 0.9rem",
+                            fontSize: "0.75rem",
+                            fontWeight: 650,
+                            cursor: isProcessing ? "not-allowed" : "pointer",
+                            boxShadow: "0 2px 6px var(--accent-gold-glow, rgba(138, 194, 221, 0.3))",
+                          }}
+                        >
+                          + 支出一覧に登録（{suggestedCategory}）
+                        </button>
+                        <button
+                          onClick={() => onCreateFromCsv(csvRow)}
                           style={{
                             background: "transparent",
-                            border: "1px solid rgba(0,0,0,0.12)",
+                            border: "1px solid rgba(0, 0, 0, 0.12)",
                             borderRadius: "6px",
                             padding: "0.32rem 0.7rem",
                             fontSize: "0.74rem",
@@ -599,32 +667,13 @@ export function ReconcileWorkbench({
                             cursor: "pointer",
                           }}
                         >
-                          別の支出を選択
-                        </button>
-                      </>
-                    ) : (
-                      <>
-                        <button
-                          onClick={() => onCreateFromCsv(csvRow)}
-                          style={{
-                            background: C.gold,
-                            color: "#FFF",
-                            border: "none",
-                            borderRadius: "6px",
-                            padding: "0.35rem 0.85rem",
-                            fontSize: "0.74rem",
-                            fontWeight: 650,
-                            cursor: "pointer",
-                            boxShadow: "0 1px 6px rgba(197,160,89,0.3)",
-                          }}
-                        >
                           + この明細から支出を作成
                         </button>
                         <button
                           onClick={() => setManualSelectCsvRowId(isManualOpen ? null : csvRow.rowId)}
                           style={{
                             background: "transparent",
-                            border: "1px solid rgba(0,0,0,0.12)",
+                            border: "1px solid rgba(0, 0, 0, 0.12)",
                             borderRadius: "6px",
                             padding: "0.32rem 0.7rem",
                             fontSize: "0.74rem",

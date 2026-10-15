@@ -338,10 +338,10 @@ export function RecipeDetail({
 
           {/* 【CHEF'S REVIEW（前回の知見・改善点）】: タイトル直下・材料の上に昇格配置 */}
           {recipe.notes?.trim() && (
-            <section className="order-3 lg:order-none rounded-xl p-4 bg-amber-500/10 dark:bg-amber-500/15 border-none flex flex-col gap-2">
+            <section className="recipe-chefs-review order-3 lg:order-none rounded-xl p-4 bg-amber-500/10 dark:bg-amber-500/15 border-none flex flex-col gap-2">
               <div className="flex items-center gap-2 text-[var(--accent-gold-dark)]">
-                <Lightbulb className="w-4 h-4 shrink-0 text-[#C5A059]" />
-                <h3 className="text-xs font-bold tracking-wider uppercase m-0 text-[#A8863D] dark:text-[#E2C05E]">
+                <Lightbulb className="recipe-chefs-review-icon w-4 h-4 shrink-0 text-[#C5A059]" />
+                <h3 className="recipe-chefs-review-title text-xs font-bold tracking-wider uppercase m-0 text-[#A8863D] dark:text-[#E2C05E]">
                   Chef's Review（前回の知見・改善点）
                 </h3>
               </div>
@@ -535,7 +535,7 @@ export function RecipeDetail({
                     className="flex items-start gap-4"
                   >
                     {/* ステップ番号バッジ */}
-                    <span className="w-7 h-7 rounded-full bg-[#C5A059] text-white text-xs font-bold flex items-center justify-center shrink-0 mt-0.5 shadow-sm">
+                    <span className="recipe-step-badge w-7 h-7 rounded-full bg-[#C5A059] text-white text-xs font-bold flex items-center justify-center shrink-0 mt-0.5 shadow-sm">
                       {index + 1}
                     </span>
 

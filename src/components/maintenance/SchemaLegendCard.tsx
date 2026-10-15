@@ -195,6 +195,47 @@ const SCHEMA_DEFINITIONS: Record<InspectorCollection, { title: string; subtitle:
       },
     ],
   },
+  merchant_categories: {
+    title: "カテゴリ推論辞書 (merchant_categories) スキーマ凡例",
+    subtitle: "店名・品目名に対するユーザー手動変更をサイレント学習したカテゴリ対応データの構造定義",
+    fields: [
+      {
+        field: "id",
+        type: "string",
+        label: "正規化店名キー",
+        description: "Firestore 上の一意識別キー。店名・品目を小文字化・スペース除去した文字列。",
+        example: '"セブンイレブン", "amazon"',
+      },
+      {
+        field: "merchantName",
+        type: "string",
+        label: "店名 / 品目名",
+        description: "元の店名や取引品目名。",
+        example: '"セブン-イレブン 新宿店", "Amazon.co.jp"',
+      },
+      {
+        field: "category",
+        type: "string",
+        label: "割り当てカテゴリ",
+        description: "自動推論・手動学習により割り当てられた家計簿カテゴリ。",
+        example: '"食費", "日用品", "サブスク"',
+      },
+      {
+        field: "manualOverrideCount",
+        type: "number",
+        label: "学習・上書き回数",
+        description: "ユーザーが該当店名でカテゴリを手動更新した回数。",
+        example: "3",
+      },
+      {
+        field: "updatedAt",
+        type: "string (ISO 8601)",
+        label: "最終更新日時",
+        description: "学習データが最後に記録された日時。",
+        example: '"2026-10-15T16:00:00.000Z"',
+      },
+    ],
+  },
   pm_masters: {
     title: "PM保全台帳 (pm_masters) スキーマ凡例",
     subtitle: "定期メンテナンス（周期保全・管理台帳）の定義データ構造",

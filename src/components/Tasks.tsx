@@ -1723,9 +1723,10 @@ export default function Tasks({ initialTab = "default" }: TasksProps = {}) {
         />
       </div>
 
-      {/* ─── 一体化タブ型セグメントコントロール（Sliding Pill アニメーション付き） ─── */}
+      {/* ─── 一体化タブ型セグメントコントロール（Sliding Pill アニメーション付き・横スクロール＆縮小防止） ─── */}
       <div
         ref={tabTrackRef}
+        className="touch-pan-x"
         style={{
           position: "relative",
           display: "flex",
@@ -1737,8 +1738,11 @@ export default function Tasks({ initialTab = "default" }: TasksProps = {}) {
           overflowX: "auto",
           scrollbarWidth: "none",
           WebkitOverflowScrolling: "touch",
-          gap: "2px",
+          gap: "4px",
           boxSizing: "border-box",
+          flexWrap: "nowrap",
+          width: "100%",
+          maxWidth: "100%",
         }}
       >
         {/* 移動する白い楕円ピル (Sliding Pill) */}
@@ -1781,10 +1785,11 @@ export default function Tasks({ initialTab = "default" }: TasksProps = {}) {
                 justifyContent: "center",
                 borderRadius: "9999px",
                 padding: "0.38rem 0.95rem",
-                minWidth: "auto",
+                minWidth: "fit-content",
                 gap: "0.35rem",
                 flexShrink: 0,
                 boxSizing: "border-box",
+                whiteSpace: "nowrap",
               }}
             >
               <button
@@ -1801,8 +1806,9 @@ export default function Tasks({ initialTab = "default" }: TasksProps = {}) {
                   padding: 0,
                   display: "flex",
                   alignItems: "center",
-                  minWidth: 0,
+                  minWidth: "fit-content",
                   whiteSpace: "nowrap",
+                  flexShrink: 0,
                 }}
               >
                 <ListIcon
@@ -1813,6 +1819,7 @@ export default function Tasks({ initialTab = "default" }: TasksProps = {}) {
                     color: isActive ? "var(--text-main)" : C.charcoalLight,
                     opacity: isActive ? 1 : 0.65,
                     transition: "color 0.18s ease, opacity 0.18s ease",
+                    flexShrink: 0,
                   }}
                 />
                 <span
@@ -1875,6 +1882,7 @@ export default function Tasks({ initialTab = "default" }: TasksProps = {}) {
             color: C.goldDark,
             cursor: "pointer",
             flexShrink: 0,
+            minWidth: "fit-content",
             whiteSpace: "nowrap",
             transition: "opacity 0.15s ease",
           }}
@@ -1890,12 +1898,12 @@ export default function Tasks({ initialTab = "default" }: TasksProps = {}) {
           style={{
             display: "flex",
             alignItems: "center",
+            flexWrap: "wrap",
             padding: "0.6rem 0.95rem",
             gap: "0.5rem",
             width: "100%",
             maxWidth: "100%",
             boxSizing: "border-box",
-            overflow: "hidden",
             borderRadius: "14px",
           }}
         >
@@ -1908,8 +1916,8 @@ export default function Tasks({ initialTab = "default" }: TasksProps = {}) {
             onKeyDown={handleKeyDown}
             placeholder="タスクを追加…（例: 明日15時に書類提出）"
             style={{
-              flex: 1,
-              minWidth: 0,
+              flex: "1 1 200px",
+              minWidth: "140px",
               background: "transparent",
               border: "none",
               outline: "none",
@@ -1919,94 +1927,102 @@ export default function Tasks({ initialTab = "default" }: TasksProps = {}) {
             }}
           />
 
-          {/* AI推論プレビューバッジ（期日・優先度） */}
-          {parsedInfo && (
-            <div style={{ display: "flex", alignItems: "center", gap: "0.3rem", flexShrink: 0 }}>
-              {parsedInfo.dueDate && (
-                <span
-                  style={{
-                    display: "inline-flex",
-                    alignItems: "center",
-                    gap: "0.25rem",
-                    fontSize: "0.68rem",
-                    fontWeight: 600,
-                    color: C.goldDark,
-                    background: "rgba(184, 150, 106, 0.12)",
-                    padding: "0.2rem 0.5rem",
-                    borderRadius: "9999px",
-                    whiteSpace: "nowrap",
-                  }}
-                  title={`推論された期日: ${parsedInfo.dueDate}`}
-                >
-                  <span>{formatDue(parsedInfo.dueDate)}</span>
-                </span>
-              )}
-              {parsedInfo.priority === "high" && (
-                <span
-                  style={{
-                    display: "inline-flex",
-                    alignItems: "center",
-                    gap: "0.2rem",
-                    fontSize: "0.68rem",
-                    fontWeight: 600,
-                    color: C.danger,
-                    background: "rgba(224, 86, 74, 0.12)",
-                    padding: "0.2rem 0.5rem",
-                    borderRadius: "9999px",
-                    whiteSpace: "nowrap",
-                  }}
-                  title="優先度: 高"
-                >
-                  <ZapIcon />
-                  <span>高</span>
-                </span>
-              )}
-            </div>
-          )}
+          {/* 右側コントロール（バッジ・期限日・追加ボタン） */}
+          <div style={{ display: "flex", alignItems: "center", gap: "0.4rem", marginLeft: "auto", flexShrink: 0 }}>
+            {/* AI推論プレビューバッジ（期日・優先度） */}
+            {parsedInfo && (
+              <div style={{ display: "flex", alignItems: "center", gap: "0.3rem", flexShrink: 0 }}>
+                {parsedInfo.dueDate && (
+                  <span
+                    style={{
+                      display: "inline-flex",
+                      alignItems: "center",
+                      gap: "0.25rem",
+                      fontSize: "0.68rem",
+                      fontWeight: 600,
+                      color: C.goldDark,
+                      background: "rgba(184, 150, 106, 0.12)",
+                      padding: "0.2rem 0.5rem",
+                      borderRadius: "9999px",
+                      whiteSpace: "nowrap",
+                      flexShrink: 0,
+                    }}
+                    title={`推論された期日: ${parsedInfo.dueDate}`}
+                  >
+                    <span>{formatDue(parsedInfo.dueDate)}</span>
+                  </span>
+                )}
+                {parsedInfo.priority === "high" && (
+                  <span
+                    style={{
+                      display: "inline-flex",
+                      alignItems: "center",
+                      gap: "0.2rem",
+                      fontSize: "0.68rem",
+                      fontWeight: 600,
+                      color: C.danger,
+                      background: "rgba(224, 86, 74, 0.12)",
+                      padding: "0.2rem 0.5rem",
+                      borderRadius: "9999px",
+                      whiteSpace: "nowrap",
+                      flexShrink: 0,
+                    }}
+                    title="優先度: 高"
+                  >
+                    <ZapIcon />
+                    <span>高</span>
+                  </span>
+                )}
+              </div>
+            )}
 
-          {/* 期限日手動選択 */}
-          <input
-            type="date"
-            value={dueInput}
-            onChange={(e) => setDueInput(e.target.value)}
-            style={{
-              flexShrink: 0,
-              width: "auto",
-              maxWidth: "120px",
-              background: "var(--bg-nav-track)",
-              borderRadius: "8px",
-              padding: "0.35rem 0.5rem",
-              border: "1px solid var(--border-subtle)",
-              outline: "none",
-              fontSize: "0.75rem",
-              color: dueInput ? C.charcoalMid : C.charcoalXLight,
-              cursor: "pointer",
-              fontFamily: "-apple-system, sans-serif",
-            }}
-            title="期限日を設定"
-          />
+            {/* 期限日手動選択 */}
+            <input
+              type="date"
+              value={dueInput}
+              onChange={(e) => setDueInput(e.target.value)}
+              style={{
+                flexShrink: 0,
+                width: "auto",
+                maxWidth: "115px",
+                background: "var(--bg-nav-track)",
+                borderRadius: "8px",
+                padding: "0.35rem 0.45rem",
+                border: "1px solid var(--border-subtle)",
+                outline: "none",
+                fontSize: "0.75rem",
+                color: dueInput ? C.charcoalMid : C.charcoalXLight,
+                cursor: "pointer",
+                fontFamily: "-apple-system, sans-serif",
+                minHeight: "34px",
+                boxSizing: "border-box",
+              }}
+              title="期限日を設定"
+            />
 
-          {/* 追加ボタン */}
-          <button
-            onClick={handleAdd}
-            disabled={!titleInput.trim() || isAdding}
-            style={{
-              flexShrink: 0,
-              background: titleInput.trim() ? C.gold : "rgba(0, 0, 0, 0.06)",
-              color: titleInput.trim() ? "#FDFCFA" : C.charcoalXLight,
-              border: "none",
-              borderRadius: "10px",
-              padding: "0.45rem 0.95rem",
-              fontSize: "0.8rem",
-              fontWeight: 650,
-              cursor: titleInput.trim() ? "pointer" : "default",
-              transition: "all 0.15s ease",
-              minWidth: "46px",
-              minHeight: "34px",
-            }}
-          >
-            追加
-          </button>
+            {/* 追加ボタン */}
+            <button
+              onClick={handleAdd}
+              disabled={!titleInput.trim() || isAdding}
+              style={{
+                flexShrink: 0,
+                background: titleInput.trim() ? C.gold : "rgba(0, 0, 0, 0.06)",
+                color: titleInput.trim() ? "#FDFCFA" : C.charcoalXLight,
+                border: "none",
+                borderRadius: "10px",
+                padding: "0.45rem 0.95rem",
+                fontSize: "0.8rem",
+                fontWeight: 650,
+                cursor: titleInput.trim() ? "pointer" : "default",
+                transition: "all 0.15s ease",
+                minWidth: "50px",
+                minHeight: "34px",
+                whiteSpace: "nowrap",
+              }}
+            >
+              追加
+            </button>
+          </div>
         </div>
       </div>
 

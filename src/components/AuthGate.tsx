@@ -18,6 +18,7 @@ import {
 } from "firebase/auth";
 import { auth } from "../lib/firebase";
 import { C } from "../lib/designSystem";
+import ArcaLogo from "./common/ArcaLogo";
 import { saveToken } from "../services/googleAuth";
 import { logAuthError } from "../services/authErrorLogger";
 
@@ -209,32 +210,37 @@ export default function AuthGate({ children }: { children: ReactNode }) {
       >
         {/* ロゴ */}
         <div style={{ marginBottom: "1.5rem", position: "relative" }}>
-          <img
-            src="/Arca_logo.png"
+          <ArcaLogo
+            variant="symbol"
+            size="lg"
             alt="Arca"
-            style={{
-              width: "76px",
-              height: "76px",
-              borderRadius: "18px",
-              boxShadow: "0 10px 25px -4px rgba(0, 0, 0, 0.12), 0 2px 6px rgba(0, 0, 0, 0.04)",
-            }}
           />
         </div>
 
         {/* ブランド名・説明 */}
         <h1
-          className="font-logo"
           style={{
-            fontFamily: "var(--font-logo)",
-            fontSize: "2.3rem",
-            fontWeight: 650,
-            letterSpacing: "0.04em",
-            color: C.charcoal,
-            margin: "0 0 0.4rem",
-            lineHeight: 1.1,
+            margin: "0 0 0.5rem",
+            display: "flex",
+            justifyContent: "center",
+            alignItems: "center",
           }}
         >
-          Arca
+          <ArcaLogo
+            variant="wordmark"
+            height={34}
+            alt="Arca"
+          />
+          <span
+            className="sr-only select-none pointer-events-none font-logo"
+            style={{
+              fontFamily: "var(--font-logo)",
+              fontSize: "0px",
+              lineHeight: 0,
+            }}
+          >
+            Arca
+          </span>
         </h1>
         <p
           className="font-serif"

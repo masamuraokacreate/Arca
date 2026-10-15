@@ -178,9 +178,9 @@ export function NoteToolbar({
   onToggleSourceMode,
 }: NoteToolbarProps) {
   return (
-    <header className="sticky top-0 z-50 w-full bg-[var(--bg-surface-glass)] backdrop-blur-xl -webkit-backdrop-blur-xl border-b border-black/[0.06] dark:border-white/[0.08] flex items-center justify-between px-2 sm:px-4 h-[calc(3rem+env(safe-area-inset-top,0px))] pt-[env(safe-area-inset-top,0px)] w-full gap-2">
+    <header className="sticky top-0 z-50 w-full bg-[var(--bg-card-solid)] border-b border-black/[0.06] dark:border-white/[0.08] flex items-center justify-between px-2 sm:px-4 h-[calc(3.2rem+env(safe-area-inset-top,0px))] pt-[env(safe-area-inset-top,0px)] w-full gap-1.5 sm:gap-2 select-none overflow-hidden">
       {/* ── 左端: タブのアイコン（サイドバー展開） ＆ 戻るボタン ＆ パンくずスロット ── */}
-      <div className="flex items-center gap-1 min-w-0 flex-1 overflow-hidden">
+      <div className="flex items-center gap-1 min-w-0 shrink-0 max-w-[40%] sm:max-w-none sm:flex-1 overflow-hidden">
         {sidebarToggleSlot && (
           <div className="shrink-0 flex items-center">
             {sidebarToggleSlot}
@@ -204,11 +204,11 @@ export function NoteToolbar({
         )}
       </div>
 
-      {/* ── 右端: 保存ステータス ＆ 書式・挿入ツールバー ＆ 目次 ＆ ごみ箱（右詰め統合） ── */}
-      <div className="flex flex-row items-center justify-end gap-1 sm:gap-1.5 overflow-x-auto no-scrollbar shrink-0 ml-auto py-0.5">
+      {/* ── 右端: 保存ステータス ＆ 書式・挿入ツールバー ＆ 目次 ＆ ごみ箱（横スクロール対応・ボタン潰れ完全防止） ── */}
+      <div className="flex flex-row items-center justify-end gap-1 sm:gap-1.5 overflow-x-auto no-scrollbar flex-nowrap shrink min-w-0 ml-auto py-0.5 touch-pan-x">
         {/* 中央: 控えめな保存ステータス（保存中のみアニメーション通知） */}
         {saveStatus === "saving" && (
-          <span className="text-[11px] font-medium text-charcoal-light flex items-center gap-1.5 shrink-0 animate-pulse mr-1">
+          <span className="text-[11px] font-medium text-charcoal-light flex items-center gap-1.5 shrink-0 animate-pulse mr-1 whitespace-nowrap">
             <span className="w-1.5 h-1.5 rounded-full bg-[#B58D3D]" />
             保存中…
           </span>
@@ -219,7 +219,7 @@ export function NoteToolbar({
           type="button"
           onClick={onExtract}
           disabled={isExtracting || !canExtract}
-          className="arca-tb-btn shrink-0 h-9 min-w-[36px] min-h-[36px] px-2 sm:px-2.5 flex items-center justify-center"
+          className="arca-tb-btn shrink-0 min-w-fit h-9 px-2.5 sm:px-2.5 flex items-center justify-center whitespace-nowrap"
           title="ノートから買い物リスト・タスクを抽出"
           aria-label="Aether 抽出"
           style={{
@@ -258,7 +258,7 @@ export function NoteToolbar({
           <button
             type="button"
             onClick={onInsertImage}
-            className="arca-tb-btn shrink-0 h-9 min-w-[36px] min-h-[36px] px-2 sm:px-2.5 flex items-center justify-center"
+            className="arca-tb-btn shrink-0 min-w-fit h-9 px-2.5 sm:px-2.5 flex items-center justify-center whitespace-nowrap"
             title="画像を挿入（貼り付け・ファイル選択）"
             aria-label="画像を挿入"
           >
@@ -273,7 +273,7 @@ export function NoteToolbar({
           <button
             type="button"
             onClick={onTogglePin}
-            className={`arca-tb-btn shrink-0 h-9 min-w-[36px] min-h-[36px] px-2 sm:px-2.5 flex items-center justify-center ${isPinned ? "active" : ""}`}
+            className={`arca-tb-btn shrink-0 min-w-fit h-9 px-2.5 sm:px-2.5 flex items-center justify-center whitespace-nowrap ${isPinned ? "active" : ""}`}
             title={isPinned ? "ピン留めを解除" : "ピン留め"}
             aria-label="ピン留め"
             style={{
@@ -292,7 +292,7 @@ export function NoteToolbar({
           <button
             type="button"
             onClick={onMoveNote}
-            className="arca-tb-btn shrink-0 h-9 min-w-[36px] min-h-[36px] px-2 sm:px-2.5 flex items-center justify-center"
+            className="arca-tb-btn shrink-0 min-w-fit h-9 px-2.5 sm:px-2.5 flex items-center justify-center whitespace-nowrap"
             title="親ノートを変更・移動する"
             aria-label="親ノートを変更・移動"
           >
@@ -332,7 +332,7 @@ export function NoteToolbar({
         <button
           type="button"
           onClick={onOpenGuide}
-          className="arca-tb-btn shrink-0 h-9 min-w-[36px] min-h-[36px] px-2 sm:px-2.5 flex items-center justify-center"
+          className="arca-tb-btn shrink-0 min-w-fit h-9 px-2.5 sm:px-2.5 flex items-center justify-center whitespace-nowrap"
           title="構文ガイドを確認"
           aria-label="構文ガイド"
         >
@@ -346,7 +346,7 @@ export function NoteToolbar({
           <button
             type="button"
             onClick={onToggleSourceMode}
-            className={`arca-tb-btn arca-tb-btn-desktop-only shrink-0 h-9 min-w-[36px] min-h-[36px] px-2 sm:px-2.5 !hidden sm:!inline-flex items-center justify-center ${isSourceMode ? "active" : ""}`}
+            className={`arca-tb-btn arca-tb-btn-desktop-only shrink-0 min-w-fit h-9 px-2 sm:px-2.5 !hidden sm:!inline-flex items-center justify-center whitespace-nowrap ${isSourceMode ? "active" : ""}`}
             title={isSourceMode ? "リッチエディタ（WYSIWYG）に切り替え" : "テキストモード（生Markdown）に切り替え"}
             aria-label={isSourceMode ? "リッチエディタに切り替え" : "テキストモードに切り替え"}
             style={{
@@ -366,7 +366,7 @@ export function NoteToolbar({
         <button
           type="button"
           onClick={onToggleFullWidth}
-          className={`arca-tb-btn arca-tb-btn-desktop-only shrink-0 h-9 min-w-[36px] min-h-[36px] px-2 sm:px-2.5 !hidden sm:!inline-flex items-center justify-center ${isFullWidth ? "active" : ""}`}
+          className={`arca-tb-btn arca-tb-btn-desktop-only shrink-0 min-w-fit h-9 px-2 sm:px-2.5 !hidden sm:!inline-flex items-center justify-center whitespace-nowrap ${isFullWidth ? "active" : ""}`}
           title={isFullWidth ? "標準幅に戻す" : "全画面で表示"}
           aria-label={isFullWidth ? "標準幅に戻す" : "全画面で表示"}
         >
@@ -378,7 +378,7 @@ export function NoteToolbar({
         <button
           type="button"
           onClick={onToggleToc}
-          className={`arca-tb-btn arca-tb-btn-desktop-only shrink-0 h-9 min-w-[36px] min-h-[36px] px-2 sm:px-2.5 !hidden sm:!inline-flex items-center justify-center ${
+          className={`arca-tb-btn arca-tb-btn-desktop-only shrink-0 min-w-fit h-9 px-2 sm:px-2.5 !hidden sm:!inline-flex items-center justify-center whitespace-nowrap ${
             showToc ? "active" : ""
           }`}
           title={showToc ? "目次を非表示" : "目次を表示"}
@@ -398,7 +398,7 @@ export function NoteToolbar({
         <button
           type="button"
           onClick={onDelete}
-          className="h-9 px-2 rounded-lg flex items-center gap-1 text-red-500 hover:text-red-600 hover:bg-red-500/10 active:scale-95 transition-all cursor-pointer border-none bg-transparent text-xs font-medium shrink-0"
+          className="h-9 px-2.5 rounded-lg flex items-center gap-1 text-red-500 hover:text-red-600 hover:bg-red-500/10 active:scale-95 transition-all cursor-pointer border-none bg-transparent text-xs font-medium shrink-0 min-w-fit whitespace-nowrap"
           title="このノートを削除"
           aria-label="削除"
         >

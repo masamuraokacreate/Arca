@@ -140,6 +140,19 @@ async function calendarFetch<T>(
   return text ? (JSON.parse(text) as T) : ({} as T);
 }
 
+/** 時刻文字列 ("HH:MM") に指定分数（デフォルト510分 = 8時間30分）を加算した時刻文字列 ("HH:MM") を返す */
+export function addMinutesToTime(timeStr: string, minutesToAdd: number = 510): string {
+  if (!timeStr || !/^\d{1,2}:\d{2}$/.test(timeStr)) {
+    return timeStr || "";
+  }
+  const [h, m] = timeStr.split(":").map(Number);
+  const totalMinutes = (h * 60 + m + minutesToAdd) % (24 * 60);
+  const normalizedMinutes = totalMinutes < 0 ? totalMinutes + 24 * 60 : totalMinutes;
+  const newH = Math.floor(normalizedMinutes / 60);
+  const newM = normalizedMinutes % 60;
+  return `${String(newH).padStart(2, "0")}:${String(newM).padStart(2, "0")}`;
+}
+
 /** ISO文字列または日付文字列から Arca 形式の date ("YYYY-MM-DD") と time ("HH:MM") を抽出 */
 export function parseGoogleEventDateTime(
   start?: { date?: string; dateTime?: string },
@@ -197,11 +210,11 @@ export function formatToGoogleEventBody(event: {
     let endDate = new Date(startDate);
     if (event.endTime && /^\d{1,2}:\d{2}$/.test(event.endTime)) {
       const [endH, endM] = event.endTime.split(":").map(Number);
-      if (endH === 24 && endM === 0) {
-        // 24:00 は翌日の 00:00
-        endDate = new Date(startY, startMonth - 1, startDay + 1, 0, 0, 0);
+      if (endH >= 24) {
+        // 24:00 や 24:30 などの翌日表記
+        endDate = new Date(startY, startMonth - 1, startDay + 1, endH - 24, endM, 0);
       } else if (endH < startH || (endH === startH && endM < startM)) {
-        // 日跨ぎ（終了時刻が開始時刻より前、例: 16:00〜01:00）
+        // 日跨ぎ（終了時刻が開始時刻より前、例: 16:00〜00:30）
         endDate = new Date(startY, startMonth - 1, startDay + 1, endH, endM, 0);
       } else {
         endDate = new Date(startY, startMonth - 1, startDay, endH, endM, 0);
@@ -327,12 +340,13 @@ export async function updateGoogleCalendarEvent(
     startTime?: string;
     endTime?: string;
     note?: string;
-  }
+  },
+  calendarId: string = "primary"
 ): Promise<void> {
   const body = formatToGoogleEventBody(event);
   await calendarFetch<GoogleCalendarApiEvent>(
     token,
-    `/events/${encodeURIComponent(googleEventId)}`,
+    `${CALENDAR_API_ROOT}/calendars/${encodeURIComponent(calendarId)}/events/${encodeURIComponent(googleEventId)}`,
     {
       method: "PATCH",
       body: JSON.stringify(body),
@@ -345,7 +359,8 @@ export async function updateGoogleCalendarEvent(
  *
  * 各対象日について:
  * 1. 既存の出勤イベントが存在する場合:
- *    - Google 連携中かつ googleEventId があれば updateGoogleCalendarEvent を実行
+ *    - Google 連携中かつ googleEventId があれば updateGoogleCalendarEvent を実行（404時は新規作成へフォールバック）
+ *    - Google 連携中で googleEventId が未紐付けの場合は createGoogleCalendarEvent を実行してIDを紐付け
  *    - Firestore ドキュメントを updateDoc で更新
  * 2. 既存の出勤イベントが存在しない場合:
  *    - Google 連携中なら createGoogleCalendarEvent で Google イベントを作成
@@ -374,17 +389,50 @@ export async function batchUpdateShiftEvents(
 
     if (existingWork) {
       // 1. 既存イベントの更新
-      if (token && existingWork.googleEventId) {
-        try {
-          await updateGoogleCalendarEvent(token, existingWork.googleEventId, {
-            title: shiftData.title,
-            date,
-            startTime: shiftData.startTime,
-            endTime: shiftData.endTime,
-            note: shiftData.note ?? existingWork.note,
-          });
-        } catch (gErr) {
-          console.error(`[Google Calendar Sync] Failed to update event on ${date}:`, gErr);
+      let currentGoogleId = existingWork.googleEventId;
+
+      if (token) {
+        if (currentGoogleId) {
+          try {
+            await updateGoogleCalendarEvent(token, currentGoogleId, {
+              title: shiftData.title,
+              date,
+              startTime: shiftData.startTime,
+              endTime: shiftData.endTime,
+              note: shiftData.note ?? existingWork.note,
+            });
+          } catch (gErr) {
+            console.error(`[Google Calendar Sync] Failed to update event on ${date}:`, gErr);
+            // 404（Google側で削除されたなど）の場合は新規作成へフォールバック
+            if (gErr instanceof GoogleCalendarApiError && gErr.status === 404) {
+              try {
+                const recreatedId = await createGoogleCalendarEvent(token, {
+                  title: shiftData.title,
+                  date,
+                  startTime: shiftData.startTime,
+                  endTime: shiftData.endTime,
+                  note: shiftData.note ?? existingWork.note,
+                });
+                if (recreatedId) currentGoogleId = recreatedId;
+              } catch (cErr) {
+                console.error(`[Google Calendar Sync] Fallback creation failed on ${date}:`, cErr);
+              }
+            }
+          }
+        } else {
+          // Google イベント ID が未紐付けの場合は新規作成して紐付け
+          try {
+            const newGId = await createGoogleCalendarEvent(token, {
+              title: shiftData.title,
+              date,
+              startTime: shiftData.startTime,
+              endTime: shiftData.endTime,
+              note: shiftData.note ?? existingWork.note,
+            });
+            if (newGId) currentGoogleId = newGId;
+          } catch (gErr) {
+            console.error(`[Google Calendar Sync] Failed to create unlinked event on ${date}:`, gErr);
+          }
         }
       }
 
@@ -393,6 +441,7 @@ export async function batchUpdateShiftEvents(
         startTime: shiftData.startTime,
         endTime: shiftData.endTime,
         ...(shiftData.note !== undefined ? { note: shiftData.note } : {}),
+        googleEventId: currentGoogleId || null,
       });
     } else {
       // 2. 新規イベントの作成
@@ -425,7 +474,7 @@ export async function batchUpdateShiftEvents(
 }
 
 /**
- * シフト名から標準的な勤務開始・終了時刻を決定するヘルパー
+ * シフト名から標準的な勤務開始・終了時刻を決定するヘルパー（デフォルト拘束時間: 8.5時間 / 510分）
  */
 export function resolveShiftTimes(
   shiftName?: string,
@@ -437,21 +486,24 @@ export function resolveShiftTimes(
   }
   const name = (shiftName || "").trim();
   if (/早番/i.test(name)) {
-    return { startTime: "06:00", endTime: "15:00" };
+    return { startTime: "06:00", endTime: "14:30" };
   }
   if (/遅番.*16/i.test(name)) {
-    return { startTime: "16:00", endTime: "01:00" };
+    return { startTime: "16:00", endTime: "00:30" };
   }
   if (/遅番/i.test(name)) {
-    return { startTime: "15:00", endTime: "24:00" };
+    return { startTime: "15:00", endTime: "23:30" };
   }
   if (/日勤/i.test(name)) {
-    return { startTime: "08:30", endTime: "17:30" };
+    return { startTime: "08:30", endTime: "17:00" };
   }
   if (/当直|夜勤/i.test(name)) {
     return { startTime: "16:00", endTime: "09:00" };
   }
-  return { startTime: userStart || "06:00", endTime: userEnd || "15:00" };
+  return {
+    startTime: userStart || "06:00",
+    endTime: userEnd || (userStart ? addMinutesToTime(userStart, 510) : "14:30"),
+  };
 }
 
 export interface ApplyShiftStatusParams {
@@ -474,8 +526,8 @@ export interface ApplyShiftStatusParams {
  *    - Firestore の events コレクションからも削除
  *    - Firestore の手動オーバーライドを「休日」として保存
  * 3. type === "work"（出勤に設定する場合）:
- *    - シフト名に応じた開始・終了時刻を決定
- *    - 該当日に既存の出勤予定があれば Google カレンダー更新＆Firestore 更新
+ *    - シフト名に応じた開始・終了時刻を決定（デフォルト8.5時間 / 510分）
+ *    - 該当日に既存の出勤予定があれば Google カレンダー更新＆Firestore 更新（404時は新規作成フォールバック）
  *    - 該当日に出勤予定がなければ Google カレンダー新規作成＆Firestore 新規作成
  *    - Firestore の手動オーバーライドを「出勤」として保存
  */
@@ -548,6 +600,20 @@ export async function applyShiftStatusToGoogleCalendar(
           });
         } catch (gErr) {
           console.error(`[Google Calendar Sync] Failed to update event on ${params.date}:`, gErr);
+          // 404時は新規作成へフォールバック
+          if (gErr instanceof GoogleCalendarApiError && gErr.status === 404) {
+            try {
+              const newGId = await createGoogleCalendarEvent(token, {
+                title,
+                date: params.date,
+                startTime,
+                endTime,
+              });
+              if (newGId) googleId = newGId;
+            } catch (cErr) {
+              console.error(`[Google Calendar Sync] Fallback creation failed on ${params.date}:`, cErr);
+            }
+          }
         }
       } else {
         // Google イベント ID が未紐付けの場合は新規作成して紐付け

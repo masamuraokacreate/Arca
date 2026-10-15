@@ -83,7 +83,7 @@ export const RecentNotesCard: React.FC<RecentNotesCardProps> = ({
                 }}
                 className="group flex items-center gap-2 p-2 rounded-xl hover:bg-[#F9F7F4] dark:hover:bg-white/[0.06] transition-colors cursor-pointer"
               >
-                <span className="w-1.5 h-1.5 rounded-full bg-amber-500/60 shrink-0" />
+                <span className="dashboard-accent-dot w-2 h-2 rounded-full bg-amber-500/80 dark:bg-amber-400 ring-2 ring-amber-500/20 shrink-0" />
                 <span className="text-xs font-medium text-stone-800 dark:text-stone-200 truncate flex-1">
                   {note.title || "無題のノート"}
                 </span>

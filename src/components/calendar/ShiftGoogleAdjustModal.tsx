@@ -22,7 +22,7 @@ import {
   getAdjacentCycleAnchor,
   isWorkEvent,
 } from "../../services/pmCycleService";
-import { batchUpdateShiftEvents } from "../../services/googleCalendarSync";
+import { batchUpdateShiftEvents, addMinutesToTime } from "../../services/googleCalendarSync";
 import { useModalAnimation } from "../../hooks/useModalAnimation";
 
 // ── シフトプリセット定義 ──
@@ -34,12 +34,12 @@ interface ShiftPreset {
 }
 
 const SHIFT_PRESETS: ShiftPreset[] = [
-  { label: "5時",     title: "早番(5時)",   startTime: "05:00", endTime: "14:00" },
-  { label: "5時30分", title: "早番(5:30)",  startTime: "05:30", endTime: "14:30" },
-  { label: "6時",     title: "早番(6時)",   startTime: "06:00", endTime: "15:00" },
-  { label: "6時30分", title: "早番(6:30)",  startTime: "06:30", endTime: "15:30" },
-  { label: "6時45分", title: "早番(6:45)",  startTime: "06:45", endTime: "15:45" },
-  { label: "日勤",    title: "日勤",        startTime: "08:30", endTime: "17:30" },
+  { label: "5時",     title: "早番(5時)",   startTime: "05:00", endTime: "13:30" },
+  { label: "5時30分", title: "早番(5:30)",  startTime: "05:30", endTime: "14:00" },
+  { label: "6時",     title: "早番(6時)",   startTime: "06:00", endTime: "14:30" },
+  { label: "6時30分", title: "早番(6:30)",  startTime: "06:30", endTime: "15:00" },
+  { label: "6時45分", title: "早番(6:45)",  startTime: "06:45", endTime: "15:15" },
+  { label: "日勤",    title: "日勤",        startTime: "08:30", endTime: "17:00" },
 ];
 
 export interface ShiftGoogleAdjustModalProps {
@@ -79,7 +79,7 @@ export function ShiftGoogleAdjustModal({
   const [selectedPreset, setSelectedPreset] = useState<ShiftPreset | null>(null);
   // 日勤用の開始・終了時刻記入用ステート
   const [dayShiftStartTime, setDayShiftStartTime] = useState<string>("08:30");
-  const [dayShiftEndTime, setDayShiftEndTime] = useState<string>("17:30");
+  const [dayShiftEndTime, setDayShiftEndTime] = useState<string>("17:00");
   // 選択された変更対象の日付配列
   const [selectedDates, setSelectedDates] = useState<string[]>([]);
   // 更新ステータス
@@ -118,7 +118,7 @@ export function ShiftGoogleAdjustModal({
       setActiveTab("current");
       setSelectedPreset(null);
       setDayShiftStartTime("08:30");
-      setDayShiftEndTime("17:30");
+      setDayShiftEndTime("17:00");
       setUpdateStatus("idle");
     }
   }, [isOpen]);
@@ -384,7 +384,13 @@ export function ShiftGoogleAdjustModal({
                     type="time"
                     aria-label="日勤の開始時刻"
                     value={dayShiftStartTime}
-                    onChange={(e) => setDayShiftStartTime(e.target.value)}
+                    onChange={(e) => {
+                      const val = e.target.value;
+                      setDayShiftStartTime(val);
+                      if (val) {
+                        setDayShiftEndTime(addMinutesToTime(val, 510));
+                      }
+                    }}
                     className="appearance-none border-none bg-white dark:bg-stone-900 rounded-lg px-2 py-1 text-xs font-semibold text-stone-800 dark:text-stone-100 shadow-xs focus:ring-1 focus:ring-[#C5A059] outline-none"
                   />
                   <span className="text-xs text-stone-400">〜</span>

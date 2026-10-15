@@ -98,6 +98,23 @@ describe("ThemeContext", () => {
     expect(document.documentElement.getAttribute("data-theme")).toBe("sage");
     expect(document.documentElement.classList.contains("dark")).toBe(true);
   });
+
+  it("setTheme で prism（超淡色プリズム・ホワイト）を設定できる", () => {
+    const { result } = renderHook(() => useTheme(), {
+      wrapper: ThemeProvider,
+    });
+
+    act(() => {
+      result.current.setTheme("prism");
+    });
+
+    expect(result.current.theme).toBe("prism");
+    expect(result.current.resolvedTheme).toBe("prism");
+    expect(result.current.isDark).toBe(false);
+    expect(document.documentElement.getAttribute("data-theme")).toBe("prism");
+    expect(document.documentElement.classList.contains("dark")).toBe(false);
+    expect(localStorage.getItem("arca_theme")).toBe("prism");
+  });
 });
 
 describe("ThemeModal コンポーネント", () => {
@@ -122,9 +139,14 @@ describe("ThemeModal コンポーネント", () => {
 
     // 各パレットのカードが存在する
     expect(screen.getAllByText("アイボリー").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("プリズム").length).toBeGreaterThan(0);
     expect(screen.getAllByText("ディープスペース").length).toBeGreaterThan(0);
     expect(screen.getAllByText("ウォームサンド").length).toBeGreaterThan(0);
     expect(screen.getAllByText("ミッドナイトセージ").length).toBeGreaterThan(0);
+
+    // 「プリズム」をクリック
+    fireEvent.click(screen.getAllByText("プリズム")[0]);
+    expect(document.documentElement.getAttribute("data-theme")).toBe("prism");
 
     // 「ディープスペース」をクリック（手動に変更される）
     fireEvent.click(screen.getAllByText("ディープスペース")[0]);

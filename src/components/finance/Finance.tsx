@@ -34,6 +34,10 @@ import {
   toggleMonthlyCardReconcile,
 } from "../../services/csvReconcileService";
 import {
+  initMerchantCategoriesFromTransactions,
+  predictCategory,
+} from "../../services/merchantCategoryService";
+import {
   fetchAndProcessCardNoticeEmails,
   mergeExpenseTransactions,
 } from "../../services/gmailFinanceService";
@@ -139,6 +143,7 @@ export default function Finance() {
   useEffect(() => {
     const unsubTx = subscribeExpenseTransactions((fetched) => {
       setTransactions(fetched);
+      initMerchantCategoriesFromTransactions(fetched);
     });
     const unsubReconcile = subscribeMonthlyReconcileStatuses((fetched) => {
       setReconcileStatuses(fetched);
@@ -217,8 +222,9 @@ export default function Finance() {
         if (selectedPaymentMethod !== "all" && t.paymentMethod !== selectedPaymentMethod) return false;
 
         // 突合状態フィルター
-        if (reconcileFilter === "reconciled" && !t.isReconciled) return false;
-        if (reconcileFilter === "unreconciled" && t.isReconciled) return false;
+        const isTxReconciled = Boolean(t.isReconciled);
+        if (reconcileFilter === "reconciled" && !isTxReconciled) return false;
+        if (reconcileFilter === "unreconciled" && isTxReconciled) return false;
 
         // 検索クエリ（カード名、店舗名、カテゴリ、品目、メモを横断検索）
         if (searchQuery.trim()) {
@@ -257,13 +263,35 @@ export default function Finance() {
     return map;
   }, [reconcileStatuses, selectedMonth]);
 
+  // 当月の有効取引明細（論理削除除外 & 当月）
+  const currentMonthTransactions = useMemo(() => {
+    return activeTransactions.filter(
+      (t) => t.date && t.date.startsWith(selectedMonth)
+    );
+  }, [activeTransactions, selectedMonth]);
+
+  // 指定された支払方法が「完全に照合済み」であるかの判定ヘルパー
+  // 空データ（取引0件）や未処理データ（未照合明細が存在する）が誤って照合済み条件を通過しないよう厳密に検証
+  const isCardFullyReconciled = useCallback(
+    (pm: PaymentMethod): boolean => {
+      const cardTxs = currentMonthTransactions.filter((t) => t.paymentMethod === pm);
+      // 空データチェック: 取引明細が1件も存在しない場合は照合対象がないため false
+      if (cardTxs.length === 0) return false;
+      // 未処理データチェック: 未照合の明細が1件でもあれば false
+      if (cardTxs.some((t) => !t.isReconciled)) return false;
+      // 月度ステータスチェック: 月度照合ステータスが true であること
+      const status = currentMonthReconcileMap.get(pm);
+      return Boolean(status?.isReconciled);
+    },
+    [currentMonthTransactions, currentMonthReconcileMap]
+  );
+
   // 主要なカード（Oliveカード, dカード, イオンカード）または選択中カードの照合状況
   const currentMonthReconciledInfo = useMemo(() => {
     const monthLabel = formatMonthLabel(selectedMonth);
     if (selectedPaymentMethod !== "all") {
       const pm = selectedPaymentMethod as PaymentMethod;
-      const status = currentMonthReconcileMap.get(pm);
-      if (status?.isReconciled) {
+      if (isCardFullyReconciled(pm)) {
         return {
           isReconciled: true,
           label: `${monthLabel}の${pm}明細はCSV照合済みです（全件確認完了）`,
@@ -272,18 +300,29 @@ export default function Finance() {
       return { isReconciled: false, label: "" };
     }
 
-    // 「すべて」選択時：主要カード（Olive, dカード, イオンカード）が照合されているか
+    // 「すべて」選択時：主要カード（Olive, dカード, イオンカード）
     const mainCards: PaymentMethod[] = ["Oliveカード", "dカード", "イオンカード"];
-    const allReconciled = mainCards.every((card) => currentMonthReconcileMap.get(card)?.isReconciled);
-    const anyReconciled = mainCards.some((card) => currentMonthReconcileMap.get(card)?.isReconciled);
 
-    if (allReconciled) {
+    // 当月に取引明細が存在する主要カード（空データは除外）
+    const activeMainCards = mainCards.filter((card) =>
+      currentMonthTransactions.some((t) => t.paymentMethod === card)
+    );
+
+    // 取引明細が0件の場合は空データのため非表示
+    if (activeMainCards.length === 0) {
+      return { isReconciled: false, label: "" };
+    }
+
+    const fullyReconciledCards = activeMainCards.filter((card) => isCardFullyReconciled(card));
+    const allActiveReconciled = fullyReconciledCards.length === activeMainCards.length;
+
+    if (allActiveReconciled) {
       return {
         isReconciled: true,
         label: `${monthLabel}の主要カード明細はすべてCSV照合済みです（全件確認完了）`,
       };
-    } else if (anyReconciled) {
-      const reconciledCardNames = mainCards.filter((card) => currentMonthReconcileMap.get(card)?.isReconciled).join("・");
+    } else if (fullyReconciledCards.length > 0) {
+      const reconciledCardNames = fullyReconciledCards.join("・");
       return {
         isReconciled: true,
         label: `${monthLabel}の${reconciledCardNames}はCSV照合済みです`,
@@ -291,7 +330,7 @@ export default function Finance() {
     }
 
     return { isReconciled: false, label: "" };
-  }, [selectedMonth, selectedPaymentMethod, currentMonthReconcileMap]);
+  }, [selectedMonth, selectedPaymentMethod, isCardFullyReconciled, currentMonthTransactions]);
 
   // 手動トグルハンドラ
   const handleToggleCardReconcile = async (pm: PaymentMethod, e?: React.MouseEvent) => {
@@ -365,16 +404,17 @@ export default function Finance() {
   };
 
   const handleCreateFromCsv = (csvRow: CreditCardCsvRow) => {
+    const suggestedCategory = predictCategory(csvRow.title, "食料品");
     setEditingTransaction({
       id: "",
       date: csvRow.date,
       title: csvRow.title,
       totalAmount: csvRow.amount,
-      category: "その他",
+      category: suggestedCategory,
       paymentMethod: csvRow.paymentMethod,
       items: [],
-      isReconciled: true,
-      matchedCsvRowId: csvRow.rowId,
+      isReconciled: false,
+      matchedCsvRowId: "",
       memo: "クレジットカード明細より登録",
       createdAt: new Date().toISOString(),
       updatedAt: new Date().toISOString(),
@@ -1292,9 +1332,9 @@ export default function Finance() {
         onClose={() => setIsFilterModalOpen(false)}
         selectedPaymentMethod={selectedPaymentMethod}
         setSelectedPaymentMethod={setSelectedPaymentMethod}
-        currentMonthReconcileMap={currentMonthReconcileMap}
         selectedMonth={selectedMonth}
         handleToggleCardReconcile={handleToggleCardReconcile}
+        isCardFullyReconciled={isCardFullyReconciled}
         selectedCategory={selectedCategory}
         setSelectedCategory={setSelectedCategory}
         reconcileFilter={reconcileFilter}
@@ -1339,9 +1379,9 @@ interface FinanceFilterModalProps {
   onClose: () => void;
   selectedPaymentMethod: string;
   setSelectedPaymentMethod: (pm: any) => void;
-  currentMonthReconcileMap: Map<string, MonthlyCardReconcileStatus>;
   selectedMonth: string;
   handleToggleCardReconcile: (pm: PaymentMethod, e: React.MouseEvent) => void;
+  isCardFullyReconciled: (pm: PaymentMethod) => boolean;
   selectedCategory: string;
   setSelectedCategory: (cat: string) => void;
   reconcileFilter: "all" | "reconciled" | "unreconciled";
@@ -1353,9 +1393,9 @@ function FinanceFilterModal({
   onClose,
   selectedPaymentMethod,
   setSelectedPaymentMethod,
-  currentMonthReconcileMap,
   selectedMonth,
   handleToggleCardReconcile,
+  isCardFullyReconciled,
   selectedCategory,
   setSelectedCategory,
   reconcileFilter,
@@ -1460,8 +1500,7 @@ function FinanceFilterModal({
 
               {PAYMENT_METHODS.map((pm) => {
                 const isSelected = selectedPaymentMethod === pm;
-                const status = currentMonthReconcileMap.get(pm);
-                const isReconciled = Boolean(status?.isReconciled);
+                const isReconciled = isCardFullyReconciled(pm);
 
                 return (
                   <button

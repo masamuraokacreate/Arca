@@ -19,6 +19,7 @@ import { Clock, Sun, Check, X, Calendar as CalendarIcon } from "lucide-react";
 import type { CalendarEvent, SyncStatus, PMSettings } from "../../types";
 import { C } from "../../lib/designSystem";
 import { getFourDayWorkBlock, isWorkEvent, shiftDateStr } from "../../services/pmCycleService";
+import { addMinutesToTime } from "../../services/googleCalendarSync";
 import { useModalAnimation } from "../../hooks/useModalAnimation";
 
 export interface ShiftEditModalProps {
@@ -47,16 +48,16 @@ export interface EarlyPreset {
 }
 
 export const EARLY_PRESETS: EarlyPreset[] = [
-  { label: "5:00", startTime: "05:00", endTime: "14:00" },
-  { label: "5:30", startTime: "05:30", endTime: "14:30" },
-  { label: "6:00", startTime: "06:00", endTime: "15:00" },
-  { label: "6:30", startTime: "06:30", endTime: "15:30" },
-  { label: "6:45", startTime: "06:45", endTime: "15:45" },
+  { label: "5:00", startTime: "05:00", endTime: "13:30" },
+  { label: "5:30", startTime: "05:30", endTime: "14:00" },
+  { label: "6:00", startTime: "06:00", endTime: "14:30" },
+  { label: "6:30", startTime: "06:30", endTime: "15:00" },
+  { label: "6:45", startTime: "06:45", endTime: "15:15" },
 ];
 
 export const LATE_PRESETS: EarlyPreset[] = [
-  { label: "15:00", startTime: "15:00", endTime: "24:00" },
-  { label: "16:00", startTime: "16:00", endTime: "01:00" },
+  { label: "15:00", startTime: "15:00", endTime: "23:30" },
+  { label: "16:00", startTime: "16:00", endTime: "00:30" },
 ];
 
 const JAPANESE_WEEKDAYS = ["日", "月", "火", "水", "木", "金", "土"];
@@ -138,16 +139,16 @@ export function ShiftEditModal({
           setTitle("遅番");
           if (dayWork.startTime === "16:00") {
             setStartTime("16:00");
-            setEndTime("01:00");
+            setEndTime("00:30");
           } else {
             setStartTime("15:00");
-            setEndTime("24:00");
+            setEndTime("23:30");
           }
         } else if (dayWork.title.includes("日勤")) {
           setShiftCategory("day");
           setTitle(dayWork.title || "日勤");
           setStartTime(dayWork.startTime || "08:30");
-          setEndTime(dayWork.endTime || "17:30");
+          setEndTime(dayWork.endTime || "17:00");
         } else {
           // 早番
           setShiftCategory("early");
@@ -158,15 +159,15 @@ export function ShiftEditModal({
             setEndTime(matched.endTime);
           } else {
             setStartTime(dayWork.startTime || "06:00");
-            setEndTime(dayWork.endTime || "15:00");
+            setEndTime(dayWork.endTime || "14:30");
           }
         }
       } else {
-        // デフォルト: 早番 06:00〜15:00
+        // デフォルト: 早番 06:00〜14:30
         setShiftCategory("early");
         setTitle("早番");
         setStartTime("06:00");
-        setEndTime("15:00");
+        setEndTime("14:30");
       }
       setSaving(false);
     }
@@ -216,15 +217,15 @@ export function ShiftEditModal({
     if (cat === "early") {
       setTitle("早番");
       setStartTime("06:00");
-      setEndTime("15:00");
+      setEndTime("14:30");
     } else if (cat === "late") {
       setTitle("遅番");
       setStartTime("15:00");
-      setEndTime("24:00");
+      setEndTime("23:30");
     } else {
       setTitle("日勤");
       setStartTime("08:30");
-      setEndTime("17:30");
+      setEndTime("17:00");
     }
   };
 
@@ -716,7 +717,13 @@ export function ShiftEditModal({
                   <input
                     type="text"
                     value={startTime}
-                    onChange={(e) => setStartTime(e.target.value)}
+                    onChange={(e) => {
+                      const val = e.target.value;
+                      setStartTime(val);
+                      if (val && /^\d{1,2}:\d{2}$/.test(val)) {
+                        setEndTime(addMinutesToTime(val, 510));
+                      }
+                    }}
                     placeholder="08:30"
                     inputMode="numeric"
                     className="appearance-none"
@@ -744,7 +751,7 @@ export function ShiftEditModal({
                     type="text"
                     value={endTime}
                     onChange={(e) => setEndTime(e.target.value)}
-                    placeholder="17:30"
+                    placeholder="17:00"
                     inputMode="numeric"
                     className="appearance-none"
                     style={{

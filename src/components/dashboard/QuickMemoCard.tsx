@@ -81,7 +81,7 @@ export const QuickMemoCard: React.FC = () => {
       setMemo("");
       try {
         localStorage.removeItem(STORAGE_KEY);
-      } catch (_) {
+      } catch {
         // 無視
       }
       setSaveStatus("saved");
@@ -124,7 +124,7 @@ export const QuickMemoCard: React.FC = () => {
           onClick={handleSaveToNotes}
           disabled={!memo.trim() || noteSaveStatus === "saving"}
           className={[
-            "appearance-none inline-flex items-center gap-1 px-2 py-1 rounded-lg",
+            "appearance-none inline-flex items-center gap-1 px-2.5 py-1 rounded-lg",
             "text-[0.68rem] font-semibold transition-colors cursor-pointer border-none",
             noteSaveStatus === "done"
               ? "bg-emerald-500/15 text-emerald-700 dark:text-emerald-400"

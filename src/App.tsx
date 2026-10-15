@@ -12,6 +12,7 @@ import Recipes from "./components/recipes/Recipes";
 import Finance from "./components/finance/Finance";
 import SystemMaintenanceModal from "./components/maintenance/SystemMaintenanceModal";
 import ThemeModal from "./components/ThemeModal";
+import ArcaLogo from "./components/common/ArcaLogo";
 import { C } from "./lib/designSystem";
 import { logoutUser } from "./components/AuthGate";
 import { getSavedToken, syncAllGoogleData } from "./services/googleAuth";
@@ -297,6 +298,7 @@ function NavBar({
         left: 0,
         right: 0,
         zIndex: 100,
+        overflow: "hidden",
         height: isIPhone
           ? "calc(52px + env(safe-area-inset-top, 0px))"
           : isMobile
@@ -305,7 +307,7 @@ function NavBar({
         transition: "height 0.2s ease",
       }}
     >
-      {/* ─── すりガラス背景専用レイヤー（GPUラスタライズ巻き込み防止） ─── */}
+      {/* ─── すりガラス背景専用レイヤー（GPUラスタライズ巻き込み防止 ＆ 境界クリップ） ─── */}
       <div
         aria-hidden="true"
         style={{
@@ -371,7 +373,7 @@ function NavBar({
           style={{
             display: "flex",
             alignItems: "center",
-            gap: "0.5rem",
+            gap: "0.55rem",
             cursor: "pointer",
             userSelect: "none",
             WebkitUserSelect: "none",
@@ -386,36 +388,22 @@ function NavBar({
               : "none",
           }}
         >
-          <img
-            src="/Arca_logo.png"
+          <ArcaLogo
+            variant="symbol"
+            size={isMobile || isIPhone ? 20 : 23}
+            alt="Arca Icon"
+          />
+          <ArcaLogo
+            variant="wordmark"
+            height={isMobile || isIPhone ? 16 : 19}
             alt="Arca"
-            draggable={false}
-            className="select-none touch-none pointer-events-none [-webkit-touch-callout:none]"
-            style={{
-              width: "24px",
-              height: "24px",
-              borderRadius: "6px",
-              boxShadow: "0 1px 3px rgba(0, 0, 0, 0.08)",
-              objectFit: "cover",
-              userSelect: "none",
-              WebkitUserSelect: "none",
-              WebkitTouchCallout: "none",
-              touchAction: "none",
-              pointerEvents: "none",
-            }}
           />
           <span
-            className="select-none pointer-events-none font-logo"
+            className="sr-only select-none pointer-events-none font-logo"
             style={{
               fontFamily: "var(--font-logo)",
-              fontSize: "1.18rem",
-              fontWeight: 650,
-              letterSpacing: "0.03em",
-              color: C.gold,
-              userSelect: "none",
-              WebkitUserSelect: "none",
-              pointerEvents: "none",
-              lineHeight: 1,
+              fontSize: "0px",
+              lineHeight: 0,
             }}
           >
             Arca
@@ -978,6 +966,75 @@ function App() {
         ["--bottom-tab-height" as any]: isIPhone ? "58px" : "0px",
       }}
     >
+      {/* ─── 画面全体の超淡色プリズム光漏れ演出（Light Leak Layer） ─── */}
+      <div
+        aria-hidden="true"
+        className="arca-prism-light-leak fixed inset-0 pointer-events-none overflow-hidden z-0 select-none"
+        style={{ transform: "translateZ(0)" }}
+      >
+        {/* 左上: Ice Blue グロー (径の大きい radial-gradient で自然な光芒、CPU/GPUブラー巻き込み完全防止) */}
+        <div
+          style={{
+            position: "absolute",
+            top: "-10vw",
+            left: "-10vw",
+            width: "55vw",
+            height: "55vw",
+            borderRadius: "50%",
+            background: "radial-gradient(circle, rgba(138, 194, 221, 0.14) 0%, rgba(138, 194, 221, 0.08) 35%, rgba(138, 194, 221, 0.03) 60%, transparent 75%)",
+            pointerEvents: "none",
+          }}
+        />
+        {/* 右上: Aqua Aurora グロー (径の大きい radial-gradient で自然な光芒) */}
+        <div
+          style={{
+            position: "absolute",
+            top: "-8vw",
+            right: "-8vw",
+            width: "50vw",
+            height: "50vw",
+            borderRadius: "50%",
+            background: "radial-gradient(circle, rgba(165, 243, 252, 0.12) 0%, rgba(165, 243, 252, 0.07) 35%, rgba(165, 243, 252, 0.02) 60%, transparent 75%)",
+            pointerEvents: "none",
+          }}
+        />
+        {/* 右下: Soft Lavender グロー (径の大きい radial-gradient で自然な光芒) */}
+        <div
+          style={{
+            position: "absolute",
+            bottom: "-12vw",
+            right: "-12vw",
+            width: "60vw",
+            height: "60vw",
+            borderRadius: "50%",
+            background: "radial-gradient(circle, rgba(224, 231, 255, 0.15) 0%, rgba(224, 231, 255, 0.08) 35%, rgba(224, 231, 255, 0.03) 60%, transparent 75%)",
+            pointerEvents: "none",
+          }}
+        />
+        {/* 左下: Rose Petal グロー (径の大きい radial-gradient で自然な光芒) */}
+        <div
+          style={{
+            position: "absolute",
+            bottom: "-10vw",
+            left: "-10vw",
+            width: "52vw",
+            height: "52vw",
+            borderRadius: "50%",
+            background: "radial-gradient(circle, rgba(252, 231, 243, 0.12) 0%, rgba(252, 231, 243, 0.07) 35%, rgba(252, 231, 243, 0.02) 60%, transparent 75%)",
+            pointerEvents: "none",
+          }}
+        />
+        {/* 全体偏光: 水晶グラデーション（透明感と上品な光彩レイヤー） */}
+        <div
+          style={{
+            position: "absolute",
+            inset: 0,
+            background: "linear-gradient(135deg, rgba(138, 194, 221, 0.08) 0%, rgba(165, 243, 252, 0.05) 35%, rgba(224, 231, 255, 0.08) 70%, rgba(252, 231, 243, 0.05) 100%)",
+            pointerEvents: "none",
+          }}
+        />
+      </div>
+
       {/* ナビゲーションバー (モバイル・iPhoneのレシピ詳細/ノートページ閲覧画面では非表示) */}
       {!isFullscreenDetailMobile && (
         <NavBar

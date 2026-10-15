@@ -14,7 +14,7 @@ import { useState, useEffect, useRef } from "react";
 import type { ShiftInfo, ShiftOverride } from "../../types/shift";
 import type { CalendarEvent, SyncStatus } from "../../types";
 import { WORK_SHIFT_KEYWORDS, resolveShiftInfo } from "../../services/pmCycleService";
-import { resolveShiftTimes } from "../../services/googleCalendarSync";
+import { resolveShiftTimes, addMinutesToTime } from "../../services/googleCalendarSync";
 import { C } from "../../lib/designSystem";
 import { MoonIcon, SunIcon } from "./ShiftBadge";
 import { Clock, AlertCircle, Calendar as CalendarIcon, Check } from "lucide-react";
@@ -61,7 +61,7 @@ export function ShiftOverrideModal({
 
   // 勤務時間（Googleカレンダー連携用）
   const [startTime, setStartTime] = useState<string>("06:00");
-  const [endTime, setEndTime] = useState<string>("15:00");
+  const [endTime, setEndTime] = useState<string>("14:30");
 
   // 誤タップ防止用 確認ポップアップステート ("apply" | "reset" | null)
   const [confirmAction, setConfirmAction] = useState<"apply" | "reset" | null>(null);
@@ -583,7 +583,13 @@ export function ShiftOverrideModal({
                   <input
                     type="time"
                     value={startTime}
-                    onChange={(e) => setStartTime(e.target.value)}
+                    onChange={(e) => {
+                      const val = e.target.value;
+                      setStartTime(val);
+                      if (val) {
+                        setEndTime(addMinutesToTime(val, 510));
+                      }
+                    }}
                     style={{
                       border: "none",
                       background: "var(--bg-card-solid)",

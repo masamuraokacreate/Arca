@@ -11,7 +11,7 @@
 
 import React, { useEffect, useRef } from "react";
 import type { NoteItem } from "../../types";
-import { Edit3, Plus, FolderInput, Trash2, Smile, ArrowUp, ArrowDown } from "lucide-react";
+import { Edit3, Plus, FolderInput, FolderRoot, Trash2, Smile, ArrowUp, ArrowDown } from "lucide-react";
 
 export interface NoteContextMenuProps {
   x: number;
@@ -22,6 +22,7 @@ export interface NoteContextMenuProps {
   onChangeIcon?: (note: NoteItem) => void;
   onCreateChild: (noteId: string) => void;
   onMove: (note: NoteItem) => void;
+  onUnsetParent?: (note: NoteItem) => void;
   onMoveUp?: (note: NoteItem) => void;
   onMoveDown?: (note: NoteItem) => void;
   canMoveUp?: boolean;
@@ -38,6 +39,7 @@ export const NoteContextMenu: React.FC<NoteContextMenuProps> = ({
   onChangeIcon,
   onCreateChild,
   onMove,
+  onUnsetParent,
   onMoveUp,
   onMoveDown,
   canMoveUp = false,
@@ -147,7 +149,7 @@ export const NoteContextMenu: React.FC<NoteContextMenuProps> = ({
         <span>子ページを作成</span>
       </button>
 
-      {/* メニューアイテム: 移動 */}
+      {/* メニューアイテム: 移動... */}
       <button
         type="button"
         role="menuitem"
@@ -160,6 +162,22 @@ export const NoteContextMenu: React.FC<NoteContextMenuProps> = ({
         <FolderInput size={14} className="text-charcoal-light shrink-0" />
         <span>移動...</span>
       </button>
+
+      {/* メニューアイテム: 子ページ化を解除（トップ階層へ移動） */}
+      {Boolean(note.parentId) && onUnsetParent && (
+        <button
+          type="button"
+          role="menuitem"
+          onClick={() => {
+            onUnsetParent(note);
+            onClose();
+          }}
+          className="w-full flex items-center gap-2.5 px-3 py-2 rounded-xl text-xs font-medium text-amber-800 dark:text-amber-300 hover:bg-amber-500/10 transition-colors cursor-pointer border-none bg-transparent text-left"
+        >
+          <FolderRoot size={14} className="text-[#B58D3D] shrink-0" />
+          <span>子ページを解除（トップ階層へ）</span>
+        </button>
+      )}
 
       {/* メニューアイテム: 上へ移動 */}
       {onMoveUp && canMoveUp && (

@@ -543,7 +543,7 @@ describe("Finance コンポーネント", () => {
     }
   });
 
-  it("アコーディオンを展開すると3大入力インジケーター（CSV照合、速報メール、レシート品目）および支払方法が表示される", async () => {
+  it("支出一覧でのCSV照合機能削除に伴い、アコーディオン内にCSV照合バッジが表示されず、速報メールやレシート入力状況が表示される", async () => {
     render(<Finance />);
 
     // 一覧カード表面には「Oliveカード」や「速報」「確認済」等のバッジは表示されていない
@@ -552,10 +552,11 @@ describe("Finance コンポーネント", () => {
     // カードをクリックしてアコーディオンを展開
     fireEvent.click(screen.getByText("イオンモール"));
 
-    // 展開エリアに支払方法および3大入力インジケーターが表示される
+    // 展開エリアに支払方法および入力インジケーターが表示される（CSV照合バッジは支出一覧から完全削除済み）
     const paymentMethodLabel = screen.getByText("支払方法:");
     expect(paymentMethodLabel.parentElement).toHaveTextContent("Oliveカード");
-    expect(screen.getByText("CSV照合済")).toBeInTheDocument();
+    expect(screen.queryByText("CSV照合済")).not.toBeInTheDocument();
+    expect(screen.queryByText("CSV未照合")).not.toBeInTheDocument();
     expect(screen.getByText("速報メール未連携")).toBeInTheDocument();
     expect(screen.getByText("レシート・手動入力")).toBeInTheDocument();
   });
@@ -580,5 +581,194 @@ describe("Finance コンポーネント", () => {
     await user.type(searchInput, "日用品");
     expect(screen.queryByText("イオンモール")).not.toBeInTheDocument();
     expect(screen.getByText("マツモトキヨシ")).toBeInTheDocument();
+  });
+
+  it("空データの場合: 当月に該当カードの明細が0件のとき、ステータスがtrueであっても安心インジケータに照合完了と誤表示されない", async () => {
+    // 2026-08には取引が一切ない（空データ）状態をモック
+    vi.spyOn(financeStorage, "subscribeExpenseTransactions").mockImplementation((cb) => {
+      cb([]);
+      return () => {};
+    });
+
+    render(<Finance />);
+
+    // 「CSV照合済みです」安心インジケータが表示されないこと
+    expect(screen.queryByText(/CSV照合済みです/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/全件確認完了/)).not.toBeInTheDocument();
+
+    // 詳細絞り込みを開いてバッジを確認
+    const filterBtn = screen.getByTitle("詳細絞り込み");
+    fireEvent.click(filterBtn);
+
+    // 空データのため、Oliveカードのバッジも「○」（未照合）となっていること
+    const oliveBadge = screen.getByTestId("reconcile-badge-Oliveカード");
+    expect(oliveBadge).toHaveTextContent("○");
+  });
+
+  it("未処理データがある場合: 当月に未照合明細が残っているとき、ステータスがtrueであっても安心インジケータに全件確認完了と表示されない", async () => {
+    // Oliveカードに未照合明細（isReconciled: false）が含まれる状態
+    const txWithUnreconciledOlive: ExpenseTransaction[] = [
+      {
+        id: "tx-olive-1",
+        date: "2026-08-10",
+        title: "セブンイレブン",
+        totalAmount: 1200,
+        category: "食料品",
+        paymentMethod: "Oliveカード",
+        items: [],
+        isReconciled: false, // 未照合
+        createdAt: "2026-08-10T10:00:00Z",
+        updatedAt: "2026-08-10T10:00:00Z",
+        isDeleted: false,
+      },
+    ];
+
+    vi.spyOn(financeStorage, "subscribeExpenseTransactions").mockImplementation((cb) => {
+      cb(txWithUnreconciledOlive);
+      return () => {};
+    });
+
+    render(<Finance />);
+
+    // 未照合明細が残っているため、「全件確認完了」安心インジケータは表示されないこと
+    expect(screen.queryByText(/CSV照合済みです/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/全件確認完了/)).not.toBeInTheDocument();
+
+    // 詳細絞り込みを開いてバッジを確認
+    const filterBtn = screen.getByTitle("詳細絞り込み");
+    fireEvent.click(filterBtn);
+
+    // 未処理データがあるため、Oliveカードのバッジは「○」（未照合）となっていること
+    const oliveBadge = screen.getByTestId("reconcile-badge-Oliveカード");
+    expect(oliveBadge).toHaveTextContent("○");
+  });
+
+  it("支出一覧でのCSV照合機能削除に伴い、matchedCsvRowIdの有無にかかわらず支出一覧にCSV照合バッジが表示されない", async () => {
+    const txWithCsvRowIdUnreconciled: ExpenseTransaction[] = [
+      {
+        id: "tx-unreconciled-with-csvid",
+        date: "2026-08-10",
+        title: "カフェベローチェ",
+        totalAmount: 480,
+        category: "外食",
+        paymentMethod: "Oliveカード",
+        items: [],
+        isReconciled: false, // 未照合
+        matchedCsvRowId: "csv-row-999", // matchedCsvRowIdは存在する
+        createdAt: "2026-08-10T10:00:00Z",
+        updatedAt: "2026-08-10T10:00:00Z",
+        isDeleted: false,
+      },
+    ];
+
+    vi.spyOn(financeStorage, "subscribeExpenseTransactions").mockImplementation((cb) => {
+      cb(txWithCsvRowIdUnreconciled);
+      return () => {};
+    });
+
+    render(<Finance />);
+
+    // アコーディオンを展開
+    fireEvent.click(screen.getByText("カフェベローチェ"));
+
+    // 支出一覧からはCSV照合バッジ（CSV未照合 / CSV照合済）が完全に排除されていること
+    expect(screen.queryByText("CSV未照合")).not.toBeInTheDocument();
+    expect(screen.queryByText("CSV照合済")).not.toBeInTheDocument();
+  });
+
+  it("CSV明細から支出を作成したときの初期ステータスが未照合（isReconciled: false）で初期化される", async () => {
+    render(<Finance />);
+
+    // 「クレカ明細確認」タブを開く
+    const reconcileTabBtn = screen.getByText(/クレカ明細確認/);
+    fireEvent.click(reconcileTabBtn);
+
+    // テキスト貼り付けアコーディオンを開いてパース
+    const detailsSummary = screen.getByText("CSVテキストを直接貼り付けて読み込む");
+    fireEvent.click(detailsSummary);
+
+    const textarea = screen.getByPlaceholderText(/利用日,利用店名,利用金額/);
+    fireEvent.change(textarea, {
+      target: { value: "利用日,利用店名・商品名,利用金額,支払区分\n2026/08/12,スターバックス,650,1回払い" },
+    });
+
+    const parseBtn = screen.getByText("明細を解析する");
+    fireEvent.click(parseBtn);
+
+    // 「+ この明細から支出を作成」ボタンが表示される
+    const createBtn = screen.getByText("+ この明細から支出を作成");
+    fireEvent.click(createBtn);
+
+    // 支出登録モーダルが開き、店舗名が反映されていることを確認
+    expect(screen.getByRole("heading", { name: "支出を編集" })).toBeInTheDocument();
+    const titleInput = screen.getByDisplayValue("スターバックス");
+    expect(titleInput).toBeInTheDocument();
+
+    // モーダルを保存
+    const createSpy = vi.spyOn(financeStorage, "createExpenseTransaction").mockResolvedValue("new-created-id");
+    const saveBtn = screen.getByRole("button", { name: "変更を保存" });
+    fireEvent.click(saveBtn);
+
+    await waitFor(() => {
+      expect(createSpy).toHaveBeenCalledWith(
+        expect.objectContaining({
+          title: "スターバックス",
+          totalAmount: 650,
+          isReconciled: false, // 初期ステータスが未照合（false）であること！
+          matchedCsvRowId: "",
+        })
+      );
+    });
+  });
+
+  it("クレカ明細確認ページで日付と名前がヒットした明細には登録ボタンが表示されず、未ヒットの明細のみ支出一覧に登録できる", async () => {
+    const createSpy = vi.spyOn(financeStorage, "createExpenseTransaction").mockResolvedValue("registered-id");
+
+    render(<Finance />);
+
+    // 「クレカ明細確認」タブを開く
+    const reconcileTabBtn = screen.getByText(/クレカ明細確認/);
+    fireEvent.click(reconcileTabBtn);
+
+    // テキスト貼り付けアコーディオンを開く
+    const detailsSummary = screen.getByText("CSVテキストを直接貼り付けて読み込む");
+    fireEvent.click(detailsSummary);
+
+    // 1行目は既存取引（イオンモール、2026/08/10、5400円）と同日同名でヒット
+    // 2行目は未登録（ドトールコーヒー、2026/08/18、450円）
+    const textarea = screen.getByPlaceholderText(/利用日,利用店名,利用金額/);
+    fireEvent.change(textarea, {
+      target: {
+        value: "利用日,利用店名・商品名,利用金額,支払区分\n2026/08/10,イオンモール,5400,1回払い\n2026/08/18,ドトールコーヒー,450,1回払い",
+      },
+    });
+
+    const parseBtn = screen.getByText("明細を解析する");
+    fireEvent.click(parseBtn);
+
+    // 1行目: 既に支出一覧に存在するため「登録済み」となり、登録ボタンは非表示
+    expect(screen.getByText("100% 完全一致（支出一覧に登録済み）")).toBeInTheDocument();
+    expect(screen.getByText("✓ 登録済み（重複登録防止のため登録不可）")).toBeInTheDocument();
+
+    // 2行目: 支出一覧に未登録のため、自動推論された分類「外食」とともに登録ボタンが表示される
+    expect(screen.getByText("支出一覧に未登録")).toBeInTheDocument();
+    expect(screen.getByText("自動推論分類: 外食")).toBeInTheDocument();
+
+    const registerBtn = screen.getByRole("button", { name: /\+ 支出一覧に登録（外食）/ });
+    expect(registerBtn).toBeInTheDocument();
+
+    // 登録ボタンをクリックすると、支出一覧への登録が実行される
+    fireEvent.click(registerBtn);
+
+    await waitFor(() => {
+      expect(createSpy).toHaveBeenCalledWith(
+        expect.objectContaining({
+          title: "ドトールコーヒー",
+          totalAmount: 450,
+          category: "外食", // 自動推論されたカテゴリ
+          isReconciled: true,
+        })
+      );
+    });
   });
 });

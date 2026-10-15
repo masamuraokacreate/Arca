@@ -45,15 +45,15 @@ export const DashboardTasksCard: React.FC<DashboardTasksCardProps> = ({
   const cycleDates = new Set(cycleRange?.days.map((d) => d.date) || []);
   const hasToday = cycleRange ? cycleRange.days.some((d) => d.isToday) : true;
 
-  // デイカードに表示されていない「マイタスク」（期限が今シフト中ではないその他のタスク）
+  // デイカードに表示されていない「マイタスク」（期限が今サイクル外のタスク、または期限なしタスク）
   const otherTasks = tasks
     .filter((t) => {
       if (t.completed) return false;
       // マイタスク（defaultリストまたはlistId未設定）のみ
       if (t.listId && t.listId !== "default") return false;
-      // デイカードに表示される条件に該当するタスクを除外
+      // デイカードに表示される条件（今サイクル内の期日、または今日における過去の期限超過タスク）に該当するタスクを除外
       if (t.dueDate && cycleDates.has(t.dueDate)) return false;
-      if (hasToday && (!t.dueDate || t.dueDate < todayStr)) return false;
+      if (hasToday && t.dueDate && t.dueDate < todayStr) return false;
       return true;
     })
     .sort((a, b) => {
@@ -91,7 +91,7 @@ export const DashboardTasksCard: React.FC<DashboardTasksCardProps> = ({
   return (
     <div
       data-testid="dashboard-tasks-card"
-      className="bg-white dark:bg-[var(--bg-card-solid)] rounded-2xl p-4 sm:p-5 shadow-xs flex flex-col h-full overflow-hidden border-none"
+      className="bg-white dark:bg-[var(--bg-card-solid)] rounded-2xl p-4 sm:p-5 shadow-xs flex flex-col h-full overflow-hidden border-none transition-all"
       style={{
         boxShadow: "0 2px 10px rgba(0, 0, 0, 0.025), 0 1px 3px rgba(0, 0, 0, 0.02)",
       }}
@@ -100,10 +100,10 @@ export const DashboardTasksCard: React.FC<DashboardTasksCardProps> = ({
       <div className="flex items-center justify-between h-7 mb-3 pb-2 border-b border-stone-100 dark:border-stone-700/60 shrink-0">
         <div className="flex items-center gap-2">
           <CheckSquare size={16} className="text-amber-700 dark:text-amber-400 shrink-0" />
-          <span className="text-sm font-bold text-stone-800 dark:text-stone-100 tracking-tight">
+          <span className="text-sm font-semibold text-stone-800 dark:text-stone-100 tracking-tight">
             その他のタスク
           </span>
-          <span className="text-xs font-semibold text-stone-500 dark:text-stone-400">
+          <span className="text-xs font-semibold text-stone-400 dark:text-stone-400">
             ({otherTasks.length})
           </span>
         </div>
@@ -142,7 +142,7 @@ export const DashboardTasksCard: React.FC<DashboardTasksCardProps> = ({
               return (
                 <li
                   key={t.id}
-                  className="flex items-center justify-between gap-2 p-1.5 rounded-xl hover:bg-black/[0.02] dark:hover:bg-white/[0.04] transition-colors group/item"
+                  className="flex items-center justify-between gap-2 p-1.5 rounded-xl hover:bg-[#F9F7F4] dark:hover:bg-white/[0.04] transition-colors group/item"
                 >
                   <div className="flex items-center gap-2 min-w-0 flex-1">
                     <button
@@ -151,7 +151,7 @@ export const DashboardTasksCard: React.FC<DashboardTasksCardProps> = ({
                         e.stopPropagation();
                         onToggleTask?.(t.id, t.completed);
                       }}
-                      className="bg-transparent border-none p-0 cursor-pointer text-stone-400 hover:text-amber-600 dark:hover:text-amber-400 transition-colors shrink-0"
+                      className="bg-transparent border-none p-0 cursor-pointer text-stone-400 hover:text-stone-600 dark:hover:text-stone-200 transition-colors shrink-0"
                       title={t.completed ? "未完了に戻す" : "完了にする"}
                     >
                       {t.completed ? (
@@ -176,10 +176,10 @@ export const DashboardTasksCard: React.FC<DashboardTasksCardProps> = ({
                     <span
                       className={`text-[0.65rem] font-semibold px-1.5 py-0.5 rounded shrink-0 ${
                         isOverdue
-                          ? "bg-rose-500/10 text-rose-600 dark:bg-rose-400/20 dark:text-rose-300"
+                          ? "bg-rose-50 text-rose-700 dark:bg-rose-400/20 dark:text-rose-300"
                           : isDueToday
                           ? "bg-amber-500/15 text-amber-800 dark:bg-amber-400/25 dark:text-amber-200"
-                          : "bg-black/[0.04] dark:bg-white/[0.06] text-stone-500 dark:text-stone-400"
+                          : "bg-stone-100 text-stone-600 dark:bg-white/10 dark:text-stone-300"
                       }`}
                     >
                       {isDueToday

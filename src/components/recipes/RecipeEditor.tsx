@@ -1454,7 +1454,7 @@ export function RecipeEditor({
               gap: "0.6rem",
             }}
           >
-            <label style={{ fontSize: "0.82rem", fontWeight: 700, color: C.goldDark, letterSpacing: "0.03em" }}>
+            <label style={{ fontSize: "0.82rem", fontWeight: 700, color: "var(--accent-gold-dark, #8C6332)", letterSpacing: "0.03em" }}>
               Chef's Review（次回の改善点・知見・アレンジメモ）
             </label>
             <textarea

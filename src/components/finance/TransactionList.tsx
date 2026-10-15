@@ -23,7 +23,7 @@ interface TransactionListProps {
   onEdit: (tx: ExpenseTransaction) => void;
   onDuplicate: (tx: ExpenseTransaction) => void;
   onDelete: (tx: ExpenseTransaction) => void;
-  onToggleReconciled: (tx: ExpenseTransaction) => void;
+  onToggleReconciled?: (tx: ExpenseTransaction) => void;
   onMerge?: (targetTx: ExpenseTransaction, sourceTx: ExpenseTransaction) => void;
   onOpenMergeModal?: (manualOrOcrTx: ExpenseTransaction, emailTx: ExpenseTransaction) => void;
 }
@@ -33,7 +33,6 @@ export function TransactionList({
   onEdit,
   onDuplicate,
   onDelete,
-  onToggleReconciled,
   onMerge,
   onOpenMergeModal,
 }: TransactionListProps) {
@@ -400,51 +399,9 @@ export function TransactionList({
                             )}
                           </div>
 
-                          {/* 3大入力インジケーター群 */}
+                          {/* 2大入力インジケーター群（速報メール・レシート） */}
                           <div style={{ display: "flex", alignItems: "center", gap: "0.4rem", flexWrap: "wrap" }}>
-                            {/* 1. クレジットカードCSV照合 */}
-                            {tx.matchedCsvRowId || tx.isReconciled ? (
-                              <span
-                                style={{
-                                  display: "inline-flex",
-                                  alignItems: "center",
-                                  gap: "0.25rem",
-                                  fontSize: "0.68rem",
-                                  fontWeight: 650,
-                                  color: "#2E7D32",
-                                  background: "rgba(46, 125, 50, 0.10)",
-                                  border: "1px solid rgba(46, 125, 50, 0.25)",
-                                  padding: "0.18rem 0.48rem",
-                                  borderRadius: "6px",
-                                }}
-                                title="クレジットカード明細CSVと照合済み"
-                              >
-                                <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3">
-                                  <polyline points="20 6 9 17 4 12" />
-                                </svg>
-                                <span>CSV照合済</span>
-                              </span>
-                            ) : (
-                              <span
-                                style={{
-                                  display: "inline-flex",
-                                  alignItems: "center",
-                                  gap: "0.25rem",
-                                  fontSize: "0.68rem",
-                                  fontWeight: 550,
-                                  color: C.charcoalLight,
-                                  background: "rgba(0, 0, 0, 0.04)",
-                                  border: "1px solid var(--border-subtle)",
-                                  padding: "0.18rem 0.48rem",
-                                  borderRadius: "6px",
-                                }}
-                                title="クレジットカード明細CSV未照合"
-                              >
-                                <span>CSV未照合</span>
-                              </span>
-                            )}
-
-                            {/* 2. 速報メール確認 */}
+                            {/* 1. 速報メール確認 */}
                             {tx.emailMessageId || tx.source === "email_notice" ? (
                               <span
                                 data-testid="email-notice-badge"
@@ -641,22 +598,6 @@ export function TransactionList({
                             paddingTop: "0.3rem",
                           }}
                         >
-                          <button
-                            onClick={() => onToggleReconciled(tx)}
-                            style={{
-                              background: "transparent",
-                              border: "1px solid rgba(0, 0, 0, 0.1)",
-                              borderRadius: "6px",
-                              padding: "0.3rem 0.6rem",
-                              fontSize: "0.72rem",
-                              fontWeight: 600,
-                              color: tx.isReconciled ? C.charcoalLight : "#2E7D32",
-                              cursor: "pointer",
-                            }}
-                          >
-                            {tx.isReconciled ? "CSV照合を解除" : "CSV照合済みにする"}
-                          </button>
-
                           {mergeCandidate && !tx.isReconciled && (onOpenMergeModal || onMerge) && (() => {
                             const txIsEmail = isEmailNotice(tx);
                             const candIsEmail = isEmailNotice(mergeCandidate);

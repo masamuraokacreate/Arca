@@ -1,13 +1,19 @@
 /**
  * src/lib/designSystem.ts
- * Arca — Apple HIG × Arca デザインシステムトークン
+ * Arca — 超淡色プリズム・ホワイト (Ultra Pale Prism White) × Apple HIG デザインシステムトークン
  * 
  * 準拠ガイドライン:
- * - references/apple_hig_master.md
+ * - カラー仕様書：超淡色プリズム・ホワイト
+ * - Apple Human Interface Guidelines (HIG)
  * - Core/Rules.md
  */
 
 export const C = {
+  // ── ① 背景・ベース（画面全体の90%以上） ──
+  baseWhite: "#FFFFFF",
+  backdropTint: "#F4F7F9",
+  backdropTintEnd: "#F9F9FB",
+
   // ── 背景グラデーション & サーフェス (Theme Adaptive) ──
   bgGrad: "var(--bg-grad, linear-gradient(155deg, #FAF8F5 0%, #F5F0E8 50%, #F0EAE0 100%))",
   bgApp: "var(--bg-base, #FAF8F5)",
@@ -43,6 +49,13 @@ export const C = {
   // ── 警告 / 削除 ──
   danger: "#C0614A",
   dangerFaint: "rgba(192, 97, 74, 0.08)",
+
+  // ── プリズムアクセント（プリズムテーマ用オプション） ──
+  iceBlue: "#8AC2DD",
+  aquaAurora: "#A5F3FC",
+  softLavender: "#E0E7FF",
+  rosePetal: "#FCE7F3",
+  prismGrad: "linear-gradient(135deg, rgba(138, 194, 221, 0.15) 0%, rgba(165, 243, 252, 0.1) 35%, rgba(224, 231, 255, 0.15) 70%, rgba(252, 231, 243, 0.1) 100%)",
 
   // ── 枠線なし・浮遊感のある柔らかなシャドウ (Theme Adaptive) ──
   cardShadow: "var(--shadow-card, 0 2px 16px rgba(0, 0, 0, 0.04), 0 1px 2px rgba(0, 0, 0, 0.02))",

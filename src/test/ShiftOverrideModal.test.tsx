@@ -33,7 +33,7 @@ describe("ShiftOverrideModal", () => {
       title: "早番",
       date: "2026-10-05",
       startTime: "06:00",
-      endTime: "15:00",
+      endTime: "14:30",
       note: "",
       googleEventId: "gid-1",
       createdAt: null,
@@ -149,7 +149,7 @@ describe("ShiftOverrideModal", () => {
         },
         {
           startTime: "15:00",
-          endTime: "24:00",
+          endTime: "23:30",
         }
       );
     });

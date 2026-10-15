@@ -16,6 +16,7 @@ import {
   batchUpdateShiftEvents,
   resolveShiftTimes,
   applyShiftStatusToGoogleCalendar,
+  addMinutesToTime,
   GoogleCalendarApiError,
 } from "./googleCalendarSync";
 import {
@@ -50,6 +51,20 @@ describe("googleCalendarSync", () => {
     (setDoc as Mock).mockResolvedValue(undefined);
     (deleteDoc as Mock).mockResolvedValue(undefined);
     (updateDoc as Mock).mockResolvedValue(undefined);
+  });
+
+  describe("addMinutesToTime", () => {
+    it("開始時刻にデフォルト510分（8時間30分）を加算した終了時刻を正しく計算する", () => {
+      expect(addMinutesToTime("06:00")).toBe("14:30");
+      expect(addMinutesToTime("08:30")).toBe("17:00");
+      expect(addMinutesToTime("15:00")).toBe("23:30");
+      expect(addMinutesToTime("16:00")).toBe("00:30");
+    });
+
+    it("カスタム分数を加算できる", () => {
+      expect(addMinutesToTime("09:00", 60)).toBe("10:00");
+      expect(addMinutesToTime("23:30", 60)).toBe("00:30");
+    });
   });
 
   describe("parseGoogleEventDateTime", () => {
@@ -103,6 +118,40 @@ describe("googleCalendarSync", () => {
       expect(body.end.date).toBe("2026-08-22");
     });
 
+    it("23:30終了の遅番シフトの場合、終了日時が正しくISO変換され差分が8.5時間（510分）となる", () => {
+      const event = {
+        title: "遅番",
+        date: "2026-09-15",
+        startTime: "15:00",
+        endTime: "23:30",
+      };
+
+      const body = formatToGoogleEventBody(event);
+      const startDate = new Date(body.start.dateTime!);
+      const endDate = new Date(body.end.dateTime!);
+
+      expect(endDate.getTime()).toBeGreaterThan(startDate.getTime());
+      // 差分が8.5時間（510分 = 510 * 60 * 1000 ms）
+      expect(endDate.getTime() - startDate.getTime()).toBe(510 * 60 * 1000);
+    });
+
+    it("16:00〜00:30 の日跨ぎ遅番シフトの場合、終了日時が翌日00:30として正しくISO変換され差分が8.5時間となる", () => {
+      const event = {
+        title: "遅番",
+        date: "2026-09-15",
+        startTime: "16:00",
+        endTime: "00:30",
+      };
+
+      const body = formatToGoogleEventBody(event);
+      const startDate = new Date(body.start.dateTime!);
+      const endDate = new Date(body.end.dateTime!);
+
+      expect(endDate.getTime()).toBeGreaterThan(startDate.getTime());
+      // 差分が8.5時間（510分 = 510 * 60 * 1000 ms）
+      expect(endDate.getTime() - startDate.getTime()).toBe(510 * 60 * 1000);
+    });
+
     it("24:00終了の遅番シフトの場合、終了日時が翌日00:00として正しくISO変換される", () => {
       const event = {
         title: "遅番",
@@ -116,24 +165,6 @@ describe("googleCalendarSync", () => {
       const endDate = new Date(body.end.dateTime!);
 
       expect(endDate.getTime()).toBeGreaterThan(startDate.getTime());
-      // 差分が9時間（9 * 3600 * 1000 ms）
-      expect(endDate.getTime() - startDate.getTime()).toBe(9 * 3600 * 1000);
-    });
-
-    it("16:00〜01:00 の日跨ぎ遅番シフトの場合、終了日時が翌日01:00として正しくISO変換される", () => {
-      const event = {
-        title: "遅番",
-        date: "2026-09-15",
-        startTime: "16:00",
-        endTime: "01:00",
-      };
-
-      const body = formatToGoogleEventBody(event);
-      const startDate = new Date(body.start.dateTime!);
-      const endDate = new Date(body.end.dateTime!);
-
-      expect(endDate.getTime()).toBeGreaterThan(startDate.getTime());
-      // 差分が9時間（9 * 3600 * 1000 ms）
       expect(endDate.getTime() - startDate.getTime()).toBe(9 * 3600 * 1000);
     });
   });
@@ -549,7 +580,7 @@ describe("googleCalendarSync", () => {
           title: "早番",
           date: "2026-09-01",
           startTime: "06:00",
-          endTime: "15:00",
+          endTime: "14:30",
           note: "",
           googleEventId: "gid-1",
           createdAt: null,
@@ -559,7 +590,7 @@ describe("googleCalendarSync", () => {
           title: "早番",
           date: "2026-09-02",
           startTime: "06:00",
-          endTime: "15:00",
+          endTime: "14:30",
           note: "",
           googleEventId: "gid-2",
           createdAt: null,
@@ -572,7 +603,7 @@ describe("googleCalendarSync", () => {
         {
           title: "遅番",
           startTime: "15:00",
-          endTime: "24:00",
+          endTime: "23:30",
         },
         existingEvents
       );
@@ -580,6 +611,103 @@ describe("googleCalendarSync", () => {
       // Google Calendar API への PATCH が2回呼ばれること
       expect(globalThis.fetch).toHaveBeenCalledTimes(2);
       expect(updateDoc).toHaveBeenCalledTimes(2);
+    });
+
+    it("既存出勤イベントに googleEventId が未設定の場合、Google カレンダーに新規作成してIDを紐付ける", async () => {
+      globalThis.fetch = vi.fn().mockResolvedValue({
+        ok: true,
+        status: 200,
+        text: async () => JSON.stringify({ id: "new-gid-from-unlinked" }),
+      });
+
+      const existingEvents: CalendarEvent[] = [
+        {
+          id: "ev-unlinked",
+          title: "出勤",
+          date: "2026-09-05",
+          startTime: "06:00",
+          endTime: "14:30",
+          note: "",
+          googleEventId: undefined,
+          createdAt: null,
+        },
+      ];
+
+      await batchUpdateShiftEvents(
+        "mock-token",
+        ["2026-09-05"],
+        {
+          title: "遅番",
+          startTime: "15:00",
+          endTime: "23:30",
+        },
+        existingEvents
+      );
+
+      // Google Calendar API への POST（新規作成）が呼ばれること
+      expect(globalThis.fetch).toHaveBeenCalledTimes(1);
+      const fetchCall = (globalThis.fetch as Mock).mock.calls[0];
+      expect(fetchCall[1].method).toBe("POST");
+
+      // Firestore の updateDoc で googleEventId が紐付けられて更新されること
+      expect(updateDoc).toHaveBeenCalledWith(
+        "events/ev-unlinked",
+        expect.objectContaining({
+          title: "遅番",
+          startTime: "15:00",
+          endTime: "23:30",
+          googleEventId: "new-gid-from-unlinked",
+        })
+      );
+    });
+
+    it("既存イベントの更新時に 404 エラーとなった場合、新規作成へフォールバックしてIDを再紐付けする", async () => {
+      // 1回目 (PATCH) は 404、2回目 (POST fallback) は成功
+      globalThis.fetch = vi
+        .fn()
+        .mockResolvedValueOnce({
+          ok: false,
+          status: 404,
+          text: async () => JSON.stringify({ error: { message: "Not Found" } }),
+        })
+        .mockResolvedValueOnce({
+          ok: true,
+          status: 200,
+          text: async () => JSON.stringify({ id: "recreated-gid-404" }),
+        });
+
+      const existingEvents: CalendarEvent[] = [
+        {
+          id: "ev-404",
+          title: "出勤",
+          date: "2026-09-06",
+          startTime: "06:00",
+          endTime: "14:30",
+          note: "",
+          googleEventId: "deleted-gid",
+          createdAt: null,
+        },
+      ];
+
+      await batchUpdateShiftEvents(
+        "mock-token",
+        ["2026-09-06"],
+        {
+          title: "遅番",
+          startTime: "15:00",
+          endTime: "23:30",
+        },
+        existingEvents
+      );
+
+      // PATCH (404) -> POST (新規作成) で2回呼び出し
+      expect(globalThis.fetch).toHaveBeenCalledTimes(2);
+      expect(updateDoc).toHaveBeenCalledWith(
+        "events/ev-404",
+        expect.objectContaining({
+          googleEventId: "recreated-gid-404",
+        })
+      );
     });
 
     it("既存の出勤イベントが存在しない日には新規作成を行う", async () => {
@@ -595,7 +723,7 @@ describe("googleCalendarSync", () => {
         {
           title: "早番",
           startTime: "06:00",
-          endTime: "15:00",
+          endTime: "14:30",
         },
         []
       );
@@ -613,22 +741,34 @@ describe("googleCalendarSync", () => {
       expect(times).toEqual({ startTime: "07:00", endTime: "16:00" });
     });
 
-    it("早番キーワードから 06:00〜15:00 を導出する", () => {
+    it("早番キーワードから 06:00〜14:30 を導出する（8.5時間 / 510分）", () => {
       const times = resolveShiftTimes("早番(5時)");
       expect(times.startTime).toBe("06:00");
-      expect(times.endTime).toBe("15:00");
+      expect(times.endTime).toBe("14:30");
     });
 
-    it("遅番キーワードから 15:00〜24:00 を導出する", () => {
+    it("遅番キーワードから 15:00〜23:30 を導出する（8.5時間 / 510分）", () => {
       const times = resolveShiftTimes("遅番");
       expect(times.startTime).toBe("15:00");
-      expect(times.endTime).toBe("24:00");
+      expect(times.endTime).toBe("23:30");
     });
 
-    it("日勤キーワードから 08:30〜17:30 を導出する", () => {
+    it("遅番16キーワードから 16:00〜00:30 を導出する（8.5時間 / 510分）", () => {
+      const times = resolveShiftTimes("遅番16");
+      expect(times.startTime).toBe("16:00");
+      expect(times.endTime).toBe("00:30");
+    });
+
+    it("日勤キーワードから 08:30〜17:00 を導出する（8.5時間 / 510分）", () => {
       const times = resolveShiftTimes("日勤");
       expect(times.startTime).toBe("08:30");
-      expect(times.endTime).toBe("17:30");
+      expect(times.endTime).toBe("17:00");
+    });
+
+    it("userStart のみ指定された場合、自動で +510分（8.5時間）の終了時刻を導出する", () => {
+      const times = resolveShiftTimes(undefined, "07:00");
+      expect(times.startTime).toBe("07:00");
+      expect(times.endTime).toBe("15:30");
     });
   });
 

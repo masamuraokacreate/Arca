@@ -75,16 +75,17 @@ export const CycleDayCard: React.FC<CycleDayCardProps> = ({
       <div
         data-testid={`cycle-day-card-${day.date}`}
         data-selected="true"
-        className="flex-[2] min-w-[270px] sm:min-w-[280px] h-full bg-[#FFFDFB] dark:bg-[var(--bg-card-solid)] rounded-2xl p-4 shadow-md ring-1 ring-amber-500/25 flex flex-col transition-all duration-300 ease-out overflow-hidden select-none border-none snap-center"
+        className="cycle-day-card-focused flex-[2] min-w-[270px] sm:min-w-[280px] h-full bg-white dark:bg-[var(--bg-card-solid)] rounded-2xl p-4 ring-1.5 ring-amber-500/40 dark:ring-amber-400/30 flex flex-col transition-all duration-300 ease-out overflow-hidden select-none snap-center"
         style={{
-          boxShadow: "0 4px 16px rgba(0, 0, 0, 0.04), 0 1px 3px rgba(0, 0, 0, 0.03)",
+          boxShadow:
+            "0 8px 24px -4px rgba(197, 160, 89, 0.15), 0 2px 6px rgba(0, 0, 0, 0.04)",
         }}
       >
         {/* ─── ヘッダー: 日付 ＆ 前後日切替「＜ ＞」 ＆ シフトバッジ ─── */}
-        <div className="flex items-center justify-between gap-2 pb-2.5 border-b border-stone-100 dark:border-stone-700/60 shrink-0">
+        <div className="flex items-center justify-between gap-2 pb-2.5 border-b border-slate-100 dark:border-stone-700/60 shrink-0">
           <div className="flex items-center gap-1.5 sm:gap-2">
             <div className="flex items-baseline gap-1.5">
-              <span className="text-base font-bold text-stone-800 dark:text-stone-100 tracking-tight">
+              <span className="text-base font-bold text-[#0F172A] dark:text-stone-100 tracking-tight">
                 {String(day.month).padStart(2, "0")}/{String(day.dayOfMonth).padStart(2, "0")}
               </span>
               <span
@@ -93,7 +94,7 @@ export const CycleDayCard: React.FC<CycleDayCardProps> = ({
                     ? "text-rose-500"
                     : day.dayOfWeek === "土"
                     ? "text-sky-600"
-                    : "text-stone-500 dark:text-stone-400"
+                    : "text-[#64748B] dark:text-stone-400"
                 }`}
               >
                 ({day.dayOfWeek})
@@ -101,22 +102,26 @@ export const CycleDayCard: React.FC<CycleDayCardProps> = ({
             </div>
 
             {day.isToday && (
-              <span className="text-[0.65rem] font-bold px-1.5 py-0.5 rounded-full bg-amber-500/15 text-amber-800 dark:text-amber-300 leading-none">
+              <span className="cycle-today-badge inline-flex items-center text-xs font-semibold px-2 py-0.5 rounded-full bg-amber-500/10 text-amber-800 dark:bg-amber-400/25 dark:text-amber-200 leading-none">
                 今日
               </span>
             )}
           </div>
 
           <div className="flex items-center gap-2 shrink-0">
-            {/* シフトバッジ */}
+            {/* シフトバッジ (出勤: アンバー系 / 休日: ピンク系) */}
             <span
-              className={`inline-flex items-center gap-1 text-[0.7rem] font-semibold px-2 py-0.5 rounded-full leading-tight transition-colors ${
+              className={`inline-flex items-center gap-1 text-xs font-medium px-2.5 py-0.5 rounded-full leading-tight transition-colors ${
                 isWork
                   ? "bg-amber-500/10 text-amber-800 dark:bg-amber-400/25 dark:text-amber-200"
-                  : "bg-teal-500/10 text-teal-800 dark:bg-teal-400/25 dark:text-teal-200"
+                  : "bg-pink-100/70 text-pink-700 border border-pink-200/50 dark:bg-pink-950/40 dark:text-pink-300 dark:border-pink-800/40"
               }`}
             >
-              {isWork ? <Sun size={11} className="shrink-0 text-amber-600 dark:text-amber-300" /> : <Moon size={11} className="shrink-0 text-teal-600 dark:text-teal-300" />}
+              {isWork ? (
+                <Sun size={11} className="shrink-0 text-amber-600 dark:text-amber-300" />
+              ) : (
+                <Moon size={11} className="shrink-0 text-pink-500 dark:text-pink-300" />
+              )}
               <span>{shiftLabel}</span>
             </span>
           </div>
@@ -129,17 +134,17 @@ export const CycleDayCard: React.FC<CycleDayCardProps> = ({
             <div className="flex items-center justify-between mb-1.5">
               <div className="flex items-center gap-1.5">
                 <CalendarIcon size={13} className="text-amber-700 dark:text-amber-400 shrink-0" />
-                <span className="text-xs font-bold text-stone-700 dark:text-stone-300 tracking-tight">
+                <span className="text-xs font-semibold text-[#334155] dark:text-stone-300 tracking-tight">
                   予定
                 </span>
-                <span className="text-[0.68rem] text-stone-400 font-medium">
+                <span className="text-[0.68rem] text-[#64748B] font-medium">
                   ({events.length})
                 </span>
               </div>
               <button
                 type="button"
                 onClick={() => onAddEvent(day.date)}
-                className="appearance-none inline-flex items-center gap-0.5 text-[0.7rem] font-semibold text-amber-700 dark:text-amber-400 hover:text-amber-800 transition-colors cursor-pointer bg-transparent border-none p-0"
+                className="appearance-none inline-flex items-center gap-0.5 text-[0.7rem] font-semibold text-amber-700 hover:text-amber-800 dark:text-amber-400 dark:hover:text-amber-300 transition-colors cursor-pointer bg-transparent border-none p-0"
               >
                 <Plus size={11} strokeWidth={2.5} />
                 <span>追加</span>
@@ -149,21 +154,21 @@ export const CycleDayCard: React.FC<CycleDayCardProps> = ({
             {/* 予定リスト（最大2〜3件スクロール） */}
             <div data-testid="cycle-day-events-list" className="max-h-[72px] overflow-y-auto no-scrollbar space-y-1">
               {events.length === 0 ? (
-                <div className="py-1 px-1 text-stone-400 dark:text-stone-500 text-[0.72rem]">
+                <div className="py-1 px-1 text-[#94A3B8] dark:text-stone-500 text-[0.72rem]">
                   <span>予定なし</span>
                 </div>
               ) : (
                 events.map((e) => (
                   <div
                     key={e.id}
-                    className="flex items-center gap-1.5 px-1.5 py-0.5 rounded-md hover:bg-stone-50 dark:hover:bg-stone-700/50 transition-colors text-xs"
+                    className="flex items-center gap-1.5 px-1.5 py-0.5 rounded-md hover:bg-white/60 dark:hover:bg-stone-700/50 transition-colors text-xs"
                   >
                     {e.startTime && (
-                      <span className="text-[0.65rem] font-mono font-medium px-1 py-0.2 rounded bg-stone-100 dark:bg-stone-700 text-stone-600 dark:text-stone-300 shrink-0">
+                      <span className="text-[0.65rem] font-mono font-medium px-1 py-0.2 rounded bg-amber-500/10 text-amber-800 dark:bg-stone-700 dark:text-stone-300 shrink-0">
                         {e.startTime}
                       </span>
                     )}
-                    <span className="text-stone-800 dark:text-stone-200 truncate flex-1">
+                    <span className="text-[#475569] dark:text-stone-200 truncate flex-1 font-medium">
                       {e.title}
                     </span>
                   </div>
@@ -173,14 +178,14 @@ export const CycleDayCard: React.FC<CycleDayCardProps> = ({
           </div>
 
           {/* 下段: 今日のToDoブロック */}
-          <div className="flex-1 flex flex-col min-h-0 pt-2 border-t border-stone-100 dark:border-stone-700/60">
+          <div className="flex-1 flex flex-col min-h-0 pt-2 border-t border-slate-100 dark:border-stone-700/60">
             <div className="flex items-center justify-between mb-1.5 shrink-0">
               <div className="flex items-center gap-1.5">
                 <CheckSquare size={13} className="text-amber-700 dark:text-amber-400 shrink-0" />
-                <span className="text-xs font-bold text-stone-700 dark:text-stone-300 tracking-tight">
+                <span className="text-xs font-semibold text-[#334155] dark:text-stone-300 tracking-tight">
                   今日のToDo
                 </span>
-                <span className="text-[0.68rem] text-stone-400 font-medium">
+                <span className="text-[0.68rem] text-[#64748B] font-medium">
                   ({uncompletedTasks.length})
                 </span>
               </div>
@@ -189,14 +194,14 @@ export const CycleDayCard: React.FC<CycleDayCardProps> = ({
             {/* ToDoリストスクロール領域 */}
             <div className="flex-1 overflow-y-auto no-scrollbar space-y-1 pr-0.5">
               {tasks.length === 0 ? (
-                <div className="h-full flex items-center justify-center text-[0.72rem] text-stone-400 py-2">
+                <div className="h-full flex items-center justify-center text-[0.72rem] text-[#94A3B8] dark:text-stone-400 py-2">
                   タスクはありません
                 </div>
               ) : (
                 tasks.map((task) => (
                   <div
                     key={task.id}
-                    className="group/task flex items-center gap-2 px-1.5 py-1 rounded-lg hover:bg-[#F9F7F4] dark:hover:bg-stone-700/50 transition-colors"
+                    className="group/task flex items-center gap-2 px-1.5 py-1 rounded-lg hover:bg-white/60 dark:hover:bg-stone-700/50 transition-colors"
                   >
                     <button
                       type="button"
@@ -204,7 +209,7 @@ export const CycleDayCard: React.FC<CycleDayCardProps> = ({
                         e.stopPropagation();
                         onToggleTask(task.id, task.completed);
                       }}
-                      className="appearance-none cursor-pointer bg-transparent border-none p-0 text-stone-400 hover:text-amber-600 dark:hover:text-amber-400 transition-colors shrink-0"
+                      className="appearance-none cursor-pointer bg-transparent border-none p-0 text-[#64748B] hover:text-amber-700 dark:hover:text-amber-400 transition-colors shrink-0"
                     >
                       {task.completed ? (
                         <CheckCircle2 size={13} className="text-emerald-600 dark:text-emerald-400" />
@@ -216,7 +221,7 @@ export const CycleDayCard: React.FC<CycleDayCardProps> = ({
                       className={`text-xs truncate transition-all ${
                         task.completed
                           ? "line-through text-stone-400 dark:text-stone-500 opacity-60"
-                          : "text-stone-700 dark:text-stone-200"
+                          : "text-stone-700 dark:text-stone-200 font-medium"
                       }`}
                     >
                       {task.title}
@@ -283,7 +288,7 @@ export const CycleDayCard: React.FC<CycleDayCardProps> = ({
             </span>
           </div>
           {day.isToday && (
-            <span className="text-[0.62rem] font-bold px-1.5 py-0.5 rounded-full bg-amber-500/15 text-amber-800 dark:text-amber-300 leading-none">
+            <span className="text-[0.62rem] font-bold px-1.5 py-0.5 rounded-full bg-amber-500/10 text-amber-800 dark:bg-amber-400/25 dark:text-amber-200 leading-none">
               今日
             </span>
           )}
@@ -294,10 +299,10 @@ export const CycleDayCard: React.FC<CycleDayCardProps> = ({
             className={`inline-flex items-center gap-1 text-[0.68rem] font-semibold px-1.5 py-0.5 rounded-md leading-tight transition-colors ${
               isWork
                 ? "bg-amber-500/10 text-amber-800 dark:bg-amber-400/25 dark:text-amber-200"
-                : "bg-teal-500/10 text-teal-800 dark:bg-teal-400/25 dark:text-teal-200"
+                : "bg-pink-100/70 text-pink-700 border border-pink-200/50 dark:bg-pink-950/40 dark:text-pink-300 dark:border-pink-800/40"
             }`}
           >
-            {isWork ? <Sun size={10} className="shrink-0 text-amber-600 dark:text-amber-300" /> : <Moon size={10} className="shrink-0 text-teal-600 dark:text-teal-300" />}
+            {isWork ? <Sun size={10} className="shrink-0 text-amber-600 dark:text-amber-300" /> : <Moon size={10} className="shrink-0 text-pink-500 dark:text-pink-300" />}
             <span className="truncate">{shiftLabel}</span>
           </span>
         </div>

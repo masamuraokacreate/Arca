@@ -5,8 +5,8 @@
 
 import React, { createContext, useContext, useState, useEffect, useCallback } from "react";
 
-export type ThemeMode = "ivory" | "dark" | "sand" | "sage" | "system";
-export type ResolvedTheme = "ivory" | "dark" | "sand" | "sage";
+export type ThemeMode = "ivory" | "dark" | "sand" | "sage" | "prism" | "system";
+export type ResolvedTheme = "ivory" | "dark" | "sand" | "sage" | "prism";
 
 export interface ThemeContextType {
   theme: ThemeMode;
@@ -36,7 +36,7 @@ export function ThemeProvider({ children }: { children: React.ReactNode }) {
     if (typeof window === "undefined") return "system";
     try {
       const saved = localStorage.getItem(STORAGE_KEY) as ThemeMode | null;
-      if (saved && ["ivory", "dark", "sand", "sage", "system"].includes(saved)) {
+      if (saved && ["ivory", "dark", "sand", "sage", "prism", "system"].includes(saved)) {
         return saved;
       }
     } catch {
@@ -67,6 +67,7 @@ export function ThemeProvider({ children }: { children: React.ReactNode }) {
       if (activeResolved === "dark") metaThemeColor.setAttribute("content", "#0D0E12");
       else if (activeResolved === "sage") metaThemeColor.setAttribute("content", "#101715");
       else if (activeResolved === "sand") metaThemeColor.setAttribute("content", "#F5EFE6");
+      else if (activeResolved === "prism") metaThemeColor.setAttribute("content", "#F8FAFC");
       else metaThemeColor.setAttribute("content", "#FAF8F5");
     }
   }, []);

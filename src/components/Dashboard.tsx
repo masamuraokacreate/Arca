@@ -333,7 +333,7 @@ export default function Dashboard({ onNavigate, onSelectNote, onSelectRecipe }: 
                 title,
                 date: today,
                 startTime: details?.startTime || "06:00",
-                endTime: details?.endTime || "15:00",
+                endTime: details?.endTime || "14:30",
                 note: "",
                 createdAt: null,
               });

@@ -26,8 +26,8 @@ import {
   Pin,
   PinOff,
   GripVertical,
+  MoreHorizontal,
 } from "lucide-react";
-import { C } from "../../lib/designSystem";
 import type { NoteSpaceType } from "../../types";
 import { canMoveNoteTo } from "../../utils/noteHierarchy";
 import { NoteContextMenu } from "./NoteContextMenu";
@@ -99,6 +99,11 @@ export const DocumentTreeSidebar: React.FC<DocumentTreeSidebarProps> = ({
   const [dragOverTargetId, setDragOverTargetId] = useState<string | null>(null);
   const [dragOverPosition, setDragOverPosition] = useState<"before" | "after" | "inside" | null>(null);
   const [isDragOverRoot, setIsDragOverRoot] = useState<boolean>(false);
+
+  // ドラッグ操作を安定化させるRef（ブラウザイベント間の値消失防止）
+  const draggedNoteIdRef = useRef<string | null>(null);
+  const dragOverTargetIdRef = useRef<string | null>(null);
+  const dragOverPositionRef = useRef<"before" | "after" | "inside" | null>(null);
 
   // コンテキストメニューステート
   const [contextMenu, setContextMenu] = useState<{
@@ -274,12 +279,21 @@ export const DocumentTreeSidebar: React.FC<DocumentTreeSidebarProps> = ({
   // ドラッグハンドラ
   const handleDragStart = (e: React.DragEvent, noteId: string) => {
     e.stopPropagation();
+    draggedNoteIdRef.current = noteId;
     setDraggedNoteId(noteId);
-    e.dataTransfer.setData("text/arca-note-id", noteId);
+    try {
+      e.dataTransfer.setData("text/arca-note-id", noteId);
+      e.dataTransfer.setData("text/plain", noteId);
+    } catch {
+      // 一部環境用フォールバック
+    }
     e.dataTransfer.effectAllowed = "move";
   };
 
   const handleDragEnd = () => {
+    draggedNoteIdRef.current = null;
+    dragOverTargetIdRef.current = null;
+    dragOverPositionRef.current = null;
     setDraggedNoteId(null);
     setDragOverTargetId(null);
     setDragOverPosition(null);
@@ -294,6 +308,8 @@ export const DocumentTreeSidebar: React.FC<DocumentTreeSidebarProps> = ({
       return;
     }
     if (dragOverTargetId === noteId) {
+      dragOverTargetIdRef.current = null;
+      dragOverPositionRef.current = null;
       setDragOverTargetId(null);
       setDragOverPosition(null);
     }
@@ -302,43 +318,48 @@ export const DocumentTreeSidebar: React.FC<DocumentTreeSidebarProps> = ({
   const handleDragOverNode = (e: React.DragEvent, targetNoteId: string) => {
     e.preventDefault();
     e.stopPropagation();
-    if (draggedNoteId && draggedNoteId === targetNoteId) return;
+    const currentDraggedId = draggedNoteIdRef.current || draggedNoteId;
+    if (currentDraggedId && currentDraggedId === targetNoteId) return;
 
     const targetNote = notes.find((n) => n.id === targetNoteId);
     if (!targetNote) return;
 
-    // Y座標の相対位置を計算（上40%=前、下40%=後、中央20%=中）
+    // Y座標の相対位置を計算（上20%=前、下20%=後、中央60%=中（子ページ化））
     const rect = e.currentTarget.getBoundingClientRect();
     const clientY = typeof e.clientY === "number" && !isNaN(e.clientY) ? e.clientY : rect.top;
     const offsetY = clientY - rect.top;
     const height = rect.height || 42;
 
     let position: "before" | "after" | "inside" = "inside";
-    if (offsetY < height * 0.4) {
+    if (offsetY < height * 0.2) {
       position = "before";
-    } else if (offsetY > height * 0.6) {
+    } else if (offsetY > height * 0.8) {
       position = "after";
     } else {
       position = "inside";
     }
 
     if (position === "inside") {
-      if (!draggedNoteId || canMoveNoteTo(notes, draggedNoteId, targetNoteId)) {
+      if (!currentDraggedId || canMoveNoteTo(notes, currentDraggedId, targetNoteId)) {
         e.dataTransfer.dropEffect = "move";
+        dragOverTargetIdRef.current = targetNoteId;
+        dragOverPositionRef.current = "inside";
         setDragOverTargetId(targetNoteId);
         setDragOverPosition("inside");
       } else {
-        // 中に入れられない場合は前後にフォールバック
+        // 中に入れられない場合（循環参照等）は前後にフォールバック
         position = offsetY <= height * 0.5 ? "before" : "after";
       }
     }
 
     if (position !== "inside") {
       const parentId = targetNote.parentId ?? null;
-      if (draggedNoteId && (parentId === draggedNoteId || !canMoveNoteTo(notes, draggedNoteId, parentId))) {
+      if (currentDraggedId && (parentId === currentDraggedId || !canMoveNoteTo(notes, currentDraggedId, parentId))) {
         e.dataTransfer.dropEffect = "none";
       } else {
         e.dataTransfer.dropEffect = "move";
+        dragOverTargetIdRef.current = targetNoteId;
+        dragOverPositionRef.current = position;
         setDragOverTargetId(targetNoteId);
         setDragOverPosition(position);
       }
@@ -348,38 +369,62 @@ export const DocumentTreeSidebar: React.FC<DocumentTreeSidebarProps> = ({
   const handleDropOnNode = (e: React.DragEvent, targetNoteId: string) => {
     e.preventDefault();
     e.stopPropagation();
-    const sourceId = e.dataTransfer?.getData?.("text/arca-note-id") || draggedNoteId;
+
+    let sourceId = draggedNoteIdRef.current || draggedNoteId;
+    if (!sourceId) {
+      try {
+        sourceId = e.dataTransfer?.getData?.("text/arca-note-id") || e.dataTransfer?.getData?.("text/plain");
+      } catch {
+        // fallback
+      }
+    }
+
     if (!sourceId || sourceId === targetNoteId) {
       handleDragEnd();
       return;
     }
 
     const targetNote = notes.find((n) => n.id === targetNoteId);
-    if (!targetNote) {
+    const sourceNote = notes.find((n) => n.id === sourceId);
+    if (!targetNote || !sourceNote) {
       handleDragEnd();
       return;
     }
 
-    let position = dragOverPosition;
+    let position = dragOverPosition || dragOverPositionRef.current;
     if (!position) {
       const rect = e.currentTarget.getBoundingClientRect();
       const clientY = typeof e.clientY === "number" && !isNaN(e.clientY) ? e.clientY : rect.top;
       const offsetY = clientY - rect.top;
       const height = rect.height || 42;
-      position = offsetY <= height * 0.5 ? "before" : "after";
+      if (offsetY < height * 0.2) {
+        position = "before";
+      } else if (offsetY > height * 0.8) {
+        position = "after";
+      } else {
+        position = "inside";
+      }
     }
 
     if (position === "inside") {
+      // ノート内ドロップ（子ページ化）
       if (canMoveNoteTo(notes, sourceId, targetNoteId)) {
         onMoveNote(sourceId, targetNoteId);
         setExpandedIds((prev) => new Set(prev).add(targetNoteId));
       }
     } else {
       // 同一階層内または階層間での並び替え（before / after）
-      const parentId = targetNote.parentId ?? null;
-      if (canMoveNoteTo(notes, sourceId, parentId)) {
+      const targetParentId = targetNote.parentId ?? null;
+      const currentSourceParentId = sourceNote.parentId ?? null;
+
+      if (canMoveNoteTo(notes, sourceId, targetParentId)) {
+        // 親階層が異なる場合は親を targetParentId に更新
+        if (currentSourceParentId !== targetParentId) {
+          onMoveNote(sourceId, targetParentId);
+        }
+
         const siblings = notes
-          .filter((n) => (n.parentId ?? null) === parentId && !n.isDeleted)
+          .filter((n) => (n.parentId ?? null) === targetParentId && !n.isDeleted)
           .sort((a, b) => {
             const orderA = typeof a.order === "number" ? a.order : Infinity;
             const orderB = typeof b.order === "number" ? b.order : Infinity;
@@ -392,10 +437,10 @@ export const DocumentTreeSidebar: React.FC<DocumentTreeSidebarProps> = ({
         if (targetIdx !== -1) {
           const insertIdx = position === "before" ? targetIdx : targetIdx + 1;
           siblingIds.splice(insertIdx, 0, sourceId);
-          onReorderNotes?.(siblingIds, parentId);
+          onReorderNotes?.(siblingIds, targetParentId);
         } else {
           siblingIds.push(sourceId);
-          onReorderNotes?.(siblingIds, parentId);
+          onReorderNotes?.(siblingIds, targetParentId);
         }
       }
     }
@@ -405,7 +450,14 @@ export const DocumentTreeSidebar: React.FC<DocumentTreeSidebarProps> = ({
   const handleDropOnRoot = (e: React.DragEvent) => {
     e.preventDefault();
     e.stopPropagation();
-    const sourceId = e.dataTransfer?.getData?.("text/arca-note-id") || draggedNoteId;
+    let sourceId = draggedNoteIdRef.current || draggedNoteId;
+    if (!sourceId) {
+      try {
+        sourceId = e.dataTransfer?.getData?.("text/arca-note-id") || e.dataTransfer?.getData?.("text/plain");
+      } catch {
+        // fallback
+      }
+    }
     if (sourceId) {
       onMoveNote(sourceId, null);
     }
@@ -444,20 +496,22 @@ export const DocumentTreeSidebar: React.FC<DocumentTreeSidebarProps> = ({
             });
           }}
           onClick={() => onSelectNote(note.id)}
-          className={`group relative flex items-center min-h-[42px] px-2 py-1.5 rounded-xl cursor-pointer transition-all duration-150 ${
+          className={`group relative flex items-center min-h-[40px] px-2 py-1.5 rounded-xl cursor-pointer transition-all duration-150 ${
             isDraggingThis ? "opacity-40 scale-95" : ""
           } ${
             isDragInside
               ? "bg-amber-500/20 ring-2 ring-amber-500/50 shadow-sm"
               : isActive
-              ? "bg-amber-500/10 text-[#B58D3D]"
+              ? "bg-amber-500/10 text-[#B58D3D] font-semibold"
               : "hover:bg-black/[0.035] dark:hover:bg-white/[0.04] text-charcoal"
           }`}
           style={{
-            paddingLeft: `${Math.max(8, depth * 16 + 8)}px`,
-            color: isActive ? C.goldDark : undefined,
+            paddingLeft: `${Math.max(8, depth * 20 + 8)}px`,
+            color: isActive ? "var(--accent-gold-dark, #A8863D)" : undefined,
           }}
         >
+
+
           {/* 上挿入ライン（丸付きゴールドバー） */}
           {isDragBefore && (
             <div className="absolute -top-[2px] left-1 right-1 h-[2.5px] bg-[#B58D3D] rounded-full z-20 pointer-events-none flex items-center shadow-xs">
@@ -556,7 +610,7 @@ export const DocumentTreeSidebar: React.FC<DocumentTreeSidebarProps> = ({
               e.stopPropagation();
               onTogglePin?.(note.id, !note.pinned);
             }}
-            className={`w-7 h-7 flex items-center justify-center rounded-lg transition-all shrink-0 ${
+            className={`w-6 h-6 flex items-center justify-center rounded-lg transition-all shrink-0 ${
               note.pinned
                 ? "text-[#B58D3D] opacity-100 hover:bg-amber-500/10"
                 : "opacity-0 group-hover:opacity-100 text-charcoal-light hover:text-[#B58D3D] hover:bg-black/5 dark:hover:bg-white/5"
@@ -574,21 +628,37 @@ export const DocumentTreeSidebar: React.FC<DocumentTreeSidebarProps> = ({
               e.stopPropagation();
               onCreateChildNote(note.id);
             }}
-            className="w-7 h-7 flex items-center justify-center rounded-lg opacity-0 group-hover:opacity-100 transition-all text-charcoal-light hover:text-[#B58D3D] hover:bg-black/5 dark:hover:bg-white/5 focus:opacity-100 shrink-0"
+            className="w-6 h-6 flex items-center justify-center rounded-lg opacity-0 group-hover:opacity-100 transition-all text-charcoal-light hover:text-[#B58D3D] hover:bg-black/5 dark:hover:bg-white/5 focus:opacity-100 shrink-0"
             title="子ページを追加"
             aria-label="子ページを追加"
           >
             <Plus className="w-3.5 h-3.5" />
+          </button>
+
+          {/* ホバー時の詳細オプションメニュー「…」ボタン（クリックでコンテキストメニュー起動） */}
+          <button
+            type="button"
+            onClick={(e) => {
+              e.stopPropagation();
+              const rect = e.currentTarget.getBoundingClientRect();
+              setContextMenu({
+                x: rect.right + 4,
+                y: rect.top,
+                note,
+              });
+            }}
+            className="w-6 h-6 flex items-center justify-center rounded-lg opacity-0 group-hover:opacity-100 transition-all text-charcoal-light hover:text-charcoal hover:bg-black/5 dark:hover:bg-white/5 focus:opacity-100 shrink-0"
+            title="オプション（移動・親変更・削除など）"
+            aria-label="ノートのオプション"
+          >
+            <MoreHorizontal className="w-3.5 h-3.5" />
           </button>
         </div>
 
         {/* 子ノード再帰描画 */}
         {hasChildren && isExpanded && (
           <div className="relative">
-            <div
-              className="absolute top-0 bottom-2 w-px bg-black/5 dark:bg-white/5"
-              style={{ left: `${depth * 16 + 19}px` }}
-            />
+
             {children.map(renderNode)}
           </div>
         )}
@@ -794,6 +864,9 @@ export const DocumentTreeSidebar: React.FC<DocumentTreeSidebarProps> = ({
           }}
           onMove={(note) => {
             onOpenMoveModal?.(note);
+          }}
+          onUnsetParent={(target) => {
+            onMoveNote(target.id, null);
           }}
           onMoveUp={handleMoveUp}
           onMoveDown={handleMoveDown}

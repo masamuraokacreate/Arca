@@ -472,6 +472,7 @@ export function PMMasterModal({
         >
           <div style={{ display: "flex", alignItems: "center", gap: "0.6rem" }}>
             <div
+              className="pm-master-header-icon"
               style={{
                 width: "2.1rem",
                 height: "2.1rem",

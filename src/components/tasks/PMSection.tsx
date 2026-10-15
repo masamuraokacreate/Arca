@@ -269,7 +269,7 @@ export function PMSection({ date, events }: PMSectionProps) {
                 title,
                 date: targetDate,
                 startTime: details?.startTime || "06:00",
-                endTime: details?.endTime || "15:00",
+                endTime: details?.endTime || "14:30",
                 note: "",
                 createdAt: null,
               });

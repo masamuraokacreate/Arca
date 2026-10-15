@@ -44,6 +44,20 @@ const PALETTES: PaletteOption[] = [
     },
   },
   {
+    id: "prism",
+    name: "プリズム",
+    subname: "Prism White",
+    desc: "青緑・薄紫・薄桃・アイスブルーが織りなす水晶グラデーションの透明感",
+    isDark: false,
+    preview: {
+      bgGrad: "linear-gradient(135deg, rgba(138, 194, 221, 0.15) 0%, rgba(165, 243, 252, 0.1) 35%, rgba(224, 231, 255, 0.15) 70%, rgba(252, 231, 243, 0.1) 100%)",
+      cardBg: "rgba(255, 255, 255, 0.85)",
+      textMain: "#334155",
+      textMuted: "#64748B",
+      accent: "#8AC2DD",
+    },
+  },
+  {
     id: "dark",
     name: "ディープスペース",
     subname: "Deep Space",

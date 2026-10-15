@@ -69,7 +69,7 @@ export function NotesSpaceNav({
         }}
       >
         <div
-          className="inline-flex items-center p-1.5 rounded-2xl sm:rounded-full max-w-[calc(100vw-2rem)] overflow-x-auto shrink-0 backdrop-blur-2xl border border-black/[0.06] dark:border-white/[0.08] shadow-[0_10px_32px_rgba(0,0,0,0.12),0_1px_3px_rgba(0,0,0,0.06)] gap-1"
+          className="inline-flex items-center p-1.5 rounded-2xl sm:rounded-full max-w-[calc(100vw-2rem)] overflow-x-auto no-scrollbar flex-nowrap shrink-0 backdrop-blur-2xl border border-black/[0.06] dark:border-white/[0.08] shadow-[0_10px_32px_rgba(0,0,0,0.12),0_1px_3px_rgba(0,0,0,0.06)] gap-1 touch-pan-x"
           style={{
             background: "var(--bg-surface-glass)",
           }}
@@ -88,7 +88,7 @@ export function NotesSpaceNav({
                 aria-label={`${space.label}スペース`}
                 title={space.description}
                 onClick={() => onChange(space.id)}
-                className="appearance-none whitespace-nowrap shrink-0 flex items-center gap-2 px-4 py-2 rounded-xl sm:rounded-full transition-all duration-200 cursor-pointer min-h-[42px] active:scale-95"
+                className="appearance-none whitespace-nowrap shrink-0 min-w-fit flex items-center gap-2 px-4 py-2 rounded-xl sm:rounded-full transition-all duration-200 cursor-pointer min-h-[42px] active:scale-95"
                 style={{
                   background: isActive ? "var(--bg-card-solid)" : "transparent",
                   color: isActive ? C.goldDark : C.charcoalLight,

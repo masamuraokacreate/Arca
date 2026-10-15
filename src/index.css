@@ -9,6 +9,8 @@
   --color-surface: var(--bg-surface);
   --color-surface-glass: var(--bg-surface-glass);
   --color-card: var(--bg-card);
+  --color-card-hover: var(--bg-card-hover);
+  --color-card-solid: var(--bg-card-solid);
   --color-text: var(--text-main);
   --color-text-mid: var(--text-mid);
   --color-text-light: var(--text-muted);
@@ -16,6 +18,12 @@
   --color-accent: var(--accent-gold);
   --color-accent-dark: var(--accent-gold-dark);
   --color-sage: #52796F;
+  --color-deep-slate: #334155;
+  --color-muted-blue-gray: #64748B;
+  --color-ice-blue: #8AC2DD;
+  --color-aqua-aurora: #A5F3FC;
+  --color-soft-lavender: #E0E7FF;
+  --color-rose-petal: #FCE7F3;
   --color-charcoal: var(--text-main);
   --color-charcoal-mid: var(--text-mid);
   --color-charcoal-light: var(--text-muted);
@@ -31,6 +39,15 @@
   --sal: env(safe-area-inset-left, 0px);
   --font-logo: 'Cormorant Garamond', serif;
   --font-serif: 'Cormorant Garamond', serif;
+
+  /* ── 超淡色プリズム・ホワイト デザイントークン ── */
+  --prism-ice-blue: #8AC2DD;
+  --prism-aqua-aurora: #A5F3FC;
+  --prism-soft-lavender: #E0E7FF;
+  --prism-rose-petal: #FCE7F3;
+  --prism-grad-subtle: linear-gradient(135deg, rgba(138, 194, 221, 0.15) 0%, rgba(165, 243, 252, 0.10) 35%, rgba(224, 231, 255, 0.15) 70%, rgba(252, 231, 243, 0.10) 100%);
+  --prism-grad-hover: linear-gradient(135deg, rgba(138, 194, 221, 0.25) 0%, rgba(165, 243, 252, 0.18) 35%, rgba(224, 231, 255, 0.22) 70%, rgba(252, 231, 243, 0.18) 100%);
+  --prism-toggle-active: linear-gradient(135deg, #8AC2DD 0%, #C7D2FE 100%);
 
   /* =========================================
      Motion Tokens (Core/Rules/Motion.md)
@@ -84,11 +101,60 @@
   --accent-gold-glow: rgba(197, 160, 89, 0.25);
 
   --border-subtle: rgba(0, 0, 0, 0.05);
+  --border-prism: rgba(197, 160, 89, 0.20);
   --shadow-card: 0 2px 16px rgba(0, 0, 0, 0.04), 0 1px 2px rgba(0, 0, 0, 0.02);
   --shadow-card-hover: 0 6px 28px rgba(0, 0, 0, 0.07), 0 2px 6px rgba(0, 0, 0, 0.03);
   --shadow-modal: 0 12px 48px rgba(0, 0, 0, 0.16), 0 4px 16px rgba(0, 0, 0, 0.08);
   --shadow-briefing: 0 4px 32px rgba(197, 160, 89, 0.10), 0 1px 4px rgba(0, 0, 0, 0.02);
   --scrollbar-thumb: rgba(0, 0, 0, 0.12);
+}
+
+/* ── 5. Prism White (超淡色プリズム・ホワイト) ── */
+[data-theme="prism"] {
+  color-scheme: light;
+  --bg-base: #F8FAFC;
+  --bg-base-tint: #F4F7F9;
+  --bg-grad: radial-gradient(circle at 10% 20%, rgba(138, 194, 221, 0.18) 0%, transparent 40%),
+             radial-gradient(circle at 90% 10%, rgba(252, 231, 243, 0.22) 0%, transparent 45%),
+             radial-gradient(circle at 50% 80%, rgba(224, 231, 255, 0.20) 0%, transparent 50%),
+             #F8FAFC;
+  --bg-surface: #FFFFFF;
+  --bg-surface-glass: rgba(255, 255, 255, 0.72);
+  --bg-card: rgba(255, 255, 255, 0.72);
+  --bg-card-hover: rgba(255, 255, 255, 0.88);
+  --bg-card-solid: #FFFFFF;
+  --bg-nav-track: linear-gradient(135deg, rgba(138, 194, 221, 0.12) 0%, rgba(165, 243, 252, 0.08) 35%, rgba(224, 231, 255, 0.12) 70%, rgba(252, 231, 243, 0.08) 100%);
+  --bg-nav-pill: linear-gradient(135deg, rgba(165, 243, 252, 0.50), rgba(224, 231, 255, 0.60), rgba(252, 231, 243, 0.50));
+  
+  --color-ivory-tint: #F4F7F9;
+  --color-ivory-tint2: #E2E8F0;
+
+  /* タイポグラフィ・締め色 (WCAG AA準拠: Deep Slate & Muted Blue-Gray) */
+  --text-main: #0F172A;
+  --text-mid: #334155;
+  --text-muted: #475569;
+  --text-xmuted: #94A3B8;
+
+  /* プリズム4色アクセント */
+  --accent-gold: #8AC2DD;
+  --accent-gold-dark: #5D9EB9;
+  --accent-gold-faint: rgba(138, 194, 221, 0.12);
+  --accent-gold-faint2: rgba(138, 194, 221, 0.20);
+  --accent-gold-faint3: rgba(138, 194, 221, 0.28);
+  --accent-gold-glow: rgba(138, 194, 221, 0.25);
+
+  /* 水晶グラデーション (Crystal Prism Gradient) */
+  --prism-grad-crystal: linear-gradient(135deg, rgba(138, 194, 221, 0.15) 0%, rgba(165, 243, 252, 0.1) 35%, rgba(224, 231, 255, 0.15) 70%, rgba(252, 231, 243, 0.1) 100%);
+  --prism-grad-hover: linear-gradient(135deg, rgba(138, 194, 221, 0.25) 0%, rgba(165, 243, 252, 0.18) 35%, rgba(224, 231, 255, 0.22) 70%, rgba(252, 231, 243, 0.18) 100%);
+  --prism-grad-border: linear-gradient(135deg, rgba(138, 194, 221, 0.40) 0%, rgba(165, 243, 252, 0.30) 35%, rgba(224, 231, 255, 0.40) 70%, rgba(252, 231, 243, 0.30) 100%);
+
+  --border-subtle: rgba(255, 255, 255, 0.80);
+  --border-prism: rgba(138, 194, 221, 0.30);
+  --shadow-card: 0 10px 25px -5px rgba(148, 163, 184, 0.08), 0 8px 10px -6px rgba(148, 163, 184, 0.04);
+  --shadow-card-hover: 0 14px 30px -4px rgba(148, 163, 184, 0.12), 0 4px 12px rgba(138, 194, 221, 0.15);
+  --shadow-modal: 0 20px 50px 0 rgba(148, 163, 184, 0.14), 0 4px 16px rgba(148, 163, 184, 0.08);
+  --shadow-briefing: 0 8px 32px 0 rgba(138, 194, 221, 0.12), 0 1px 4px rgba(165, 243, 252, 0.08);
+  --scrollbar-thumb: rgba(148, 163, 184, 0.25);
 }
 
 /* ── 2. Deep Space (Dark) ── */
@@ -285,22 +351,35 @@
   }
 }
 
+/* ── 超淡色プリズム光漏れレイヤー: [data-theme="prism"] のみ表示 ── */
+.arca-prism-light-leak {
+  display: none !important;
+  opacity: 0;
+  transition: opacity 0.4s ease;
+}
+[data-theme="prism"] .arca-prism-light-leak {
+  display: block !important;
+  opacity: 1;
+}
+
 /* ── メインエディタ・詳細シートコンテナ（Theme Adaptive Glass） ── */
 .arca-layout-container {
   background: var(--bg-surface-glass) !important;
+  backdrop-filter: blur(20px) saturate(180%);
+  -webkit-backdrop-filter: blur(20px) saturate(180%);
   border: 1px solid var(--border-subtle) !important;
   box-shadow: var(--shadow-modal) !important;
 }
 
-/* ── 共通カードスタイル（枠線完全排除・浮遊感） ── */
+/* ── 共通カードスタイル（すりガラス・Frosted Glass / Apple HIG準拠） ── */
 .arca-card {
   background: var(--bg-card);
-  backdrop-filter: blur(16px) saturate(180%);
-  -webkit-backdrop-filter: blur(16px) saturate(180%);
+  backdrop-filter: blur(20px) saturate(180%);
+  -webkit-backdrop-filter: blur(20px) saturate(180%);
   border-radius: 20px;
   box-shadow: var(--shadow-card);
   border: 1px solid var(--border-subtle) !important;
-  transition: transform 0.22s ease, box-shadow 0.22s ease, background 0.22s ease;
+  transition: transform 0.22s cubic-bezier(0.16, 1, 0.3, 1), box-shadow 0.22s cubic-bezier(0.16, 1, 0.3, 1), background 0.22s ease, border-color 0.22s ease;
 }
 
 .arca-card-interactive:hover {
@@ -309,8 +388,293 @@
   background: var(--bg-card-hover);
 }
 
+[data-theme="prism"] .arca-card-interactive:hover {
+  border-color: rgba(138, 194, 221, 0.4) !important;
+}
+
 .arca-card-interactive:active {
   transform: translateY(0);
+}
+
+/* ── 今日のカード（アクティブ・プリズムハイライト / Apple HIG準拠） ── */
+.arca-card-today {
+  position: relative;
+  background: linear-gradient(145deg, rgba(255, 255, 255, 0.90), rgba(255, 255, 255, 0.75));
+  backdrop-filter: blur(24px) saturate(180%);
+  -webkit-backdrop-filter: blur(24px) saturate(180%);
+  border-radius: 20px;
+  box-shadow: 
+    0 12px 30px -4px rgba(165, 243, 252, 0.25),
+    0 6px 16px -2px rgba(224, 231, 255, 0.30),
+    0 0 0 1.5px rgba(165, 243, 252, 0.60);
+  border: 1.5px solid transparent !important;
+}
+
+[data-theme="dark"] .arca-card-today,
+[data-theme="sage"] .arca-card-today {
+  background: var(--bg-card-solid);
+  box-shadow: 0 12px 30px -4px rgba(0, 0, 0, 0.40), 0 0 0 1.5px rgba(216, 183, 99, 0.40);
+}
+
+/* ── 目次（TOC）ジャンプ時の見出しスクロールマージン & ハイライト ── */
+.arca-tiptap-editor h1,
+.arca-tiptap-editor h2,
+.arca-tiptap-editor h3,
+.arca-tiptap-editor h4,
+.arca-tiptap-editor h5,
+.arca-tiptap-editor h6,
+article h1,
+article h2,
+article h3 {
+  scroll-margin-top: 88px;
+}
+
+.arca-toc-highlight {
+  animation: arcaHeadingFlash 1.6s ease-out;
+}
+
+@keyframes arcaHeadingFlash {
+  0% {
+    background-color: rgba(138, 194, 221, 0.35);
+    border-radius: 6px;
+  }
+  60% {
+    background-color: rgba(138, 194, 221, 0.15);
+  }
+  100% {
+    background-color: transparent;
+  }
+}
+
+/* ── ボタン / インタラクティブ要素（水晶グラデーション × Apple HIG） ── */
+.arca-btn-prism {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.45rem;
+  background: linear-gradient(135deg, rgba(138, 194, 221, 0.15) 0%, rgba(165, 243, 252, 0.1) 35%, rgba(224, 231, 255, 0.15) 70%, rgba(252, 231, 243, 0.1) 100%);
+  color: var(--text-main);
+  border: 1px solid rgba(255, 255, 255, 0.70);
+  border-radius: 12px;
+  padding: 0 1.15rem;
+  height: 38px;
+  font-size: 0.82rem;
+  font-weight: 650;
+  letter-spacing: 0.01em;
+  cursor: pointer;
+  white-space: nowrap;
+  flex-shrink: 0;
+  box-shadow: 0 2px 10px rgba(148, 163, 184, 0.08);
+  transition: transform 0.18s cubic-bezier(0.16, 1, 0.3, 1), box-shadow 0.18s cubic-bezier(0.16, 1, 0.3, 1), background 0.18s ease, border-color 0.18s ease, color 0.18s ease;
+  user-select: none;
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+}
+
+.arca-btn-prism:hover {
+  background: linear-gradient(135deg, rgba(138, 194, 221, 0.25) 0%, rgba(165, 243, 252, 0.18) 35%, rgba(224, 231, 255, 0.22) 70%, rgba(252, 231, 243, 0.18) 100%);
+  border-color: rgba(138, 194, 221, 0.45);
+  box-shadow: 0 4px 18px rgba(138, 194, 221, 0.18), 0 2px 8px rgba(165, 243, 252, 0.12);
+  transform: translateY(-1px);
+  color: #1E293B;
+}
+
+.arca-btn-prism:active {
+  transform: translateY(0);
+  box-shadow: 0 1px 4px rgba(138, 194, 221, 0.12);
+}
+
+/* スイッチ / トグル (アクティブ時に Ice Blue, Aqua Aurora, Soft Lavender, Rose Petal の淡いグラデーション) */
+.arca-toggle-active {
+  background: linear-gradient(135deg, #8AC2DD 0%, #A5F3FC 35%, #C7D2FE 70%, #FCE7F3 100%) !important;
+  box-shadow: 0 2px 10px rgba(138, 194, 221, 0.35) !important;
+}
+
+/* ── プリズムカラーチップ・バッジ ユーティリティ ── */
+.badge-prism-crystal {
+  background: linear-gradient(135deg, rgba(138, 194, 221, 0.18) 0%, rgba(165, 243, 252, 0.14) 35%, rgba(224, 231, 255, 0.18) 70%, rgba(252, 231, 243, 0.14) 100%);
+  border: 1px solid rgba(255, 255, 255, 0.65);
+  color: #334155;
+}
+
+.badge-prism-ice {
+  background: rgba(138, 194, 221, 0.16);
+  border: 1px solid rgba(138, 194, 221, 0.25);
+  color: #4A90B2;
+}
+
+.badge-prism-aqua {
+  background: rgba(165, 243, 252, 0.24);
+  border: 1px solid rgba(165, 243, 252, 0.40);
+  color: #0D9488;
+}
+
+.badge-prism-lavender {
+  background: rgba(224, 231, 255, 0.30);
+  border: 1px solid rgba(224, 231, 255, 0.45);
+  color: #6366F1;
+}
+
+.badge-prism-rose {
+  background: rgba(252, 231, 243, 0.35);
+  border: 1px solid rgba(252, 231, 243, 0.50);
+  color: #E11D48;
+}
+
+/* ── プリズムホワイト時のゴールド・アイボリー・アンバー完全オーバーライド ── */
+[data-theme="prism"] .text-amber-500,
+[data-theme="prism"] .text-amber-600,
+[data-theme="prism"] .text-amber-700,
+[data-theme="prism"] .text-amber-800,
+[data-theme="prism"] .text-amber-900,
+[data-theme="prism"] .dark\:text-amber-200,
+[data-theme="prism"] .dark\:text-amber-300,
+[data-theme="prism"] .dark\:text-amber-400 {
+  color: #0284C7 !important;
+}
+
+[data-theme="prism"] .text-amber-700\/70 {
+  color: rgba(2, 132, 199, 0.75) !important;
+}
+
+[data-theme="prism"] .hover\:text-amber-700:hover,
+[data-theme="prism"] .hover\:text-amber-800:hover,
+[data-theme="prism"] .hover\:text-amber-900:hover,
+[data-theme="prism"] .dark\:hover\:text-amber-300:hover,
+[data-theme="prism"] .dark\:hover\:text-amber-400:hover,
+[data-theme="prism"] .group:hover .group-hover\:text-amber-700,
+[data-theme="prism"] .group:hover .dark\:group-hover\:text-amber-400 {
+  color: #0369A1 !important;
+}
+
+/* プリズム時のバッジ・アイコン背景（アンバー → アイスブルー・アクアオーロラ） */
+[data-theme="prism"] .bg-amber-500,
+[data-theme="prism"] .bg-amber-600 {
+  background: linear-gradient(135deg, #8AC2DD 0%, #A5F3FC 50%, #C7D2FE 100%) !important;
+  color: #0F172A !important;
+}
+
+[data-theme="prism"] .bg-amber-500\/10,
+[data-theme="prism"] .bg-amber-500\/15,
+[data-theme="prism"] .bg-amber-500\/20,
+[data-theme="prism"] .bg-amber-500\/60,
+[data-theme="prism"] .dark\:bg-amber-400\/25,
+[data-theme="prism"] .dark\:text-amber-200 {
+  background-color: rgba(138, 194, 221, 0.16) !important;
+  color: #0284C7 !important;
+}
+
+[data-theme="prism"] .hover\:bg-amber-500\/10:hover,
+[data-theme="prism"] .hover\:bg-amber-500\/15:hover {
+  background-color: rgba(138, 194, 221, 0.25) !important;
+}
+
+/* プリズム時のボーダー ＆ フォーカスリング */
+[data-theme="prism"] .border-amber-500\/50,
+[data-theme="prism"] .border-amber-500\/40 {
+  border-color: rgba(138, 194, 221, 0.45) !important;
+}
+
+[data-theme="prism"] .ring-amber-500\/25,
+[data-theme="prism"] .ring-amber-500\/20,
+[data-theme="prism"] .focus-within\:ring-amber-500\/25:focus-within {
+  --tw-ring-color: rgba(138, 194, 221, 0.40) !important;
+}
+
+/* プリズム時のノート・メモ・エクスプローラーのゴールド（#B58D3D / #C5A059 等）完全置換 */
+[data-theme="prism"] .text-\[\#B58D3D\],
+[data-theme="prism"] .text-\[\#C5A059\],
+[data-theme="prism"] .text-\[\#A8863D\],
+[data-theme="prism"] .text-\[\#8C6332\],
+[data-theme="prism"] .hover\:text-\[\#B58D3D\]:hover,
+[data-theme="prism"] .hover\:text-\[\#C5A059\]:hover,
+[data-theme="prism"] .group:hover .group-hover\:text-\[\#B58D3D\],
+[data-theme="prism"] .group:hover .group-hover\:text-\[\#C5A059\],
+[data-theme="prism"] .dark\:text-\[\#E2C05E\] {
+  color: #0284C7 !important;
+}
+
+[data-theme="prism"] .fill-\[\#B58D3D\] {
+  fill: #0284C7 !important;
+}
+
+[data-theme="prism"] .bg-\[\#B58D3D\],
+[data-theme="prism"] .bg-\[\#C5A059\] {
+  background: linear-gradient(135deg, #0284C7 0%, #38BDF8 100%) !important;
+  color: #FFFFFF !important;
+}
+
+[data-theme="prism"] .hover\:bg-\[\#B58D3D\]\/10:hover,
+[data-theme="prism"] .hover\:bg-\[\#C5A059\]\/10:hover {
+  background-color: rgba(138, 194, 221, 0.20) !important;
+}
+
+[data-theme="prism"] .focus\:ring-\[\#B58D3D\]\/30:focus,
+[data-theme="prism"] .focus\:ring-\[\#C5A059\]\/30:focus {
+  --tw-ring-color: rgba(138, 194, 221, 0.45) !important;
+}
+
+[data-theme="prism"] .shadow-\[0_2px_8px_rgba\(181\,141\,61\,0\.25\)\] {
+  box-shadow: 0 4px 14px rgba(2, 132, 199, 0.25) !important;
+}
+
+/* プリズム時のカレンダーPM管理マスターボタン ＆ PMマスタヘッダーアイコン（薄紫・ラベンダー） */
+[data-theme="prism"] .calendar-pm-master-btn {
+  background: rgba(168, 85, 247, 0.12) !important;
+  color: #7E22CE !important;
+  border: 1px solid rgba(168, 85, 247, 0.25) !important;
+  box-shadow: 0 1px 3px rgba(168, 85, 247, 0.08) !important;
+}
+
+[data-theme="prism"] .pm-master-header-icon {
+  background: rgba(168, 85, 247, 0.12) !important;
+  color: #7E22CE !important;
+}
+
+/* プリズム時のダッシュボードアクセントドット（アイスブルー・ディープアクア） */
+[data-theme="prism"] .dashboard-accent-dot {
+  background-color: #0284C7 !important;
+  --tw-ring-color: rgba(2, 132, 199, 0.25) !important;
+}
+
+/* プリズム時のダッシュボードフォーカス日カード（すりガラス・水色リング・虹色グロー） */
+[data-theme="prism"] .cycle-day-card-focused {
+  background: rgba(255, 255, 255, 0.85) !important;
+  backdrop-filter: blur(24px) !important;
+  -webkit-backdrop-filter: blur(24px) !important;
+  border: 1px solid rgba(255, 255, 255, 0.80) !important;
+  --tw-ring-color: rgba(165, 243, 252, 0.50) !important;
+  box-shadow: 0 12px 30px -4px rgba(165, 243, 252, 0.25), 0 6px 16px -2px rgba(224, 231, 255, 0.30), 0 0 0 1.5px rgba(165, 243, 252, 0.60) !important;
+}
+
+/* プリズム時の「今日」バッジ（出勤バッジと同じアイスブルー系） */
+[data-theme="prism"] .cycle-today-badge {
+  background: rgba(138, 194, 221, 0.15) !important;
+  color: #0284C7 !important;
+  box-shadow: none !important;
+}
+
+/* プリズム時のレシピ詳細（Chef's Review ＆ ステップ番号バッジ） */
+[data-theme="prism"] .recipe-chefs-review {
+  background-color: rgba(138, 194, 221, 0.12) !important;
+}
+[data-theme="prism"] .recipe-chefs-review .recipe-chefs-review-icon,
+[data-theme="prism"] .recipe-chefs-review .recipe-chefs-review-title {
+  color: #0284C7 !important;
+}
+
+[data-theme="prism"] .recipe-step-badge {
+  background: linear-gradient(135deg, #0284C7 0%, #6366F1 100%) !important;
+}
+
+[data-theme="prism"] input[type="checkbox"].accent-\[\#C5A059\] {
+  accent-color: #0284C7 !important;
+}
+
+/* プリズム時のアイボリー入力フィールド（#F5F2EB → 涼やかなスレートホワイト #F1F5F9） */
+[data-theme="prism"] .bg-\[\#F5F2EB\] {
+  background-color: #F1F5F9 !important;
+  border: 1px solid rgba(226, 232, 240, 0.9) !important;
 }
 
 /* ── Aether Briefing カード ── */
@@ -594,6 +958,7 @@
 .arca-tb-btn {
   white-space: nowrap;
   flex-shrink: 0;
+  min-width: fit-content;
   display: inline-flex;
   flex-direction: row;
   align-items: center;
@@ -607,7 +972,7 @@
   border: none;
   transition: all 0.15s ease;
   user-select: none;
-  height: 32px;
+  height: 34px;
   padding: 0 0.75rem;
   color: var(--text-mid);
   background: transparent;
@@ -739,6 +1104,21 @@
 }
 .arca-notes-btn-primary:active {
   transform: translateY(0);
+}
+
+[data-theme="prism"] .arca-notes-btn-primary {
+  background: linear-gradient(135deg, rgba(138, 194, 221, 0.22) 0%, rgba(165, 243, 252, 0.15) 35%, rgba(224, 231, 255, 0.20) 70%, rgba(252, 231, 243, 0.15) 100%);
+  color: var(--text-main);
+  border: 1px solid rgba(255, 255, 255, 0.75);
+  box-shadow: 0 2px 12px rgba(138, 194, 221, 0.16);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+}
+[data-theme="prism"] .arca-notes-btn-primary:hover {
+  background: linear-gradient(135deg, rgba(138, 194, 221, 0.32) 0%, rgba(165, 243, 252, 0.24) 35%, rgba(224, 231, 255, 0.28) 70%, rgba(252, 231, 243, 0.24) 100%);
+  border-color: rgba(138, 194, 221, 0.45);
+  box-shadow: 0 5px 20px rgba(138, 194, 221, 0.28);
+  color: #1E293B;
 }
 
 .arca-notes-btn-sub {
@@ -917,12 +1297,19 @@
     display: inline !important;
   }
   .arca-tb-btn {
-    padding: 0 0.5rem;
+    padding: 0 0.55rem;
     font-size: 0.78rem;
+    min-width: fit-content !important;
+    flex-shrink: 0 !important;
+    white-space: nowrap !important;
+    min-height: 34px !important;
   }
   .arca-segment-btn {
     padding: 0 0.5rem;
     font-size: 0.72rem;
+    min-width: fit-content;
+    flex-shrink: 0;
+    white-space: nowrap;
   }
 }
 

@@ -34,6 +34,7 @@ import {
   RotateCw,
   ClipboardList,
   Trash2,
+  Tag,
 } from "lucide-react";
 import { logger } from "../../services/loggerService";
 import { SchemaLegendCard } from "./SchemaLegendCard";
@@ -41,6 +42,7 @@ import { SchemaLegendCard } from "./SchemaLegendCard";
 export type InspectorCollection =
   | "events"
   | "finance_transactions"
+  | "merchant_categories"
   | "pm_masters"
   | "pm_logs";
 
@@ -81,6 +83,8 @@ export function DbInspectorTab({ defaultCollection = "events" }: DbInspectorTabP
         q = query(collection(db, selectedCol), orderBy("date", "desc"), limit(150));
       } else if (selectedCol === "finance_transactions") {
         q = query(collection(db, selectedCol), orderBy("date", "desc"), limit(150));
+      } else if (selectedCol === "merchant_categories") {
+        q = query(collection(db, selectedCol), orderBy("updatedAt", "desc"), limit(150));
       } else if (selectedCol === "pm_masters") {
         q = query(collection(db, selectedCol), orderBy("createdAt", "desc"), limit(150));
       } else if (selectedCol === "pm_logs") {
@@ -133,6 +137,8 @@ export function DbInspectorTab({ defaultCollection = "events" }: DbInspectorTabP
         const idMatch = item.id.toLowerCase().includes(q);
         const titleMatch = typeof data.title === "string" && data.title.toLowerCase().includes(q);
         const nameMatch = typeof data.name === "string" && data.name.toLowerCase().includes(q);
+        const merchantMatch = typeof data.merchantName === "string" && data.merchantName.toLowerCase().includes(q);
+        const categoryMatch = typeof data.category === "string" && data.category.toLowerCase().includes(q);
         const memoMatch = typeof data.memo === "string" && data.memo.toLowerCase().includes(q);
         const dateMatch = typeof data.date === "string" && data.date.toLowerCase().includes(q);
         const gEventMatch =
@@ -150,6 +156,8 @@ export function DbInspectorTab({ defaultCollection = "events" }: DbInspectorTabP
           idMatch ||
           titleMatch ||
           nameMatch ||
+          merchantMatch ||
+          categoryMatch ||
           memoMatch ||
           dateMatch ||
           gEventMatch ||
@@ -256,16 +264,20 @@ export function DbInspectorTab({ defaultCollection = "events" }: DbInspectorTabP
         </div>
       )}
 
-      {/* ── コレクション切り替えセグメント ── */}
+      {/* ── コレクション切り替えセグメント（横スライド可能） ── */}
       <div
         style={{
           display: "flex",
           alignItems: "center",
           gap: "0.4rem",
           background: "var(--bg-nav-track, rgba(0, 0, 0, 0.03))",
-          padding: "3px",
+          padding: "4px",
           borderRadius: "12px",
           overflowX: "auto",
+          WebkitOverflowScrolling: "touch",
+          flexWrap: "nowrap",
+          width: "100%",
+          boxSizing: "border-box",
           border: "none",
         }}
         className="no-scrollbar"
@@ -289,6 +301,7 @@ export function DbInspectorTab({ defaultCollection = "events" }: DbInspectorTabP
                 : "none",
             cursor: "pointer",
             whiteSpace: "nowrap",
+            flexShrink: 0,
             transition: "all 0.15s ease",
           }}
         >
@@ -316,11 +329,41 @@ export function DbInspectorTab({ defaultCollection = "events" }: DbInspectorTabP
                 : "none",
             cursor: "pointer",
             whiteSpace: "nowrap",
+            flexShrink: 0,
             transition: "all 0.15s ease",
           }}
         >
           <CreditCard size={14} color={selectedCol === "finance_transactions" ? C.goldDark : undefined} />
           <span>支出・家計 (finance_transactions)</span>
+        </button>
+
+        <button
+          onClick={() => setSelectedCol("merchant_categories")}
+          data-testid="maint-col-merchant-categories"
+          style={{
+            display: "inline-flex",
+            alignItems: "center",
+            gap: "0.4rem",
+            padding: "0.45rem 0.85rem",
+            borderRadius: "10px",
+            border: "none",
+            fontSize: "0.78rem",
+            fontWeight: selectedCol === "merchant_categories" ? 700 : 550,
+            background:
+              selectedCol === "merchant_categories" ? "var(--bg-card-solid, #FDFCFA)" : "transparent",
+            color: selectedCol === "merchant_categories" ? C.charcoal : C.charcoalMid,
+            boxShadow:
+              selectedCol === "merchant_categories"
+                ? "0 1px 4px rgba(0, 0, 0, 0.06), 0 2px 8px rgba(0, 0, 0, 0.03)"
+                : "none",
+            cursor: "pointer",
+            whiteSpace: "nowrap",
+            flexShrink: 0,
+            transition: "all 0.15s ease",
+          }}
+        >
+          <Tag size={14} color={selectedCol === "merchant_categories" ? "var(--accent-gold, #B58D3D)" : undefined} />
+          <span>カテゴリ推論 (merchant_categories)</span>
         </button>
 
         <button
@@ -343,6 +386,7 @@ export function DbInspectorTab({ defaultCollection = "events" }: DbInspectorTabP
                 : "none",
             cursor: "pointer",
             whiteSpace: "nowrap",
+            flexShrink: 0,
             transition: "all 0.15s ease",
           }}
         >
@@ -370,6 +414,7 @@ export function DbInspectorTab({ defaultCollection = "events" }: DbInspectorTabP
                 : "none",
             cursor: "pointer",
             whiteSpace: "nowrap",
+            flexShrink: 0,
             transition: "all 0.15s ease",
           }}
         >
@@ -616,6 +661,21 @@ export function DbInspectorTab({ defaultCollection = "events" }: DbInspectorTabP
                         </span>
                       )}
 
+                      {selectedCol === "merchant_categories" && typeof data.category === "string" && (
+                        <span
+                          style={{
+                            fontSize: "0.66rem",
+                            fontWeight: 700,
+                            color: "var(--accent-gold-dark, #8C6332)",
+                            background: "var(--accent-gold-faint, rgba(197, 160, 89, 0.14))",
+                            padding: "0.1rem 0.45rem",
+                            borderRadius: "4px",
+                          }}
+                        >
+                          {data.category}
+                        </span>
+                      )}
+
                       {typeof data.googleEventId === "string" && Boolean(data.googleEventId) && (
                         <span
                           style={{
@@ -645,11 +705,17 @@ export function DbInspectorTab({ defaultCollection = "events" }: DbInspectorTabP
                       }}
                     >
                       {String(
-                        data.title ||
+                        data.merchantName ||
+                          data.title ||
                           data.name ||
                           data.shiftName ||
                           (data.completedAt ? `PM実施ログ (${String(data.completedAt).slice(0, 16)})` : "") ||
                           "無題のドキュメント"
+                      )}
+                      {selectedCol === "merchant_categories" && typeof data.manualOverrideCount === "number" && (
+                        <span style={{ marginLeft: "0.6rem", color: C.charcoalLight, fontWeight: 550, fontSize: "0.74rem" }}>
+                          学習回数: {data.manualOverrideCount}回
+                        </span>
                       )}
                       {typeof data.totalAmount === "number" && (
                         <span style={{ marginLeft: "0.6rem", color: C.goldDark, fontWeight: 800 }}>

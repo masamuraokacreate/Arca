@@ -22,7 +22,7 @@ describe("ShiftGoogleAdjustModal コンポーネント", () => {
       title: "早番(6時)",
       date: "2026-09-17",
       startTime: "06:00",
-      endTime: "15:00",
+      endTime: "14:30",
       note: "",
       createdAt: null,
     },
@@ -31,7 +31,7 @@ describe("ShiftGoogleAdjustModal コンポーネント", () => {
       title: "早番(6時)",
       date: "2026-09-18",
       startTime: "06:00",
-      endTime: "15:00",
+      endTime: "14:30",
       note: "",
       createdAt: null,
     },
@@ -40,7 +40,7 @@ describe("ShiftGoogleAdjustModal コンポーネント", () => {
       title: "早番(6時)",
       date: "2026-09-19",
       startTime: "06:00",
-      endTime: "15:00",
+      endTime: "14:30",
       note: "",
       createdAt: null,
     },
@@ -49,7 +49,7 @@ describe("ShiftGoogleAdjustModal コンポーネント", () => {
       title: "早番(6時)",
       date: "2026-09-20",
       startTime: "06:00",
-      endTime: "15:00",
+      endTime: "14:30",
       note: "",
       createdAt: null,
     },
@@ -106,7 +106,7 @@ describe("ShiftGoogleAdjustModal コンポーネント", () => {
     expect(screen.getByLabelText("日勤の開始時刻")).toBeInTheDocument();
     expect(screen.getByLabelText("日勤の終了時刻")).toBeInTheDocument();
     expect(screen.getByLabelText("日勤の開始時刻")).toHaveValue("08:30");
-    expect(screen.getByLabelText("日勤の終了時刻")).toHaveValue("17:30");
+    expect(screen.getByLabelText("日勤の終了時刻")).toHaveValue("17:00");
   });
 
   it("出勤日を個別に選択・解除でき、選択した日のみbatchUpdateShiftEventsに渡されること", async () => {
@@ -156,7 +156,7 @@ describe("ShiftGoogleAdjustModal コンポーネント", () => {
       expect.objectContaining({
         title: "早番(5:30)",
         startTime: "05:30",
-        endTime: "14:30",
+        endTime: "14:00",
       }),
       mockEvents
     );

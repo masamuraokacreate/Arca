@@ -32,6 +32,8 @@ import {
   deleteGoogleCalendarEvent,
   batchUpdateShiftEvents,
   applyShiftStatusToGoogleCalendar,
+  addMinutesToTime,
+  GoogleCalendarApiError,
 } from "../services/googleCalendarSync";
 import type { CalendarEvent, CalendarTask, SyncStatus } from "../types";
 import type { PMSettings, PMLogItem, PMMaster } from "../types/pm";
@@ -214,7 +216,13 @@ function EventRow({
           <input
             type="time"
             value={editStart}
-            onChange={(e) => setEditStart(e.target.value)}
+            onChange={(e) => {
+              const val = e.target.value;
+              setEditStart(val);
+              if (val) {
+                setEditEnd(addMinutesToTime(val, 510));
+              }
+            }}
             style={timeInputStyle}
           />
           <span style={{ fontSize: "0.72rem", color: C.charcoalLight }}>–</span>
@@ -488,7 +496,13 @@ function AddEventForm({
         <input
           type="time"
           value={startTime}
-          onChange={(e) => setStartTime(e.target.value)}
+          onChange={(e) => {
+            const val = e.target.value;
+            setStartTime(val);
+            if (val) {
+              setEndTime(addMinutesToTime(val, 510));
+            }
+          }}
           style={timeInputStyle}
         />
         <span style={{ fontSize: "0.72rem", color: C.charcoalLight }}>–</span>
@@ -1357,7 +1371,7 @@ export default function Calendar() {
                 title,
                 date: selectedDate,
                 startTime: details?.startTime || "06:00",
-                endTime: details?.endTime || "15:00",
+                endTime: details?.endTime || "14:30",
                 note: "",
                 createdAt: null,
               });
@@ -1459,6 +1473,7 @@ export default function Calendar() {
         googleEventId = await createGoogleCalendarEvent(accessToken, data);
       } catch (gErr) {
         console.error("Failed to push event to Google Calendar:", gErr);
+        showMessageToast("Googleカレンダーへの反映に失敗しました");
       }
     }
 
@@ -1473,7 +1488,7 @@ export default function Calendar() {
       date: data.date,
       googleEventId: googleEventId || null,
     });
-  }, [isSignedIn, accessToken]);
+  }, [isSignedIn, accessToken, showMessageToast]);
 
   // ── タスク追加（選択日 / 今日 を期限として保存） ──
   const handleAddTask = useCallback(async (title: string, dueDate: string) => {
@@ -1548,23 +1563,51 @@ export default function Calendar() {
     data: Partial<Omit<CalendarEvent, "id" | "createdAt">>
   ) => {
     const existing = events.find((e) => e.id === id);
-    if (isSignedIn && accessToken && existing?.googleEventId) {
-      try {
-        await updateGoogleCalendarEvent(accessToken, existing.googleEventId, {
-          title: data.title !== undefined ? data.title : existing.title,
-          date: data.date !== undefined ? data.date : existing.date,
-          startTime: data.startTime !== undefined ? data.startTime : existing.startTime,
-          endTime: data.endTime !== undefined ? data.endTime : existing.endTime,
-          note: data.note !== undefined ? data.note : existing.note,
-        });
-      } catch (gErr) {
-        console.error("Failed to update event on Google Calendar:", gErr);
+    let newGoogleEventId: string | undefined = existing?.googleEventId;
+
+    if (isSignedIn && accessToken) {
+      const eventPayload = {
+        title: data.title !== undefined ? data.title : existing?.title || "",
+        date: data.date !== undefined ? data.date : existing?.date || "",
+        startTime: data.startTime !== undefined ? data.startTime : existing?.startTime,
+        endTime: data.endTime !== undefined ? data.endTime : existing?.endTime,
+        note: data.note !== undefined ? data.note : existing?.note,
+      };
+
+      if (existing?.googleEventId) {
+        try {
+          await updateGoogleCalendarEvent(accessToken, existing.googleEventId, eventPayload);
+        } catch (gErr) {
+          console.error("Failed to update event on Google Calendar:", gErr);
+          // 404 等で更新失敗した場合は新規作成へフォールバック
+          if (gErr instanceof GoogleCalendarApiError && gErr.status === 404) {
+            try {
+              newGoogleEventId = await createGoogleCalendarEvent(accessToken, eventPayload);
+            } catch (cErr) {
+              console.error("Failed to fallback create event on Google Calendar:", cErr);
+              showMessageToast("Googleカレンダーの更新に失敗しました");
+            }
+          } else {
+            showMessageToast("Googleカレンダーの更新に失敗しました");
+          }
+        }
+      } else {
+        // 未紐付けの場合は Google カレンダーに新規作成して紐付け
+        try {
+          newGoogleEventId = await createGoogleCalendarEvent(accessToken, eventPayload);
+        } catch (gErr) {
+          console.error("Failed to push unlinked event to Google Calendar:", gErr);
+          showMessageToast("Googleカレンダーへの反映に失敗しました");
+        }
       }
     }
 
-    await updateDoc(doc(db, "events", id), data);
+    await updateDoc(doc(db, "events", id), {
+      ...data,
+      ...(newGoogleEventId !== undefined ? { googleEventId: newGoogleEventId || null } : {}),
+    });
     logger.info("firestore", `Calendar: Updated event (ID: ${id})`, data);
-  }, [isSignedIn, accessToken, events]);
+  }, [isSignedIn, accessToken, events, showMessageToast]);
 
   // ── 月ナビゲーション ──
   const goPrevMonth = useCallback(() => {
@@ -1679,7 +1722,7 @@ export default function Calendar() {
             setShowPMMasterModal(true);
           }}
           data-testid="calendar-pm-master-btn"
-          className="whitespace-nowrap shrink-0 hidden sm:inline-flex items-center gap-1.5"
+          className="calendar-pm-master-btn whitespace-nowrap shrink-0 hidden sm:inline-flex items-center gap-1.5 transition-all"
           style={{
             padding: "0.2rem 0.65rem",
             borderRadius: "9999px",
@@ -1691,7 +1734,6 @@ export default function Calendar() {
             letterSpacing: "0.02em",
             cursor: "pointer",
             boxShadow: "0 1px 3px rgba(0, 0, 0, 0.04)",
-            transition: "all 0.15s ease",
           }}
           title="PM管理マスターの定義と一覧を表示"
         >
