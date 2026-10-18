@@ -19,70 +19,47 @@ import {
   serverTimestamp,
 } from "firebase/firestore";
 import { db } from "../lib/firebase";
-import { clearSavedToken } from "./googleAuth";
-import type { CalendarEvent } from "../types";
-import { isWorkEvent, saveShiftOverride } from "./pmCycleService";
+import {
+  getValidAccessToken,
+  resolveValidAccessToken,
+  wasGoogleConnected,
+} from "./googleAuthService";
+import type { CalendarEvent, CalendarMutationPayload, SyncErrorState } from "../types";
+import { isWorkEvent, saveShiftOverride, formatShiftTitleWithTime } from "./pmCycleService";
+import {
+  CALENDAR_API_ROOT,
+  GoogleCalendarApiError,
+  requestGoogleCalendarApi,
+  listGoogleEvents,
+  createGoogleEvent,
+  updateGoogleEvent,
+  deleteGoogleEvent,
+  toSyncErrorState,
+  REQUIRED_SCOPE,
+  type GoogleCalendarListItem,
+  type GoogleCalendarListResponse,
+  type GoogleCalendarApiEvent,
+  type GoogleCalendarEventsResponse,
+} from "./googleCalendarClient";
 
-const CALENDAR_API_ROOT = "https://www.googleapis.com/calendar/v3";
+export {
+  CALENDAR_API_ROOT,
+  GoogleCalendarApiError,
+  listGoogleEvents,
+  createGoogleEvent,
+  updateGoogleEvent,
+  deleteGoogleEvent,
+  toSyncErrorState,
+  REQUIRED_SCOPE,
+  type CalendarMutationPayload,
+  type SyncErrorState,
+  type GoogleCalendarListItem,
+  type GoogleCalendarListResponse,
+  type GoogleCalendarApiEvent,
+  type GoogleCalendarEventsResponse,
+};
+
 const CALENDAR_BASE_URL = "https://www.googleapis.com/calendar/v3/calendars/primary";
-
-/** Google Calendar API カスタムエラー */
-export class GoogleCalendarApiError extends Error {
-  status: number;
-  endpoint: string;
-  errorData?: any;
-
-  constructor(status: number, endpoint: string, message: string, errorData?: any) {
-    super(`Google Calendar API error ${status} at ${endpoint}: ${message}`);
-    this.name = "GoogleCalendarApiError";
-    this.status = status;
-    this.endpoint = endpoint;
-    this.errorData = errorData;
-  }
-
-  /** スコープ不足エラー (403 ACCESS_TOKEN_SCOPE_INSUFFICIENT) */
-  isScopeInsufficient(): boolean {
-    return this.status === 403;
-  }
-
-  /** 認証切れ・無効トークン (401 Unauthorized) */
-  isUnauthorized(): boolean {
-    return this.status === 401;
-  }
-}
-
-export interface GoogleCalendarListItem {
-  id: string;
-  summary: string;
-  primary?: boolean;
-  description?: string;
-}
-
-export interface GoogleCalendarListResponse {
-  items?: GoogleCalendarListItem[];
-}
-
-export interface GoogleCalendarApiEvent {
-  id: string;
-  summary?: string;
-  description?: string;
-  start?: {
-    date?: string; // "YYYY-MM-DD"
-    dateTime?: string; // ISO 8601
-    timeZone?: string;
-  };
-  end?: {
-    date?: string;
-    dateTime?: string;
-    timeZone?: string;
-  };
-  status?: string; // "confirmed" | "tentative" | "cancelled"
-}
-
-export interface GoogleCalendarEventsResponse {
-  items?: GoogleCalendarApiEvent[];
-  nextPageToken?: string;
-}
 
 /** 共通の認証付き Google Calendar API フェッチ関数 */
 async function calendarFetch<T>(
@@ -91,53 +68,7 @@ async function calendarFetch<T>(
   options?: RequestInit
 ): Promise<T> {
   const url = urlOrPath.startsWith("http") ? urlOrPath : `${CALENDAR_BASE_URL}${urlOrPath}`;
-  const res = await fetch(url, {
-    ...options,
-    headers: {
-      Authorization: `Bearer ${token}`,
-      "Content-Type": "application/json",
-      ...(options?.headers ?? {}),
-    },
-  });
-
-  if (!res.ok) {
-    const text = await res.text();
-    let errorData: any;
-    try {
-      errorData = JSON.parse(text);
-    } catch {
-      errorData = text;
-    }
-
-    // 401 (認証切れ) または 403 (スコープ不足等) の場合、無効なトークンを自動破棄
-    if (res.status === 401 || res.status === 403) {
-      clearSavedToken();
-      const reason =
-        res.status === 403
-          ? "スコープ権限不足 (ACCESS_TOKEN_SCOPE_INSUFFICIENT) のため、再同意・再認証が必要です。"
-          : "認証有効期限切れのため、再認証が必要です。";
-      console.error(
-        `[Google Calendar Error] ${res.status} at ${url}: ${reason}\n詳細:`,
-        errorData
-      );
-    } else {
-      console.error(`[Google Calendar Error] ${res.status} at ${url}:`, errorData);
-    }
-
-    throw new GoogleCalendarApiError(
-      res.status,
-      url,
-      typeof errorData === "object" ? JSON.stringify(errorData) : text,
-      errorData
-    );
-  }
-
-  if (res.status === 204) {
-    return {} as T;
-  }
-
-  const text = await res.text();
-  return text ? (JSON.parse(text) as T) : ({} as T);
+  return requestGoogleCalendarApi<T>(url, options, token);
 }
 
 /** 時刻文字列 ("HH:MM") に指定分数（デフォルト510分 = 8時間30分）を加算した時刻文字列 ("HH:MM") を返す */
@@ -185,18 +116,19 @@ export function parseGoogleEventDateTime(
   return { date: today, startTime: "", endTime: "" };
 }
 
-/** Arca の予定データから Google Calendar API 用のリクエストボディを作成 */
+/** Arca の予定データから Google Calendar API 用のリクエストボディ (CalendarMutationPayload) を作成 */
 export function formatToGoogleEventBody(event: {
   title: string;
   date: string;
   startTime?: string;
   endTime?: string;
   note?: string;
-}): {
+  location?: string;
+}): CalendarMutationPayload & {
   summary: string;
   description: string;
-  start: { date?: string; dateTime?: string; timeZone?: string };
-  end: { date?: string; dateTime?: string; timeZone?: string };
+  start: { dateTime?: string; date?: string; timeZone?: string };
+  end: { dateTime?: string; date?: string; timeZone?: string };
 } {
   const timeZone = Intl.DateTimeFormat().resolvedOptions().timeZone || "Asia/Tokyo";
   const title = event.title || "(無題)";
@@ -224,6 +156,7 @@ export function formatToGoogleEventBody(event: {
     return {
       summary: title,
       description,
+      ...(event.location ? { location: event.location } : {}),
       start: { dateTime: startDate.toISOString(), timeZone },
       end: { dateTime: endDate.toISOString(), timeZone },
     };
@@ -233,6 +166,7 @@ export function formatToGoogleEventBody(event: {
   return {
     summary: title,
     description,
+    ...(event.location ? { location: event.location } : {}),
     start: { date: event.date },
     end: { date: event.date },
   };
@@ -261,7 +195,23 @@ export async function fetchUserCalendarList(
 }
 
 /**
- * 指定したカレンダー ID からイベントを取得する
+ * 「出勤予定」等のサブカレンダーが存在する場合、そのカレンダーIDを解決する（なければ "primary"）
+ */
+async function resolveShiftCalendarId(token: string): Promise<string> {
+  const calendarList = await fetchUserCalendarList(token);
+  const shiftCal = calendarList.find(
+    (c) =>
+      !c.primary &&
+      (c.summary === "出勤予定" || /出勤|シフト/i.test(c.summary))
+  );
+  if (shiftCal?.id) {
+    return shiftCal.id;
+  }
+  return "primary";
+}
+
+/**
+ * 指定したカレンダー ID からイベントを取得する (singleEvents=true 必須)
  */
 export async function fetchEventsFromCalendar(
   token: string,
@@ -269,31 +219,7 @@ export async function fetchEventsFromCalendar(
   timeMin?: string,
   timeMax?: string
 ): Promise<GoogleCalendarApiEvent[]> {
-  const now = new Date();
-  // 当月1日の1ヶ月前 (前月1日 00:00:00)
-  const defaultMin = new Date(now.getFullYear(), now.getMonth() - 1, 1, 0, 0, 0, 0).toISOString();
-  // 当月末日の1ヶ月後 (翌月末日 23:59:59.999 = 翌々月0日)
-  const defaultMax = new Date(now.getFullYear(), now.getMonth() + 2, 0, 23, 59, 59, 999).toISOString();
-
-  const min = timeMin || defaultMin;
-  const max = timeMax || defaultMax;
-
-  const params = new URLSearchParams({
-    timeMin: min,
-    timeMax: max,
-    singleEvents: "true",
-    orderBy: "startTime",
-    maxResults: "250",
-  });
-
-  const data = await calendarFetch<GoogleCalendarEventsResponse>(
-    token,
-    `${CALENDAR_API_ROOT}/calendars/${encodeURIComponent(calendarId)}/events?${params.toString()}`
-  );
-
-  return (data.items || []).filter(
-    (item) => item.status !== "cancelled" && item.id
-  );
+  return listGoogleEvents(calendarId, timeMin, timeMax, token);
 }
 
 /**
@@ -308,7 +234,7 @@ export async function fetchPrimaryCalendarEvents(
 }
 
 /**
- * Google カレンダーに予定を新規作成し、Google Event ID を返す
+ * Google カレンダーに予定を新規作成し、Google Event ID を返す (POST)
  */
 export async function createGoogleCalendarEvent(
   token: string,
@@ -318,18 +244,16 @@ export async function createGoogleCalendarEvent(
     startTime?: string;
     endTime?: string;
     note?: string;
-  }
+  },
+  calendarId: string = "primary"
 ): Promise<string> {
   const body = formatToGoogleEventBody(event);
-  const created = await calendarFetch<GoogleCalendarApiEvent>(token, "/events", {
-    method: "POST",
-    body: JSON.stringify(body),
-  });
+  const created = await createGoogleEvent(body, calendarId, token);
   return created.id;
 }
 
 /**
- * Google カレンダーの予定を更新する
+ * Google カレンダーの予定を部分更新する (PATCH)
  */
 export async function updateGoogleCalendarEvent(
   token: string,
@@ -344,32 +268,33 @@ export async function updateGoogleCalendarEvent(
   calendarId: string = "primary"
 ): Promise<void> {
   const body = formatToGoogleEventBody(event);
-  await calendarFetch<GoogleCalendarApiEvent>(
-    token,
-    `${CALENDAR_API_ROOT}/calendars/${encodeURIComponent(calendarId)}/events/${encodeURIComponent(googleEventId)}`,
-    {
-      method: "PATCH",
-      body: JSON.stringify(body),
+  await updateGoogleEvent(googleEventId, body, calendarId, token);
+}
+
+/**
+ * Google カレンダーの予定を削除する (DELETE)
+ * ※ 低レベル関数 deleteGoogleEvent は 404/410 を throw するが、同期ヘルパーでは 404/410 を冪等に完了扱いとする
+ */
+export async function deleteGoogleCalendarEvent(
+  token: string,
+  googleEventId: string,
+  calendarId: string = "primary"
+): Promise<void> {
+  try {
+    await deleteGoogleEvent(googleEventId, calendarId, token);
+  } catch (err) {
+    if (err instanceof GoogleCalendarApiError && err.isNotFoundOrGone()) {
+      return;
     }
-  );
+    throw err;
+  }
 }
 
 /**
  * 複数日（4連勤ワンシフト等）の出勤イベントを一括更新・作成する
  *
- * 各対象日について:
- * 1. 既存の出勤イベントが存在する場合:
- *    - Google 連携中かつ googleEventId があれば updateGoogleCalendarEvent を実行（404時は新規作成へフォールバック）
- *    - Google 連携中で googleEventId が未紐付けの場合は createGoogleCalendarEvent を実行してIDを紐付け
- *    - Firestore ドキュメントを updateDoc で更新
- * 2. 既存の出勤イベントが存在しない場合:
- *    - Google 連携中なら createGoogleCalendarEvent で Google イベントを作成
- *    - Firestore ドキュメントを addDoc で新規追加
- *
- * @param token Google Access Token (未ログイン時は null)
- * @param dates 対象日配列（例: 4日間の日付配列）
- * @param shiftData タイトル、開始時刻、終了時刻、メモ
- * @param existingEvents 既存の CalendarEvent 配列
+ * ※ 通信エラー（401/403 等）発生時はエラーを握り潰さず上位へ throw し、
+ *    呼び出し元（CalendarView / Calendar）で状態ロールバックと SyncToast 表示を行う。
  */
 export async function batchUpdateShiftEvents(
   token: string | null | undefined,
@@ -382,91 +307,126 @@ export async function batchUpdateShiftEvents(
   },
   existingEvents: CalendarEvent[]
 ): Promise<void> {
+  const activeToken = await resolveValidAccessToken(token);
+  const hasLinkedEvents = dates.some((date) =>
+    existingEvents.some((e) => e.date === date && isWorkEvent(e.title) && Boolean(e.googleEventId))
+  );
+
+  // 過去にGoogle連携していた、またはGoogle紐付け済みの予定を編集しようとしているのにトークンが切れている場合は 401 を throw
+  if (!activeToken && (wasGoogleConnected() || hasLinkedEvents)) {
+    throw new GoogleCalendarApiError(
+      401,
+      `${CALENDAR_BASE_URL}/events`,
+      "Google認証の有効期限が切れています。再認証してください。"
+    );
+  }
+
+  const formattedTitle =
+    formatShiftTitleWithTime(shiftData.title, shiftData.startTime, true) || shiftData.title;
+
   for (const date of dates) {
-    const existingWork = existingEvents.find(
+    // 対象日の出勤予定をすべて抽出（プライマリ・サブカレンダー両方に対応）
+    const matchingWorkEvents = existingEvents.filter(
       (e) => e.date === date && isWorkEvent(e.title)
     );
 
-    if (existingWork) {
-      // 1. 既存イベントの更新
-      let currentGoogleId = existingWork.googleEventId;
+    if (matchingWorkEvents.length > 0) {
+      for (const existingWork of matchingWorkEvents) {
+        let currentGoogleId = existingWork.googleEventId;
+        let targetCalId = existingWork.googleCalendarId || "primary";
 
-      if (token) {
-        if (currentGoogleId) {
-          try {
-            await updateGoogleCalendarEvent(token, currentGoogleId, {
-              title: shiftData.title,
-              date,
-              startTime: shiftData.startTime,
-              endTime: shiftData.endTime,
-              note: shiftData.note ?? existingWork.note,
-            });
-          } catch (gErr) {
-            console.error(`[Google Calendar Sync] Failed to update event on ${date}:`, gErr);
-            // 404（Google側で削除されたなど）の場合は新規作成へフォールバック
-            if (gErr instanceof GoogleCalendarApiError && gErr.status === 404) {
-              try {
-                const recreatedId = await createGoogleCalendarEvent(token, {
-                  title: shiftData.title,
+        if (activeToken) {
+          if (!existingWork.googleCalendarId && existingWork.isShiftOnly) {
+            targetCalId = await resolveShiftCalendarId(activeToken);
+          }
+
+          if (currentGoogleId) {
+            try {
+              await updateGoogleCalendarEvent(
+                activeToken,
+                currentGoogleId,
+                {
+                  title: formattedTitle,
                   date,
                   startTime: shiftData.startTime,
                   endTime: shiftData.endTime,
                   note: shiftData.note ?? existingWork.note,
-                });
+                },
+                targetCalId
+              );
+            } catch (gErr) {
+              // 404/410 の場合：Google側で削除されていた場合は新規作成へフォールバックしてIDを再紐付け
+              if (gErr instanceof GoogleCalendarApiError && gErr.isNotFoundOrGone()) {
+                const recreatedId = await createGoogleCalendarEvent(
+                  activeToken,
+                  {
+                    title: formattedTitle,
+                    date,
+                    startTime: shiftData.startTime,
+                    endTime: shiftData.endTime,
+                    note: shiftData.note ?? existingWork.note,
+                  },
+                  targetCalId
+                );
                 if (recreatedId) currentGoogleId = recreatedId;
-              } catch (cErr) {
-                console.error(`[Google Calendar Sync] Fallback creation failed on ${date}:`, cErr);
+              } else {
+                // 401 / 403 / ネットワークエラー等はロールバック＆トースト表示のため必ず再スロー
+                throw gErr;
               }
             }
-          }
-        } else {
-          // Google イベント ID が未紐付けの場合は新規作成して紐付け
-          try {
-            const newGId = await createGoogleCalendarEvent(token, {
-              title: shiftData.title,
-              date,
-              startTime: shiftData.startTime,
-              endTime: shiftData.endTime,
-              note: shiftData.note ?? existingWork.note,
-            });
+          } else {
+            // Google イベント ID が未紐付けの場合は新規作成して紐付け
+            const newGId = await createGoogleCalendarEvent(
+              activeToken,
+              {
+                title: formattedTitle,
+                date,
+                startTime: shiftData.startTime,
+                endTime: shiftData.endTime,
+                note: shiftData.note ?? existingWork.note,
+              },
+              targetCalId
+            );
             if (newGId) currentGoogleId = newGId;
-          } catch (gErr) {
-            console.error(`[Google Calendar Sync] Failed to create unlinked event on ${date}:`, gErr);
           }
         }
-      }
 
-      await updateDoc(doc(db, "events", existingWork.id), {
-        title: shiftData.title,
-        startTime: shiftData.startTime,
-        endTime: shiftData.endTime,
-        ...(shiftData.note !== undefined ? { note: shiftData.note } : {}),
-        googleEventId: currentGoogleId || null,
-      });
+        await updateDoc(doc(db, "events", existingWork.id), {
+          title: formattedTitle,
+          startTime: shiftData.startTime,
+          endTime: shiftData.endTime,
+          ...(shiftData.note !== undefined ? { note: shiftData.note } : {}),
+          googleEventId: currentGoogleId || null,
+          googleCalendarId: targetCalId,
+        });
+      }
     } else {
-      // 2. 新規イベントの作成
+      // 対象日に出勤イベントがまだ存在しない場合は新規作成
       let newGoogleId: string | undefined;
-      if (token) {
-        try {
-          newGoogleId = await createGoogleCalendarEvent(token, {
-            title: shiftData.title,
+      const targetCalId = "primary";
+
+      if (activeToken) {
+        newGoogleId = await createGoogleCalendarEvent(
+          activeToken,
+          {
+            title: formattedTitle,
             date,
             startTime: shiftData.startTime,
             endTime: shiftData.endTime,
             note: shiftData.note || "",
-          });
-        } catch (gErr) {
-          console.error(`[Google Calendar Sync] Failed to create event on ${date}:`, gErr);
-        }
+          },
+          targetCalId
+        );
       }
 
       await addDoc(collection(db, "events"), {
-        title: shiftData.title,
+        title: formattedTitle,
         date,
         startTime: shiftData.startTime,
         endTime: shiftData.endTime,
         note: shiftData.note || "",
         googleEventId: newGoogleId || null,
+        googleCalendarId: targetCalId,
         createdAt: serverTimestamp(),
       });
     }
@@ -519,17 +479,8 @@ export interface ApplyShiftStatusParams {
 /**
  * 出勤ステータス手動調整を Google カレンダーおよび Firestore に反映する
  *
- * 1. isReset === true（自動判定に戻す場合）:
- *    - Firestore の手動オーバーライドを解除 (saveShiftOverride(date, null))
- * 2. type === "holiday"（休日に設定する場合）:
- *    - 該当日の既存出勤予定（isWorkEvent）を Google カレンダーから削除
- *    - Firestore の events コレクションからも削除
- *    - Firestore の手動オーバーライドを「休日」として保存
- * 3. type === "work"（出勤に設定する場合）:
- *    - シフト名に応じた開始・終了時刻を決定（デフォルト8.5時間 / 510分）
- *    - 該当日に既存の出勤予定があれば Google カレンダー更新＆Firestore 更新（404時は新規作成フォールバック）
- *    - 該当日に出勤予定がなければ Google カレンダー新規作成＆Firestore 新規作成
- *    - Firestore の手動オーバーライドを「出勤」として保存
+ * ※ Google API で 401/403 等のエラーが発生した場合は握り潰さず throw し、
+ *    呼び出し元で状態ロールバックと SyncToast 表示を行う。
  */
 export async function applyShiftStatusToGoogleCalendar(
   token: string | null | undefined,
@@ -542,25 +493,53 @@ export async function applyShiftStatusToGoogleCalendar(
     return { success: true };
   }
 
+  const activeToken = await resolveValidAccessToken(token);
+  const workEvents = existingEvents.filter(
+    (e) => e.date === params.date && isWorkEvent(e.title)
+  );
+  const hasLinkedWorkEvent = workEvents.some((e) => Boolean(e.googleEventId));
+
+  if (!activeToken && (wasGoogleConnected() || hasLinkedWorkEvent)) {
+    throw new GoogleCalendarApiError(
+      401,
+      `${CALENDAR_BASE_URL}/events`,
+      "Google認証の有効期限が切れています。再認証が必要です。"
+    );
+  }
+
   // 2. 休日への変更
   if (params.type === "holiday") {
-    const workEvents = existingEvents.filter(
-      (e) => e.date === params.date && isWorkEvent(e.title)
-    );
-
     for (const ev of workEvents) {
-      if (token && ev.googleEventId) {
+      if (activeToken && ev.googleEventId) {
+        let targetCalId = ev.googleCalendarId || "primary";
+        if (!ev.googleCalendarId && ev.isShiftOnly) {
+          targetCalId = await resolveShiftCalendarId(activeToken);
+        }
         try {
-          await deleteGoogleCalendarEvent(token, ev.googleEventId);
+          await deleteGoogleCalendarEvent(activeToken, ev.googleEventId, targetCalId);
         } catch (err) {
-          console.error(`[Google Calendar Sync] Failed to delete event on ${params.date}:`, err);
+          // 既に削除済み (404/410) の場合はもし別カレンダーにある可能性があればそちらも削除試行し、なければ正常進行
+          if (err instanceof GoogleCalendarApiError && err.isNotFoundOrGone()) {
+            const fallbackCalId =
+              targetCalId === "primary" ? await resolveShiftCalendarId(activeToken) : "primary";
+            if (fallbackCalId !== targetCalId) {
+              try {
+                await deleteGoogleCalendarEvent(activeToken, ev.googleEventId, fallbackCalId);
+              } catch (fallbackErr) {
+                if (
+                  fallbackErr instanceof GoogleCalendarApiError &&
+                  !fallbackErr.isNotFoundOrGone()
+                ) {
+                  throw fallbackErr;
+                }
+              }
+            }
+          } else {
+            throw err;
+          }
         }
       }
-      try {
-        await deleteDoc(doc(db, "events", ev.id));
-      } catch (err) {
-        console.error(`[Firestore] Failed to delete event ${ev.id}:`, err);
-      }
+      await deleteDoc(doc(db, "events", ev.id));
     }
 
     await saveShiftOverride(params.date, {
@@ -572,86 +551,97 @@ export async function applyShiftStatusToGoogleCalendar(
   }
 
   // 3. 出勤への変更
-  const title = (params.shiftName || "出勤").trim();
+  const rawTitle = (params.shiftName || "出勤").trim();
   const { startTime, endTime } = resolveShiftTimes(
     params.shiftName,
     params.startTime,
     params.endTime
   );
-
-  const existingWork = existingEvents.find(
-    (e) => e.date === params.date && isWorkEvent(e.title)
-  );
+  const title = formatShiftTitleWithTime(rawTitle, startTime, true) || rawTitle;
 
   let targetEventId: string | undefined;
 
-  if (existingWork) {
-    targetEventId = existingWork.id;
-    let googleId = existingWork.googleEventId;
+  if (workEvents.length > 0) {
+    for (const existingWork of workEvents) {
+      targetEventId = existingWork.id;
+      let googleId = existingWork.googleEventId;
+      let targetCalId = existingWork.googleCalendarId || "primary";
 
-    if (token) {
-      if (googleId) {
-        try {
-          await updateGoogleCalendarEvent(token, googleId, {
-            title,
-            date: params.date,
-            startTime,
-            endTime,
-          });
-        } catch (gErr) {
-          console.error(`[Google Calendar Sync] Failed to update event on ${params.date}:`, gErr);
-          // 404時は新規作成へフォールバック
-          if (gErr instanceof GoogleCalendarApiError && gErr.status === 404) {
-            try {
-              const newGId = await createGoogleCalendarEvent(token, {
+      if (activeToken) {
+        if (!existingWork.googleCalendarId && existingWork.isShiftOnly) {
+          targetCalId = await resolveShiftCalendarId(activeToken);
+        }
+
+        if (googleId) {
+          try {
+            await updateGoogleCalendarEvent(
+              activeToken,
+              googleId,
+              {
                 title,
                 date: params.date,
                 startTime,
                 endTime,
-              });
+              },
+              targetCalId
+            );
+          } catch (gErr) {
+            if (gErr instanceof GoogleCalendarApiError && gErr.isNotFoundOrGone()) {
+              const newGId = await createGoogleCalendarEvent(
+                activeToken,
+                {
+                  title,
+                  date: params.date,
+                  startTime,
+                  endTime,
+                },
+                targetCalId
+              );
               if (newGId) googleId = newGId;
-            } catch (cErr) {
-              console.error(`[Google Calendar Sync] Fallback creation failed on ${params.date}:`, cErr);
+            } else {
+              throw gErr;
             }
           }
-        }
-      } else {
-        // Google イベント ID が未紐付けの場合は新規作成して紐付け
-        try {
-          const newGId = await createGoogleCalendarEvent(token, {
-            title,
-            date: params.date,
-            startTime,
-            endTime,
-          });
+        } else {
+          const newGId = await createGoogleCalendarEvent(
+            activeToken,
+            {
+              title,
+              date: params.date,
+              startTime,
+              endTime,
+            },
+            targetCalId
+          );
           if (newGId) {
             googleId = newGId;
           }
-        } catch (gErr) {
-          console.error(`[Google Calendar Sync] Failed to create event on ${params.date}:`, gErr);
         }
       }
-    }
 
-    await updateDoc(doc(db, "events", existingWork.id), {
-      title,
-      startTime,
-      endTime,
-      googleEventId: googleId || null,
-    });
+      await updateDoc(doc(db, "events", existingWork.id), {
+        title,
+        startTime,
+        endTime,
+        googleEventId: googleId || null,
+        googleCalendarId: targetCalId,
+      });
+    }
   } else {
     let newGoogleId: string | undefined;
-    if (token) {
-      try {
-        newGoogleId = await createGoogleCalendarEvent(token, {
+    const targetCalId = "primary";
+
+    if (activeToken) {
+      newGoogleId = await createGoogleCalendarEvent(
+        activeToken,
+        {
           title,
           date: params.date,
           startTime,
           endTime,
-        });
-      } catch (gErr) {
-        console.error(`[Google Calendar Sync] Failed to create event on ${params.date}:`, gErr);
-      }
+        },
+        targetCalId
+      );
     }
 
     const docRef = await addDoc(collection(db, "events"), {
@@ -661,6 +651,7 @@ export async function applyShiftStatusToGoogleCalendar(
       endTime,
       note: "",
       googleEventId: newGoogleId || null,
+      googleCalendarId: targetCalId,
       createdAt: serverTimestamp(),
     });
     targetEventId = docRef.id;
@@ -673,31 +664,6 @@ export async function applyShiftStatusToGoogleCalendar(
   });
 
   return { success: true, eventId: targetEventId };
-}
-
-/**
- * Google カレンダーの予定を削除する（すでに削除済みの 410/404 は正常終了として扱う）
- */
-export async function deleteGoogleCalendarEvent(
-  token: string,
-  googleEventId: string
-): Promise<void> {
-  try {
-    await calendarFetch<void>(
-      token,
-      `/events/${encodeURIComponent(googleEventId)}`,
-      {
-        method: "DELETE",
-      }
-    );
-  } catch (err) {
-    // 410 (Gone: Resource has been deleted) または 404 (Not Found) の場合はすでにGoogle側で削除済みなので正常完了とする
-    if (err instanceof GoogleCalendarApiError && (err.status === 410 || err.status === 404)) {
-      console.info(`[Google Calendar] Event ${googleEventId} is already deleted on Google.`);
-      return;
-    }
-    throw err;
-  }
 }
 
 /**
@@ -754,17 +720,13 @@ export async function cleanDuplicateEvents(
 // 同期多重実行防止用フラグ
 let isCalendarSyncInProgress = false;
 
+export { getValidAccessToken };
+
 /**
  * Google カレンダーから Arca (Firestore) への双方向 Upsert 同期
- * 
- * 1) ユーザーのカレンダー一覧を取得（プライマリ ＆ 「出勤予定」別カレンダー）
- * 2) 各カレンダーから直近の予定を取得
- *    - プライマリ: isShiftOnly = false（通常の予定としてカレンダーに表示）
- *    - 「出勤予定」別カレンダー: isShiftOnly = true（シフト計算専用、カレンダー非表示）
- * 3) 既存の Arca 予定と照合して Upsert (Insert / Update)
  */
 export async function syncGoogleCalendarToArca(
-  token: string,
+  token?: string | null,
   providedExistingEvents?: CalendarEvent[]
 ): Promise<{ added: number; updated: number }> {
   if (isCalendarSyncInProgress) {
@@ -773,8 +735,9 @@ export async function syncGoogleCalendarToArca(
   isCalendarSyncInProgress = true;
 
   try {
+    const activeToken = (await resolveValidAccessToken(token)) || "";
     // 1. カレンダー一覧の取得
-    const calendarList = await fetchUserCalendarList(token);
+    const calendarList = await fetchUserCalendarList(activeToken);
 
     // プライマリカレンダーの特定
     const primaryCal = calendarList.find((c) => c.primary) || { id: "primary", summary: "Primary" };
@@ -787,23 +750,37 @@ export async function syncGoogleCalendarToArca(
     );
 
     // 2. 対象カレンダーからイベント取得
-    const fetchTargets: Array<{ id: string; isShiftOnly: boolean }> = [
-      { id: primaryCal.id || "primary", isShiftOnly: false },
+    const fetchTargets: Array<{ id: string; calendarKey: string; isShiftOnly: boolean }> = [
+      { id: primaryCal.id || "primary", calendarKey: "primary", isShiftOnly: false },
     ];
 
     if (shiftCal && shiftCal.id !== primaryCal.id) {
-      fetchTargets.push({ id: shiftCal.id, isShiftOnly: true });
+      fetchTargets.push({ id: shiftCal.id, calendarKey: shiftCal.id, isShiftOnly: true });
     }
 
-    const fetchedEventsWithFlag: Array<{ event: GoogleCalendarApiEvent; isShiftOnly: boolean }> = [];
+    const fetchedEventsWithFlag: Array<{
+      event: GoogleCalendarApiEvent;
+      calendarId: string;
+      isShiftOnly: boolean;
+    }> = [];
 
     for (const target of fetchTargets) {
       try {
-        const events = await fetchEventsFromCalendar(token, target.id);
+        const events = await fetchEventsFromCalendar(activeToken, target.id);
         for (const e of events) {
-          fetchedEventsWithFlag.push({ event: e, isShiftOnly: target.isShiftOnly });
+          fetchedEventsWithFlag.push({
+            event: e,
+            calendarId: target.calendarKey,
+            isShiftOnly: target.isShiftOnly,
+          });
         }
       } catch (err) {
+        if (
+          err instanceof GoogleCalendarApiError &&
+          (err.isUnauthorized() || err.isScopeInsufficient())
+        ) {
+          throw err;
+        }
         console.warn(`Failed to fetch events from calendar ${target.id}:`, err);
       }
     }
@@ -841,6 +818,7 @@ export async function syncGoogleCalendarToArca(
     for (const item of fetchedEventsWithFlag) {
       const gEvent = item.event;
       const isShiftOnly = item.isShiftOnly;
+      const googleCalendarId = item.calendarId;
       fetchedGoogleIdSet.add(gEvent.id);
 
       const { date, startTime, endTime } = parseGoogleEventDateTime(
@@ -862,7 +840,8 @@ export async function syncGoogleCalendarToArca(
           (matchById.startTime || "") !== startTime ||
           (matchById.endTime || "") !== endTime ||
           (matchById.note || "").trim() !== note ||
-          matchById.isShiftOnly !== isShiftOnly;
+          matchById.isShiftOnly !== isShiftOnly ||
+          matchById.googleCalendarId !== googleCalendarId;
 
         if (hasDiff) {
           await updateDoc(doc(db, "events", matchById.id), {
@@ -873,6 +852,7 @@ export async function syncGoogleCalendarToArca(
             note,
             isShiftOnly,
             googleEventId: gEvent.id,
+            googleCalendarId,
           });
           matchById.title = title;
           matchById.date = date;
@@ -881,6 +861,7 @@ export async function syncGoogleCalendarToArca(
           matchById.note = note;
           matchById.isShiftOnly = isShiftOnly;
           matchById.googleEventId = gEvent.id;
+          matchById.googleCalendarId = googleCalendarId;
           updated++;
         }
         continue;
@@ -897,19 +878,20 @@ export async function syncGoogleCalendarToArca(
       if (matchByTitleAndDate) {
         await updateDoc(doc(db, "events", matchByTitleAndDate.id), {
           googleEventId: gEvent.id,
+          googleCalendarId,
           startTime: startTime || matchByTitleAndDate.startTime || "",
           endTime: endTime || matchByTitleAndDate.endTime || "",
           note: note || matchByTitleAndDate.note || "",
           isShiftOnly,
         });
         matchByTitleAndDate.googleEventId = gEvent.id;
+        matchByTitleAndDate.googleCalendarId = googleCalendarId;
         matchByTitleAndDate.isShiftOnly = isShiftOnly;
         updated++;
         continue;
       }
 
       // 3) どちらにも該当しない新規追加：ドキュメントIDを Google Event ID に統一（setDoc）
-      // これにより物理的に同一イベントの重複作成が絶対に発生しない
       await setDoc(doc(db, "events", gEvent.id), {
         title,
         date,
@@ -917,6 +899,7 @@ export async function syncGoogleCalendarToArca(
         endTime,
         note,
         googleEventId: gEvent.id,
+        googleCalendarId,
         isShiftOnly,
         createdAt: serverTimestamp(),
       });
@@ -928,6 +911,7 @@ export async function syncGoogleCalendarToArca(
         endTime,
         note,
         googleEventId: gEvent.id,
+        googleCalendarId,
         isShiftOnly,
         createdAt: null,
       });
@@ -935,7 +919,6 @@ export async function syncGoogleCalendarToArca(
     }
 
     // 5. Google カレンダー側で削除された予定の追従ミラーリング（Reconciliation）
-    // 取得対象期間（前月1日〜翌月末日）に属するイベントで、Googleに存在しなくなったものをFirestoreから削除
     const now = new Date();
     const prevMonth = new Date(now.getFullYear(), now.getMonth() - 1, 1);
     const minDateStr = `${prevMonth.getFullYear()}-${String(prevMonth.getMonth() + 1).padStart(2, "0")}-01`;

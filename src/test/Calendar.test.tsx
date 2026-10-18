@@ -294,8 +294,16 @@ describe("Calendar コンポーネント", () => {
     // モーダルヘッダー
     expect(screen.getByText("出勤時間・シフト変更")).toBeInTheDocument();
 
-    // サイクルタブ（今回の4連勤）
-    expect(screen.getByTestId("cycle-tab-current")).toBeInTheDocument();
+    // デフォルトで「次回の早番」タブが存在し、「今回の4連勤」タブも維持されていること
+    const nextEarlyTab = screen.getByTestId("cycle-tab-next-early");
+    const currentTab = screen.getByTestId("cycle-tab-current");
+    expect(nextEarlyTab).toBeInTheDocument();
+    expect(currentTab).toBeInTheDocument();
+    expect(screen.getByText("次回の早番")).toBeInTheDocument();
+    expect(screen.queryByText("Googleカレンダーも同期更新")).not.toBeInTheDocument();
+
+    // 「今回の4連勤」タブに切り替えて対象日を確認
+    await user.click(currentTab);
 
     // 対象日の行（チェックボックス）
     expect(screen.getByTestId(`shift-date-row-${TODAY}`)).toBeInTheDocument();

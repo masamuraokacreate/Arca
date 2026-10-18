@@ -18,7 +18,12 @@ import { useState, useEffect, useRef, useMemo } from "react";
 import { Clock, Sun, Check, X, Calendar as CalendarIcon } from "lucide-react";
 import type { CalendarEvent, SyncStatus, PMSettings } from "../../types";
 import { C } from "../../lib/designSystem";
-import { getFourDayWorkBlock, isWorkEvent, shiftDateStr } from "../../services/pmCycleService";
+import {
+  getFourDayWorkBlock,
+  isWorkEvent,
+  shiftDateStr,
+  formatShiftTitleWithTime,
+} from "../../services/pmCycleService";
 import { addMinutesToTime } from "../../services/googleCalendarSync";
 import { useModalAnimation } from "../../hooks/useModalAnimation";
 
@@ -67,8 +72,6 @@ export function ShiftEditModal({
   targetDate,
   events,
   pmSettings,
-  googleSyncStatus = "idle",
-  isGoogleSignedIn = false,
   onClose,
   onSave,
 }: ShiftEditModalProps) {
@@ -78,7 +81,7 @@ export function ShiftEditModal({
     return getFourDayWorkBlock(targetDate, events, pmSettings);
   }, [targetDate, events, pmSettings]);
 
-  // 2. 次の早番ブロック（直近未来の「早番」または2サイクル後12日後）
+  // 2. 次回の早番ブロック（直近未来の「早番」または2サイクル後12日後）
   const nextEarlyFourDayDates = useMemo(() => {
     if (currentFourDayDates.length === 0) return [];
     const lastDate = currentFourDayDates[currentFourDayDates.length - 1];
@@ -101,8 +104,8 @@ export function ShiftEditModal({
     return getFourDayWorkBlock(shiftDateStr(currentFourDayDates[0], 6), events, pmSettings);
   }, [currentFourDayDates, events, pmSettings]);
 
-  // 対象サイクル選択: "current" (今回の4連勤) | "next_early" (次の早番)
-  const [cycleTab, setCycleTab] = useState<"current" | "next_early">("current");
+  // 対象サイクル選択: "current" (今回の4連勤) | "next_early" (次回の早番) — デフォルトは "next_early"
+  const [cycleTab, setCycleTab] = useState<"current" | "next_early">("next_early");
 
   // アクティブな4日間リスト
   const activeFourDayDates = useMemo(() => {
@@ -119,60 +122,62 @@ export function ShiftEditModal({
   const [shiftCategory, setShiftCategory] = useState<ShiftCategory>("early");
 
   // 入力フォームステート
-  const [title, setTitle] = useState<string>("早番");
+  const [title, setTitle] = useState<string>("早番(6時)");
   const [startTime, setStartTime] = useState<string>("06:00");
-  const [endTime, setEndTime] = useState<string>("15:00");
+  const [endTime, setEndTime] = useState<string>("14:30");
   const [saving, setSaving] = useState(false);
 
-  // モーダルを開いたときの初期化
+  // モーダルを開いたときの初期化（デフォルトは「次回の早番」）
   const prevOpenRef = useRef(false);
   useEffect(() => {
     if (isOpen && !prevOpenRef.current) {
-      setCycleTab("current");
-      setSelectedDates(currentFourDayDates);
+      const defaultDates =
+        nextEarlyFourDayDates.length > 0 ? nextEarlyFourDayDates : currentFourDayDates;
+      setCycleTab("next_early");
+      setSelectedDates(defaultDates);
 
-      // 既存の当日出勤イベントから初期値を推定
-      const dayWork = events.find((e) => e.date === targetDate && isWorkEvent(e.title));
+      // 次回の早番または対象日の出勤イベントから初期値を推定
+      const sampleDate = defaultDates[0] || targetDate;
+      const dayWork =
+        events.find((e) => e.date === sampleDate && isWorkEvent(e.title)) ||
+        events.find((e) => e.date === targetDate && isWorkEvent(e.title));
+
       if (dayWork) {
         if (dayWork.title.includes("遅番") || (dayWork.startTime && dayWork.startTime >= "14:00")) {
+          const st = dayWork.startTime === "16:00" ? "16:00" : "15:00";
+          const et = dayWork.startTime === "16:00" ? "00:30" : "23:30";
           setShiftCategory("late");
-          setTitle("遅番");
-          if (dayWork.startTime === "16:00") {
-            setStartTime("16:00");
-            setEndTime("00:30");
-          } else {
-            setStartTime("15:00");
-            setEndTime("23:30");
-          }
+          setStartTime(st);
+          setEndTime(et);
+          setTitle(formatShiftTitleWithTime("遅番", st, true));
         } else if (dayWork.title.includes("日勤")) {
+          const st = dayWork.startTime || "08:30";
+          const et = dayWork.endTime || "17:00";
           setShiftCategory("day");
-          setTitle(dayWork.title || "日勤");
-          setStartTime(dayWork.startTime || "08:30");
-          setEndTime(dayWork.endTime || "17:00");
+          setStartTime(st);
+          setEndTime(et);
+          setTitle(formatShiftTitleWithTime(dayWork.title || "日勤", st, true));
         } else {
           // 早番
           setShiftCategory("early");
-          setTitle("早番");
           const matched = EARLY_PRESETS.find((p) => p.startTime === dayWork.startTime);
-          if (matched) {
-            setStartTime(matched.startTime);
-            setEndTime(matched.endTime);
-          } else {
-            setStartTime(dayWork.startTime || "06:00");
-            setEndTime(dayWork.endTime || "14:30");
-          }
+          const st = matched ? matched.startTime : dayWork.startTime || "06:00";
+          const et = matched ? matched.endTime : dayWork.endTime || "14:30";
+          setStartTime(st);
+          setEndTime(et);
+          setTitle(formatShiftTitleWithTime("早番", st, true));
         }
       } else {
         // デフォルト: 早番 06:00〜14:30
         setShiftCategory("early");
-        setTitle("早番");
         setStartTime("06:00");
         setEndTime("14:30");
+        setTitle(formatShiftTitleWithTime("早番", "06:00", true));
       }
       setSaving(false);
     }
     prevOpenRef.current = isOpen;
-  }, [isOpen, targetDate, events, currentFourDayDates]);
+  }, [isOpen, targetDate, events, currentFourDayDates, nextEarlyFourDayDates]);
 
   // サイクルタブを切り替えたら選択日付をその4日間にリセット
   const handleSwitchCycleTab = (tab: "current" | "next_early") => {
@@ -215,45 +220,60 @@ export function ShiftEditModal({
   const handleSelectCategory = (cat: ShiftCategory) => {
     setShiftCategory(cat);
     if (cat === "early") {
-      setTitle("早番");
       setStartTime("06:00");
       setEndTime("14:30");
+      setTitle(formatShiftTitleWithTime("早番", "06:00", true));
     } else if (cat === "late") {
-      setTitle("遅番");
       setStartTime("15:00");
       setEndTime("23:30");
+      setTitle(formatShiftTitleWithTime("遅番", "15:00", true));
     } else {
-      setTitle("日勤");
       setStartTime("08:30");
       setEndTime("17:00");
+      setTitle(formatShiftTitleWithTime("日勤", "08:30", true));
     }
   };
 
   // 早番プリセット選択
   const handleSelectEarlyPreset = (preset: EarlyPreset) => {
     setShiftCategory("early");
-    setTitle("早番");
     setStartTime(preset.startTime);
     setEndTime(preset.endTime);
+    setTitle(formatShiftTitleWithTime("早番", preset.startTime, true));
   };
 
   // 遅番プリセット選択
   const handleSelectLatePreset = (preset: EarlyPreset) => {
     setShiftCategory("late");
-    setTitle("遅番");
     setStartTime(preset.startTime);
     setEndTime(preset.endTime);
+    setTitle(formatShiftTitleWithTime("遅番", preset.startTime, true));
+  };
+
+  // 時間ピッカーをワンクリックで開く補助関数
+  const openTimePicker = (e: React.MouseEvent<HTMLInputElement>) => {
+    try {
+      (e.currentTarget as HTMLInputElement).showPicker?.();
+    } catch {
+      // showPicker 非対応環境では標準動作にフォールバック
+    }
   };
 
   // 保存ハンドラ
   const handleApply = async () => {
     if (saving || selectedDates.length === 0 || !startTime.trim()) return;
 
+    const baseFallback =
+      shiftCategory === "early" ? "早番" : shiftCategory === "late" ? "遅番" : "日勤";
+    const formattedTitle =
+      formatShiftTitleWithTime(title.trim() || baseFallback, startTime.trim(), true) ||
+      baseFallback;
+
     setSaving(true);
     try {
       await onSave({
         dates: selectedDates,
-        title: title.trim() || (shiftCategory === "early" ? "早番" : shiftCategory === "late" ? "遅番" : "日勤"),
+        title: formattedTitle,
         startTime: startTime.trim(),
         endTime: endTime.trim(),
         scope: selectedDates.length === activeFourDayDates.length ? "four_day" : "single",
@@ -288,7 +308,7 @@ export function ShiftEditModal({
         display: "flex",
         alignItems: "center",
         justifyContent: "center",
-        padding: "1rem",
+        padding: "1.25rem",
         boxSizing: "border-box",
       }}
       data-testid="shift-edit-modal-overlay"
@@ -298,26 +318,26 @@ export function ShiftEditModal({
         className={`arca-card arca-modal-window ${isClosing ? "is-closing" : ""}`}
         style={{
           width: "100%",
-          maxWidth: "480px",
+          maxWidth: "560px",
           maxHeight: "92vh",
           overflowY: "auto",
           background: "var(--bg-card-solid)",
           boxShadow: "0 20px 48px -12px rgba(0, 0, 0, 0.18), 0 4px 16px -2px rgba(0, 0, 0, 0.06)",
           borderRadius: "24px",
-          padding: "1.6rem 1.6rem 1.4rem",
+          padding: "1.9rem 2rem 1.7rem",
           boxSizing: "border-box",
           position: "relative",
           display: "flex",
           flexDirection: "column",
-          gap: "1.15rem",
+          gap: "1.35rem",
         }}
         data-testid="shift-edit-modal"
       >
-        {/* ── ヘッダー（サブテキストなし） ── */}
+        {/* ── ヘッダー ── */}
         <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
-          <div style={{ display: "flex", alignItems: "center", gap: "0.5rem" }}>
-            <Clock style={{ width: "1.15rem", height: "1.15rem", color: C.goldDark }} />
-            <h2 style={{ fontSize: "1.2rem", fontWeight: 700, color: "var(--text-main)", margin: 0, letterSpacing: "-0.02em" }}>
+          <div style={{ display: "flex", alignItems: "center", gap: "0.55rem" }}>
+            <Clock style={{ width: "1.2rem", height: "1.2rem", color: C.goldDark }} />
+            <h2 style={{ fontSize: "1.25rem", fontWeight: 700, color: "var(--text-main)", margin: 0, letterSpacing: "-0.02em" }}>
               出勤時間・シフト変更
             </h2>
           </div>
@@ -329,8 +349,8 @@ export function ShiftEditModal({
               background: "var(--bg-nav-track)",
               border: "none",
               borderRadius: "50%",
-              width: "28px",
-              height: "28px",
+              width: "30px",
+              height: "30px",
               display: "flex",
               alignItems: "center",
               justifyContent: "center",
@@ -340,19 +360,19 @@ export function ShiftEditModal({
             }}
             title="閉じる"
           >
-            <X style={{ width: "0.95rem", height: "0.95rem" }} />
+            <X style={{ width: "1rem", height: "1rem" }} />
           </button>
         </div>
 
-        {/* ── 対象サイクル切り替えタブ（今回の4連勤 / 次の早番） ── */}
+        {/* ── 対象サイクル切り替えタブ（今回の4連勤 / 次回の早番） ── */}
         <div>
           <div
             style={{
               display: "grid",
               gridTemplateColumns: "1fr 1fr",
-              gap: "6px",
+              gap: "8px",
               background: "var(--bg-nav-track)",
-              padding: "4px",
+              padding: "5px",
               borderRadius: "14px",
             }}
           >
@@ -365,20 +385,20 @@ export function ShiftEditModal({
                 flexDirection: "column",
                 alignItems: "center",
                 justifyContent: "center",
-                padding: "0.5rem 0.4rem",
+                padding: "0.6rem 0.5rem",
                 borderRadius: "10px",
                 border: "none",
                 background: cycleTab === "current" ? "var(--bg-card-solid)" : "transparent",
                 boxShadow: cycleTab === "current" ? "0 2px 8px rgba(0, 0, 0, 0.09)" : "none",
                 color: cycleTab === "current" ? C.goldDark : "var(--text-muted)",
                 fontWeight: cycleTab === "current" ? 700 : 500,
-                fontSize: "0.8rem",
+                fontSize: "0.84rem",
                 cursor: "pointer",
                 transition: "all 0.18s ease",
               }}
             >
               <span>今回の4連勤</span>
-              <span style={{ fontSize: "0.68rem", opacity: 0.85, marginTop: "0.15rem" }}>
+              <span style={{ fontSize: "0.7rem", opacity: 0.85, marginTop: "0.18rem" }}>
                 {formatBlockSummary(currentFourDayDates)}
               </span>
             </button>
@@ -392,23 +412,20 @@ export function ShiftEditModal({
                 flexDirection: "column",
                 alignItems: "center",
                 justifyContent: "center",
-                padding: "0.5rem 0.4rem",
+                padding: "0.6rem 0.5rem",
                 borderRadius: "10px",
                 border: "none",
                 background: cycleTab === "next_early" ? "var(--bg-card-solid)" : "transparent",
                 boxShadow: cycleTab === "next_early" ? "0 2px 8px rgba(0, 0, 0, 0.09)" : "none",
                 color: cycleTab === "next_early" ? C.goldDark : "var(--text-muted)",
                 fontWeight: cycleTab === "next_early" ? 700 : 500,
-                fontSize: "0.8rem",
+                fontSize: "0.84rem",
                 cursor: "pointer",
                 transition: "all 0.18s ease",
               }}
             >
-              <div style={{ display: "flex", alignItems: "center", gap: "0.25rem" }}>
-                <Sun style={{ width: "0.75rem", height: "0.75rem", color: C.goldDark }} />
-                <span>次の早番</span>
-              </div>
-              <span style={{ fontSize: "0.68rem", opacity: 0.85, marginTop: "0.15rem" }}>
+              <span>次回の早番</span>
+              <span style={{ fontSize: "0.7rem", opacity: 0.85, marginTop: "0.18rem" }}>
                 {formatBlockSummary(nextEarlyFourDayDates) || "次サイクル"}
               </span>
             </button>
@@ -417,8 +434,8 @@ export function ShiftEditModal({
 
         {/* ── 変更対象の4日間リスト（左側チェックボックス付き・デフォルト全選択） ── */}
         <div>
-          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: "0.4rem" }}>
-            <label style={{ fontSize: "0.72rem", fontWeight: 650, color: C.charcoalLight, letterSpacing: "0.06em" }}>
+          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: "0.5rem" }}>
+            <label style={{ fontSize: "0.75rem", fontWeight: 650, color: C.charcoalLight, letterSpacing: "0.06em" }}>
               変更対象の日程 ({selectedDates.length}/{activeFourDayDates.length}日選択中)
             </label>
             <button
@@ -427,8 +444,8 @@ export function ShiftEditModal({
               style={{
                 background: "transparent",
                 border: "none",
-                padding: "0.1rem 0.3rem",
-                fontSize: "0.7rem",
+                padding: "0.15rem 0.35rem",
+                fontSize: "0.74rem",
                 fontWeight: 600,
                 color: C.goldDark,
                 cursor: "pointer",
@@ -438,7 +455,7 @@ export function ShiftEditModal({
             </button>
           </div>
 
-          <div style={{ display: "flex", flexDirection: "column", gap: "5px" }}>
+          <div style={{ display: "flex", flexDirection: "column", gap: "7px" }}>
             {activeFourDayDates.map((dateStr, idx) => {
               const isChecked = selectedDates.includes(dateStr);
               const dObj = new Date(`${dateStr}T00:00:00`);
@@ -457,20 +474,20 @@ export function ShiftEditModal({
                     display: "flex",
                     alignItems: "center",
                     justifyContent: "space-between",
-                    padding: "0.5rem 0.65rem",
+                    padding: "0.6rem 0.85rem",
                     background: isChecked ? "rgba(197, 160, 89, 0.12)" : "var(--bg-nav-track)",
-                    borderRadius: "10px",
+                    borderRadius: "12px",
                     cursor: "pointer",
                     transition: "all 0.15s ease",
                     userSelect: "none",
                   }}
                 >
-                  <div style={{ display: "flex", alignItems: "center", gap: "0.6rem" }}>
+                  <div style={{ display: "flex", alignItems: "center", gap: "0.65rem" }}>
                     {/* チェックボックス */}
                     <div
                       style={{
-                        width: "18px",
-                        height: "18px",
+                        width: "19px",
+                        height: "19px",
                         borderRadius: "5px",
                         border: "none",
                         background: isChecked ? C.gold : "rgba(128, 128, 128, 0.2)",
@@ -484,30 +501,30 @@ export function ShiftEditModal({
                       {isChecked && <Check style={{ width: "12px", height: "12px", color: "#FFFFFF" }} strokeWidth={3} />}
                     </div>
 
-                    <div style={{ display: "flex", alignItems: "center", gap: "0.35rem" }}>
-                      <span style={{ fontWeight: 650, fontSize: "0.82rem", color: isChecked ? "var(--text-main)" : "var(--text-muted)" }}>
+                    <div style={{ display: "flex", alignItems: "center", gap: "0.45rem" }}>
+                      <span style={{ fontWeight: 650, fontSize: "0.86rem", color: isChecked ? "var(--text-main)" : "var(--text-muted)" }}>
                         {dObj.getMonth() + 1}/{dObj.getDate()} ({wDay})
                       </span>
-                      <span style={{ fontSize: "0.68rem", color: "var(--text-muted)", opacity: 0.85 }}>
+                      <span style={{ fontSize: "0.72rem", color: "var(--text-muted)", opacity: 0.85 }}>
                         {idx + 1}日目
                       </span>
                     </div>
                   </div>
 
                   {/* 変更プレビュー */}
-                  <div style={{ display: "flex", alignItems: "center", gap: "0.3rem", fontSize: "0.74rem" }}>
+                  <div style={{ display: "flex", alignItems: "center", gap: "0.4rem", fontSize: "0.78rem" }}>
                     {isChecked ? (
                       <>
-                        <span style={{ color: "var(--text-muted)", textDecoration: "line-through", fontSize: "0.7rem" }}>
+                        <span style={{ color: "var(--text-muted)", textDecoration: "line-through", fontSize: "0.72rem" }}>
                           {currentTime}
                         </span>
-                        <span style={{ color: "var(--text-muted)", fontSize: "0.7rem" }}>→</span>
+                        <span style={{ color: "var(--text-muted)", fontSize: "0.72rem" }}>→</span>
                         <span style={{ fontWeight: 700, color: C.goldDark }}>
                           {startTime}〜{endTime}
                         </span>
                       </>
                     ) : (
-                      <span style={{ color: "var(--text-muted)", fontSize: "0.72rem" }}>
+                      <span style={{ color: "var(--text-muted)", fontSize: "0.74rem" }}>
                         変更なし
                       </span>
                     )}
@@ -520,16 +537,16 @@ export function ShiftEditModal({
 
         {/* ── シフトカテゴリ切り替え（早番 / 遅番 / 日勤） ── */}
         <div>
-          <label style={{ fontSize: "0.72rem", fontWeight: 650, color: "var(--text-muted)", letterSpacing: "0.06em", display: "block", marginBottom: "0.4rem" }}>
+          <label style={{ fontSize: "0.75rem", fontWeight: 650, color: "var(--text-muted)", letterSpacing: "0.06em", display: "block", marginBottom: "0.45rem" }}>
             シフトタイプ
           </label>
           <div
             style={{
               display: "grid",
               gridTemplateColumns: "1fr 1fr 1fr",
-              gap: "6px",
+              gap: "8px",
               background: "var(--bg-nav-track)",
-              padding: "4px",
+              padding: "5px",
               borderRadius: "14px",
             }}
           >
@@ -541,20 +558,20 @@ export function ShiftEditModal({
                 display: "flex",
                 alignItems: "center",
                 justifyContent: "center",
-                gap: "0.3rem",
-                padding: "0.5rem 0.4rem",
+                gap: "0.35rem",
+                padding: "0.55rem 0.5rem",
                 borderRadius: "10px",
                 border: "none",
                 background: shiftCategory === "early" ? "var(--bg-card-solid)" : "transparent",
                 boxShadow: shiftCategory === "early" ? "0 2px 8px rgba(0, 0, 0, 0.09)" : "none",
                 color: shiftCategory === "early" ? C.goldDark : "var(--text-muted)",
                 fontWeight: shiftCategory === "early" ? 700 : 500,
-                fontSize: "0.82rem",
+                fontSize: "0.85rem",
                 cursor: "pointer",
                 transition: "all 0.18s ease",
               }}
             >
-              <Sun style={{ width: "0.85rem", height: "0.85rem" }} />
+              <Sun style={{ width: "0.9rem", height: "0.9rem" }} />
               <span>早番</span>
             </button>
 
@@ -566,20 +583,20 @@ export function ShiftEditModal({
                 display: "flex",
                 alignItems: "center",
                 justifyContent: "center",
-                gap: "0.3rem",
-                padding: "0.5rem 0.4rem",
+                gap: "0.35rem",
+                padding: "0.55rem 0.5rem",
                 borderRadius: "10px",
                 border: "none",
                 background: shiftCategory === "late" ? "var(--bg-card-solid)" : "transparent",
                 boxShadow: shiftCategory === "late" ? "0 2px 8px rgba(0, 0, 0, 0.09)" : "none",
                 color: shiftCategory === "late" ? C.goldDark : "var(--text-muted)",
                 fontWeight: shiftCategory === "late" ? 700 : 500,
-                fontSize: "0.82rem",
+                fontSize: "0.85rem",
                 cursor: "pointer",
                 transition: "all 0.18s ease",
               }}
             >
-              <Clock style={{ width: "0.85rem", height: "0.85rem" }} />
+              <Clock style={{ width: "0.9rem", height: "0.9rem" }} />
               <span>遅番</span>
             </button>
 
@@ -591,20 +608,20 @@ export function ShiftEditModal({
                 display: "flex",
                 alignItems: "center",
                 justifyContent: "center",
-                gap: "0.3rem",
-                padding: "0.5rem 0.4rem",
+                gap: "0.35rem",
+                padding: "0.55rem 0.5rem",
                 borderRadius: "10px",
                 border: "none",
                 background: shiftCategory === "day" ? "var(--bg-card-solid)" : "transparent",
                 boxShadow: shiftCategory === "day" ? "0 2px 8px rgba(0, 0, 0, 0.09)" : "none",
                 color: shiftCategory === "day" ? C.goldDark : "var(--text-muted)",
                 fontWeight: shiftCategory === "day" ? 700 : 500,
-                fontSize: "0.82rem",
+                fontSize: "0.85rem",
                 cursor: "pointer",
                 transition: "all 0.18s ease",
               }}
             >
-              <CalendarIcon style={{ width: "0.85rem", height: "0.85rem" }} />
+              <CalendarIcon style={{ width: "0.9rem", height: "0.9rem" }} />
               <span>日勤</span>
             </button>
           </div>
@@ -614,10 +631,10 @@ export function ShiftEditModal({
         <div>
           {shiftCategory === "early" && (
             <div>
-              <label style={{ fontSize: "0.72rem", fontWeight: 650, color: "var(--text-muted)", letterSpacing: "0.06em", display: "block", marginBottom: "0.4rem" }}>
+              <label style={{ fontSize: "0.75rem", fontWeight: 650, color: "var(--text-muted)", letterSpacing: "0.06em", display: "block", marginBottom: "0.45rem" }}>
                 早番の開始時刻を選択
               </label>
-              <div style={{ display: "grid", gridTemplateColumns: "repeat(5, 1fr)", gap: "6px" }}>
+              <div style={{ display: "grid", gridTemplateColumns: "repeat(5, 1fr)", gap: "8px" }}>
                 {EARLY_PRESETS.map((p) => {
                   const isSelected = startTime === p.startTime;
                   return (
@@ -627,21 +644,21 @@ export function ShiftEditModal({
                       onClick={() => handleSelectEarlyPreset(p)}
                       data-testid={`preset-early-${p.label.replace(":", "")}`}
                       style={{
-                        padding: "0.55rem 0.2rem",
-                        borderRadius: "10px",
+                        padding: "0.65rem 0.3rem",
+                        borderRadius: "12px",
                         border: "none",
                         background: isSelected ? C.goldFaint : "var(--bg-nav-track)",
                         boxShadow: isSelected ? "0 1px 4px rgba(197, 160, 89, 0.25)" : "none",
                         color: isSelected ? C.goldDark : "var(--text-main)",
                         fontWeight: isSelected ? 700 : 500,
-                        fontSize: "0.82rem",
+                        fontSize: "0.85rem",
                         cursor: "pointer",
                         transition: "all 0.15s ease",
                         textAlign: "center",
                       }}
                     >
                       <div>{p.label}</div>
-                      <div style={{ fontSize: "0.62rem", opacity: 0.75, marginTop: "0.1rem" }}>
+                      <div style={{ fontSize: "0.66rem", opacity: 0.75, marginTop: "0.15rem" }}>
                         〜{p.endTime}
                       </div>
                     </button>
@@ -653,10 +670,10 @@ export function ShiftEditModal({
 
           {shiftCategory === "late" && (
             <div>
-              <label style={{ fontSize: "0.72rem", fontWeight: 650, color: "var(--text-muted)", letterSpacing: "0.06em", display: "block", marginBottom: "0.4rem" }}>
+              <label style={{ fontSize: "0.75rem", fontWeight: 650, color: "var(--text-muted)", letterSpacing: "0.06em", display: "block", marginBottom: "0.45rem" }}>
                 遅番の開始時刻を選択
               </label>
-              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "8px" }}>
+              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "10px" }}>
                 {LATE_PRESETS.map((p) => {
                   const isSelected = startTime === p.startTime;
                   return (
@@ -666,14 +683,14 @@ export function ShiftEditModal({
                       onClick={() => handleSelectLatePreset(p)}
                       data-testid={`preset-late-${p.label.replace(":", "")}`}
                       style={{
-                        padding: "0.65rem 0.6rem",
+                        padding: "0.75rem 0.8rem",
                         borderRadius: "12px",
                         border: "none",
                         background: isSelected ? C.goldFaint : "var(--bg-nav-track)",
                         boxShadow: isSelected ? "0 1px 4px rgba(197, 160, 89, 0.25)" : "none",
                         color: isSelected ? C.goldDark : "var(--text-main)",
                         fontWeight: isSelected ? 700 : 500,
-                        fontSize: "0.85rem",
+                        fontSize: "0.88rem",
                         cursor: "pointer",
                         transition: "all 0.15s ease",
                         display: "flex",
@@ -683,11 +700,11 @@ export function ShiftEditModal({
                     >
                       <div>
                         <div>{p.label}</div>
-                        <div style={{ fontSize: "0.68rem", opacity: 0.75, marginTop: "0.1rem" }}>
+                        <div style={{ fontSize: "0.7rem", opacity: 0.75, marginTop: "0.15rem" }}>
                           {p.startTime} 〜 {p.endTime}
                         </div>
                       </div>
-                      {isSelected && <Check style={{ width: "0.95rem", height: "0.95rem", color: C.goldDark }} />}
+                      {isSelected && <Check style={{ width: "1rem", height: "1rem", color: C.goldDark }} />}
                     </button>
                   );
                 })}
@@ -697,40 +714,40 @@ export function ShiftEditModal({
 
           {shiftCategory === "day" && (
             <div>
-              <label style={{ fontSize: "0.72rem", fontWeight: 650, color: "var(--text-muted)", letterSpacing: "0.06em", display: "block", marginBottom: "0.4rem" }}>
-                日勤の時刻を入力
+              <label style={{ fontSize: "0.75rem", fontWeight: 650, color: "var(--text-muted)", letterSpacing: "0.06em", display: "block", marginBottom: "0.45rem" }}>
+                日勤の時刻を選択
               </label>
               <div
                 style={{
                   background: "var(--bg-nav-track)",
-                  padding: "0.85rem 1rem",
+                  padding: "0.95rem 1.1rem",
                   borderRadius: "14px",
                   display: "grid",
                   gridTemplateColumns: "1fr 1fr",
-                  gap: "10px",
+                  gap: "12px",
                 }}
               >
                 <div>
-                  <label style={{ fontSize: "0.68rem", fontWeight: 600, color: "var(--text-muted)", display: "block", marginBottom: "0.25rem" }}>
+                  <label style={{ fontSize: "0.7rem", fontWeight: 600, color: "var(--text-muted)", display: "block", marginBottom: "0.3rem" }}>
                     開始時刻
                   </label>
                   <input
-                    type="text"
+                    type="time"
                     value={startTime}
+                    onClick={openTimePicker}
                     onChange={(e) => {
                       const val = e.target.value;
                       setStartTime(val);
                       if (val && /^\d{1,2}:\d{2}$/.test(val)) {
                         setEndTime(addMinutesToTime(val, 510));
+                        setTitle((prev) => formatShiftTitleWithTime(prev || "日勤", val, true));
                       }
                     }}
-                    placeholder="08:30"
-                    inputMode="numeric"
                     className="appearance-none"
                     style={{
                       width: "100%",
-                      padding: "0.5rem 0.65rem",
-                      fontSize: "0.9rem",
+                      padding: "0.55rem 0.75rem",
+                      fontSize: "0.92rem",
                       fontWeight: 650,
                       color: "var(--text-main)",
                       background: "var(--bg-card-solid)",
@@ -738,26 +755,26 @@ export function ShiftEditModal({
                       borderRadius: "8px",
                       boxShadow: "0 1px 3px rgba(0,0,0,0.06)",
                       boxSizing: "border-box",
+                      cursor: "pointer",
                     }}
                     data-testid="shift-start-time-input"
                   />
                 </div>
 
                 <div>
-                  <label style={{ fontSize: "0.68rem", fontWeight: 600, color: "var(--text-muted)", display: "block", marginBottom: "0.25rem" }}>
+                  <label style={{ fontSize: "0.7rem", fontWeight: 600, color: "var(--text-muted)", display: "block", marginBottom: "0.3rem" }}>
                     終了時刻
                   </label>
                   <input
-                    type="text"
+                    type="time"
                     value={endTime}
+                    onClick={openTimePicker}
                     onChange={(e) => setEndTime(e.target.value)}
-                    placeholder="17:00"
-                    inputMode="numeric"
                     className="appearance-none"
                     style={{
                       width: "100%",
-                      padding: "0.5rem 0.65rem",
-                      fontSize: "0.9rem",
+                      padding: "0.55rem 0.75rem",
+                      fontSize: "0.92rem",
                       fontWeight: 650,
                       color: "var(--text-main)",
                       background: "var(--bg-card-solid)",
@@ -765,6 +782,7 @@ export function ShiftEditModal({
                       borderRadius: "8px",
                       boxShadow: "0 1px 3px rgba(0,0,0,0.06)",
                       boxSizing: "border-box",
+                      cursor: "pointer",
                     }}
                     data-testid="shift-end-time-input"
                   />
@@ -779,16 +797,17 @@ export function ShiftEditModal({
           <div
             style={{
               background: "var(--bg-nav-track)",
-              padding: "0.7rem 0.85rem",
+              padding: "0.85rem 1rem",
               borderRadius: "12px",
               display: "flex",
               alignItems: "center",
               justifyContent: "space-between",
-              gap: "0.6rem",
+              gap: "0.85rem",
+              flexWrap: "wrap",
             }}
           >
-            <div style={{ display: "flex", alignItems: "center", gap: "0.4rem", flex: 1 }}>
-              <span style={{ fontSize: "0.7rem", color: "var(--text-muted)", fontWeight: 600 }}>
+            <div style={{ display: "flex", alignItems: "center", gap: "0.45rem", flex: 1, minWidth: "160px" }}>
+              <span style={{ fontSize: "0.74rem", color: "var(--text-muted)", fontWeight: 600, whiteSpace: "nowrap" }}>
                 予定名:
               </span>
               <input
@@ -796,83 +815,94 @@ export function ShiftEditModal({
                 value={title}
                 onChange={(e) => setTitle(e.target.value)}
                 style={{
-                  padding: "0.25rem 0.5rem",
-                  fontSize: "0.78rem",
+                  padding: "0.35rem 0.6rem",
+                  fontSize: "0.82rem",
                   color: "var(--text-main)",
                   background: "var(--bg-card-solid)",
                   border: "1px solid var(--border-subtle)",
-                  borderRadius: "6px",
+                  borderRadius: "8px",
                   boxShadow: "0 1px 2px rgba(0,0,0,0.04)",
-                  width: "90px",
+                  width: "130px",
                 }}
               />
             </div>
 
-            <div style={{ display: "flex", alignItems: "center", gap: "0.3rem" }}>
+            <div style={{ display: "flex", alignItems: "center", gap: "0.4rem" }}>
               <input
-                type="text"
+                type="time"
                 value={startTime}
-                onChange={(e) => setStartTime(e.target.value)}
+                onClick={openTimePicker}
+                onChange={(e) => {
+                  const val = e.target.value;
+                  setStartTime(val);
+                  if (val && /^\d{1,2}:\d{2}$/.test(val)) {
+                    setEndTime(addMinutesToTime(val, 510));
+                    const defaultBase = shiftCategory === "early" ? "早番" : "遅番";
+                    setTitle((prev) => formatShiftTitleWithTime(prev || defaultBase, val, true));
+                  }
+                }}
                 style={{
-                  padding: "0.25rem 0.4rem",
-                  fontSize: "0.78rem",
+                  padding: "0.35rem 0.55rem",
+                  fontSize: "0.82rem",
                   fontWeight: 600,
                   color: "var(--text-main)",
                   background: "var(--bg-card-solid)",
                   border: "1px solid var(--border-subtle)",
-                  borderRadius: "6px",
+                  borderRadius: "8px",
                   boxShadow: "0 1px 2px rgba(0,0,0,0.04)",
-                  width: "55px",
-                  textAlign: "center",
+                  minWidth: "105px",
+                  cursor: "pointer",
                 }}
               />
-              <span style={{ fontSize: "0.7rem", color: "var(--text-muted)" }}>〜</span>
+              <span style={{ fontSize: "0.75rem", color: "var(--text-muted)" }}>〜</span>
               <input
-                type="text"
+                type="time"
                 value={endTime}
+                onClick={openTimePicker}
                 onChange={(e) => setEndTime(e.target.value)}
                 style={{
-                  padding: "0.25rem 0.4rem",
-                  fontSize: "0.78rem",
+                  padding: "0.35rem 0.55rem",
+                  fontSize: "0.82rem",
                   fontWeight: 600,
                   color: "var(--text-main)",
                   background: "var(--bg-card-solid)",
                   border: "1px solid var(--border-subtle)",
-                  borderRadius: "6px",
+                  borderRadius: "8px",
                   boxShadow: "0 1px 2px rgba(0,0,0,0.04)",
-                  width: "55px",
-                  textAlign: "center",
+                  minWidth: "105px",
+                  cursor: "pointer",
                 }}
               />
             </div>
           </div>
         )}
 
-        {/* ── フッターアクション（ローカル保存テキストは完全削除） ── */}
-        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginTop: "0.25rem" }}>
-          <div style={{ fontSize: "0.7rem", color: C.charcoalLight }}>
-            {isGoogleSignedIn && (
-              googleSyncStatus === "syncing"
-                ? "Googleカレンダー同期中…"
-                : "Googleカレンダーも同期更新"
-            )}
-          </div>
-
-          <div style={{ display: "flex", gap: "0.5rem" }}>
+        {/* ── フッターアクション（左下テキスト削除・ボタン1行維持） ── */}
+        <div
+          style={{
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "flex-end",
+            marginTop: "0.25rem",
+          }}
+        >
+          <div style={{ display: "flex", alignItems: "center", gap: "0.65rem", flexWrap: "nowrap" }}>
             <button
               type="button"
               onClick={handleClose}
               disabled={saving}
               style={{
-                padding: "0.55rem 1rem",
+                padding: "0.6rem 1.15rem",
                 borderRadius: "12px",
                 border: "none",
                 background: "rgba(0, 0, 0, 0.04)",
                 color: C.charcoalLight,
-                fontSize: "0.82rem",
+                fontSize: "0.84rem",
                 fontWeight: 500,
                 cursor: "pointer",
                 transition: "background 0.15s ease",
+                whiteSpace: "nowrap",
+                flexShrink: 0,
               }}
             >
               キャンセル
@@ -883,12 +913,12 @@ export function ShiftEditModal({
               disabled={saving || selectedDates.length === 0 || !startTime.trim()}
               data-testid="shift-edit-save-btn"
               style={{
-                padding: "0.55rem 1.25rem",
+                padding: "0.6rem 1.35rem",
                 borderRadius: "12px",
                 border: "none",
                 background: C.gold,
                 color: "#FDFCFA",
-                fontSize: "0.82rem",
+                fontSize: "0.84rem",
                 fontWeight: 700,
                 cursor: saving || selectedDates.length === 0 || !startTime.trim() ? "default" : "pointer",
                 boxShadow: "0 2px 8px rgba(197, 160, 89, 0.3)",
@@ -896,7 +926,10 @@ export function ShiftEditModal({
                 transition: "all 0.15s ease",
                 display: "inline-flex",
                 alignItems: "center",
+                justifyContent: "center",
                 gap: "0.35rem",
+                whiteSpace: "nowrap",
+                flexShrink: 0,
               }}
             >
               {saving

@@ -162,6 +162,14 @@ export interface PMMaster {
   lastCompletedAt?: string;   // 最終実施日時
 }
 
+/** 次回・次々回予定プレビュー */
+export interface PMSchedulePreview {
+  nextDate: string;
+  nextShiftLabel: string;
+  afterNextDate: string;
+  afterNextShiftLabel: string;
+}
+
 /** 実行ログ（カレンダーで完了した実績データ） */
 export interface PMMasterLog {
   id: string;

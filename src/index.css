@@ -148,13 +148,21 @@
   --prism-grad-hover: linear-gradient(135deg, rgba(138, 194, 221, 0.25) 0%, rgba(165, 243, 252, 0.18) 35%, rgba(224, 231, 255, 0.22) 70%, rgba(252, 231, 243, 0.18) 100%);
   --prism-grad-border: linear-gradient(135deg, rgba(138, 194, 221, 0.40) 0%, rgba(165, 243, 252, 0.30) 35%, rgba(224, 231, 255, 0.40) 70%, rgba(252, 231, 243, 0.30) 100%);
 
-  --border-subtle: rgba(255, 255, 255, 0.80);
+  --border-main: rgba(148, 163, 184, 0.45);
+  --border-subtle: rgba(203, 213, 225, 0.55);
+  --border-glass: rgba(148, 163, 184, 0.35);
+  --bg-input: rgba(255, 255, 255, 0.85);
   --border-prism: rgba(138, 194, 221, 0.30);
   --shadow-card: 0 10px 25px -5px rgba(148, 163, 184, 0.08), 0 8px 10px -6px rgba(148, 163, 184, 0.04);
   --shadow-card-hover: 0 14px 30px -4px rgba(148, 163, 184, 0.12), 0 4px 12px rgba(138, 194, 221, 0.15);
   --shadow-modal: 0 20px 50px 0 rgba(148, 163, 184, 0.14), 0 4px 16px rgba(148, 163, 184, 0.08);
   --shadow-briefing: 0 8px 32px 0 rgba(138, 194, 221, 0.12), 0 1px 4px rgba(165, 243, 252, 0.08);
   --scrollbar-thumb: rgba(148, 163, 184, 0.25);
+
+  /* プリズムテーマ限定のカード4色オーロラグラデーション */
+  --prism-card-bg: linear-gradient(135deg, rgba(255, 255, 255, 0.78) 0%, rgba(244, 247, 249, 0.65) 100%);
+  --prism-card-border-gradient: linear-gradient(135deg, rgba(138, 194, 221, 0.55) 0%, rgba(148, 163, 184, 0.35) 35%, rgba(203, 213, 225, 0.45) 70%, rgba(224, 231, 255, 0.50) 100%);
+  --prism-card-glow: 0 8px 32px 0 rgba(138, 194, 221, 0.08);
 }
 
 /* ── 2. Deep Space (Dark) ── */
@@ -267,6 +275,45 @@
   --shadow-modal: 0 16px 56px rgba(0, 0, 0, 0.65), 0 4px 20px rgba(0, 0, 0, 0.4);
   --shadow-briefing: 0 4px 32px rgba(216, 183, 99, 0.15), 0 1px 4px rgba(0, 0, 0, 0.2);
   --scrollbar-thumb: rgba(255, 255, 255, 0.16);
+}
+
+/* ════════════════════════════════════════════════════════════
+   4勤2休シフトステータス配色（ライト／ダーク2系統）
+   ════════════════════════════════════════════════════════════ */
+:root,
+[data-theme="ivory"],
+[data-theme="prism"],
+[data-theme="sand"],
+[data-theme="sage"] {
+  --arca-shift-work-bg: rgba(71, 85, 105, 0.16);
+  --arca-shift-work-text: #1E293B;
+  --arca-shift-work-border: rgba(71, 85, 105, 0.35);
+  --arca-shift-holiday-bg: rgba(14, 165, 233, 0.22);
+  --arca-shift-holiday-text: #0369A1;
+  --arca-shift-holiday-border: rgba(14, 165, 233, 0.45);
+}
+
+.dark:not([data-theme="sage"]),
+[data-theme="dark"] {
+  --arca-shift-work-bg: rgba(100, 116, 139, 0.28);
+  --arca-shift-work-text: #E2E8F0;
+  --arca-shift-work-border: rgba(148, 163, 184, 0.4);
+  --arca-shift-holiday-bg: rgba(2, 132, 199, 0.32);
+  --arca-shift-holiday-text: #7DD3FC;
+  --arca-shift-holiday-border: rgba(56, 189, 248, 0.55);
+}
+
+/* 4勤2休シフト共通ユーティリティクラス */
+.shift-badge-work {
+  background-color: var(--arca-shift-work-bg);
+  color: var(--arca-shift-work-text);
+  border: 1px solid var(--arca-shift-work-border);
+}
+
+.shift-badge-holiday {
+  background-color: var(--arca-shift-holiday-bg);
+  color: var(--arca-shift-holiday-text);
+  border: 1px solid var(--arca-shift-holiday-border);
 }
 
 @layer base {
@@ -394,6 +441,39 @@
 
 .arca-card-interactive:active {
   transform: translateY(0);
+}
+
+/* ── プリズムテーマ限定のカード4色オーロラグラデーション装飾 ── */
+[data-theme="prism"] .arca-surface-card {
+  background: var(--prism-card-bg) !important;
+  box-shadow: var(--prism-card-glow) !important;
+  position: relative;
+  border: none !important;
+}
+
+[data-theme="prism"] .arca-surface-card::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  padding: 1px;
+  background: var(--prism-card-border-gradient);
+  -webkit-mask: linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0);
+  -webkit-mask-composite: xor;
+  mask-composite: exclude;
+  pointer-events: none;
+  z-index: 1;
+}
+
+/* ── カレンダーセルの選択・今日ハイライト（テーマアクセント連動） ── */
+.calendar-cell-selected {
+  background-color: var(--accent-gold-faint2, rgba(197, 160, 89, 0.16)) !important;
+  box-shadow: inset 0 0 0 1.5px var(--accent-gold, #C5A059), 0 2px 6px var(--accent-gold-faint, rgba(197, 160, 89, 0.12)) !important;
+}
+
+.calendar-cell-today {
+  background-color: var(--accent-gold-faint, rgba(197, 160, 89, 0.04)) !important;
+  box-shadow: inset 0 0 0 1px var(--accent-gold-faint3, rgba(197, 160, 89, 0.35)) !important;
 }
 
 /* ── 今日のカード（アクティブ・プリズムハイライト / Apple HIG準拠） ── */
@@ -579,6 +659,18 @@ article h3 {
 [data-theme="prism"] .ring-amber-500\/20,
 [data-theme="prism"] .focus-within\:ring-amber-500\/25:focus-within {
   --tw-ring-color: rgba(138, 194, 221, 0.40) !important;
+}
+
+/* プリズム時の入力欄・選択コントロールの境界線引き締め（白飛び防止） */
+[data-theme="prism"] input,
+[data-theme="prism"] textarea,
+[data-theme="prism"] select {
+  border-color: var(--border-subtle) !important;
+}
+[data-theme="prism"] input:focus,
+[data-theme="prism"] textarea:focus,
+[data-theme="prism"] select:focus {
+  border-color: var(--accent-gold) !important;
 }
 
 /* プリズム時のノート・メモ・エクスプローラーのゴールド（#B58D3D / #C5A059 等）完全置換 */
@@ -1328,3 +1420,16 @@ article h3 {
   }
 }
 
+/* ─── iOS PWA 画面最上部ぼやけ抑制対策 ─── */
+.ios-blur-measures {
+  position: fixed;
+  top: 0;
+  left: 0;
+  display: block;
+  width: 100%;
+  height: 10.1px;
+  background-color: #ffffff01;
+  opacity: 0.1;
+  pointer-events: none;
+  z-index: 10000;
+}

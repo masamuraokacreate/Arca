@@ -135,9 +135,7 @@ export const CycleRibbon: React.FC<CycleRibbonProps> = ({
                   <div className="flex flex-wrap items-center gap-1 mb-2">
                     <span
                       className={`text-[0.68rem] font-semibold px-2 py-0.5 rounded-md shrink-0 whitespace-nowrap ${
-                        isWork
-                          ? "bg-amber-500/10 text-amber-800 dark:text-amber-300"
-                          : "bg-pink-100/70 text-pink-700 dark:bg-pink-950/40 dark:text-pink-300"
+                        isWork ? "shift-badge-work" : "shift-badge-holiday"
                       }`}
                     >
                       {shiftBadgeText}

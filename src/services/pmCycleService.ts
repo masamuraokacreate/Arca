@@ -71,6 +71,56 @@ export function isLateShiftEvent(title?: string | null): boolean {
   return LATE_SHIFT_KEYWORDS.test(title.trim());
 }
 
+/**
+ * シフト予定名に出勤開始時間をカッコ書きで付与・正規化するヘルパー
+ * 例: ("早番", "06:00") ➔ "早番(6時)"
+ *     ("早番", "05:30") ➔ "早番(5:30)"
+ *     ("遅番", "15:00") ➔ "遅番(15時)"
+ *     ("日勤", "08:30") ➔ "日勤(8:30)"
+ */
+export function formatShiftTitleWithTime(
+  rawTitle?: string | null,
+  startTime?: string | null,
+  replaceExistingParen: boolean = true
+): string {
+  const trimmed = (rawTitle || "").trim();
+  if (!trimmed) return "";
+
+  const hasParen = /[(\uff08][^)\uff09]+[)\uff09]/.test(trimmed);
+  if (hasParen && !replaceExistingParen) {
+    return trimmed;
+  }
+
+  const baseName = trimmed.replace(/\s*[(\uff08][^)\uff09]*[)\uff09]\s*$/, "").trim() || trimmed;
+
+  let effectiveStart = (startTime || "").trim();
+  if (!effectiveStart || !/^\d{1,2}:\d{2}$/.test(effectiveStart)) {
+    if (hasParen) {
+      return trimmed;
+    }
+    if (/早番/i.test(baseName)) {
+      effectiveStart = "06:00";
+    } else if (/遅番.*16/i.test(baseName)) {
+      effectiveStart = "16:00";
+    } else if (/遅番/i.test(baseName)) {
+      effectiveStart = "15:00";
+    } else if (/日勤/i.test(baseName)) {
+      effectiveStart = "08:30";
+    } else if (/当直|夜勤/i.test(baseName)) {
+      effectiveStart = "16:00";
+    } else {
+      return trimmed;
+    }
+  }
+
+  const [hStr, mStr] = effectiveStart.split(":");
+  const hour = parseInt(hStr, 10);
+  if (Number.isNaN(hour)) return trimmed;
+
+  const timePart = mStr === "00" ? `${hour}時` : `${hour}:${mStr}`;
+  return `${baseName}(${timePart})`;
+}
+
 /** 休日系キーワード正規表現（公休、休み、有休、休暇等） */
 export const HOLIDAY_KEYWORDS = /公休|休み|休養|有休|有給|休暇|特休|振休|代休|off|holiday/i;
 
@@ -751,7 +801,7 @@ export function calculateCycleIndex(
   const cycleRange = calculateFourTwoCycleRange(targetDate, events, safeSettings);
   const cycleLength = safeSettings.cycleLength || DEFAULT_CYCLE_LENGTH;
 
-  const detectedAnchor = events.length > 0 ? detectAnchorFromEvents(events, targetDate)?.anchorDate : undefined;
+  const detectedAnchor = events.length > 0 ? detectAnchorFromEvents(events)?.anchorDate : undefined;
   const baseAnchorDate = safeSettings.manualAnchorDate || detectedAnchor || cycleRange.startDate;
 
   const diffDays = getDaysDifference(baseAnchorDate, cycleRange.startDate);

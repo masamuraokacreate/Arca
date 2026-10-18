@@ -6,6 +6,8 @@
  * 状態管理は行わず、純粋な非同期関数として定義する。
  */
 
+import { resolveValidAccessToken } from "../services/googleAuthService";
+
 const BASE_URL = "https://tasks.googleapis.com/tasks/v1";
 
 // ---------- 型定義 ----------
@@ -32,10 +34,11 @@ async function gFetch<T>(
   path: string,
   options?: RequestInit
 ): Promise<T> {
+  const activeToken = (await resolveValidAccessToken(token)) || token;
   const res = await fetch(`${BASE_URL}${path}`, {
     ...options,
     headers: {
-      Authorization: `Bearer ${token}`,
+      Authorization: `Bearer ${activeToken}`,
       "Content-Type": "application/json",
       ...(options?.headers ?? {}),
     },

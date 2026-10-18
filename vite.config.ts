@@ -60,9 +60,16 @@ export default defineConfig({
       },
     }),
   ],
-  // 開発サーバー設定（HTTPS対応 & ホスト公開）
+  // 開発サーバー設定（HTTPS対応 & ホスト公開 & Cloud Functions 認証APIプロキシ）
   server: {
     host: true,
+    proxy: {
+      "/api/v1/auth/google": {
+        target: process.env.VITE_AUTH_API_PROXY_TARGET || "https://arca-f3fc6.web.app",
+        changeOrigin: true,
+        secure: true,
+      },
+    },
     watch: {
       ignored: ["**/public/**"],
     },
@@ -72,3 +79,4 @@ export default defineConfig({
     host: true,
   },
 });
+

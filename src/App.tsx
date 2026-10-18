@@ -13,9 +13,14 @@ import Finance from "./components/finance/Finance";
 import SystemMaintenanceModal from "./components/maintenance/SystemMaintenanceModal";
 import ThemeModal from "./components/ThemeModal";
 import ArcaLogo from "./components/common/ArcaLogo";
+import SyncToast, { type SyncErrorState } from "./components/common/SyncToast";
 import { C } from "./lib/designSystem";
 import { logoutUser } from "./components/AuthGate";
 import { getSavedToken, syncAllGoogleData } from "./services/googleAuth";
+import {
+  getValidAccessToken,
+  GOOGLE_REAUTH_REQUIRED_EVENT,
+} from "./services/googleAuthService";
 import { useGoogleAuth } from "./hooks/useGoogleAuth";
 import {
   Home as HomeIcon,
@@ -430,7 +435,7 @@ function NavBar({
                 color: C.charcoalLight,
                 cursor: "pointer",
               }}
-              title="外観・テーマ設定"
+              title="テーマ設定"
             >
               <svg viewBox="0 0 24 24" fill="none" strokeWidth={1.75} stroke="currentColor" strokeLinecap="round" strokeLinejoin="round" style={{ width: "0.88rem", height: "0.88rem" }}>
                 <circle cx="13.5" cy="6.5" r=".5" fill="currentColor" />
@@ -588,7 +593,7 @@ function NavBar({
               transition: "all 0.15s ease",
               userSelect: "none",
             }}
-            title="外観・テーマ設定"
+            title="テーマ設定"
             onMouseEnter={(e) => {
               (e.currentTarget as HTMLButtonElement).style.color = C.goldDark;
               (e.currentTarget as HTMLButtonElement).style.background = C.goldFaint;
@@ -605,7 +610,7 @@ function NavBar({
               <circle cx="6.5" cy="12.5" r=".5" fill="currentColor" />
               <path d="M12 2C6.48 2 2 6.48 2 12a10 10 0 0 0 10 10c.83 0 1.5-.67 1.5-1.5 0-.39-.15-.74-.39-1.01-.23-.26-.38-.61-.38-.99 0-.83.67-1.5 1.5-1.5H16c3.31 0 6-2.69 6-6 0-4.97-4.48-9-10-9z" />
             </svg>
-            <span className="hidden sm:inline">外観</span>
+            <span className="hidden sm:inline">テーマ</span>
           </button>
 
 
@@ -835,11 +840,38 @@ function App() {
   // ─── Googleアカウント一括自動同期（Calendar & Tasks） ───
   const { requestAccessToken } = useGoogleAuth();
   const [googleSyncStatus, setGoogleSyncStatus] = useState<GoogleSyncStatus>("idle");
+  const [reauthErrorState, setReauthErrorState] = useState<SyncErrorState>({
+    hasError: false,
+    message: null,
+    requireReauth: false,
+  });
   const hasAutoSyncedRef = useRef(false);
+
+  // リフレッシュトークン自体が無効化された場合（パスワード変更やアクセス権取り消し等）のみ控えめなトーストで通知
+  useEffect(() => {
+    const handleReauthRequired = (e: Event) => {
+      const customEvent = e as CustomEvent<{
+        message?: string;
+        requireReauth?: boolean;
+      }>;
+      setReauthErrorState({
+        hasError: true,
+        message:
+          customEvent.detail?.message || "Google連携の再認証が必要です",
+        requireReauth: customEvent.detail?.requireReauth ?? true,
+      });
+    };
+    window.addEventListener(GOOGLE_REAUTH_REQUIRED_EVENT, handleReauthRequired);
+    return () =>
+      window.removeEventListener(
+        GOOGLE_REAUTH_REQUIRED_EVENT,
+        handleReauthRequired
+      );
+  }, []);
 
   // 手動同期ハンドラ（ユーザーが明示的に押した場合はフラグに関係なく実行可能）
   const handleManualGoogleSync = useCallback(async () => {
-    let token = getSavedToken();
+    let token = getSavedToken() || (await getValidAccessToken());
     if (!token) {
       try {
         token = await requestAccessToken(false);
@@ -879,9 +911,9 @@ function App() {
     const maxRetries = 1;
 
     const tryAutoSync = async () => {
-      let token = getSavedToken();
+      // Cloud Functions 経由の自動更新を含む getValidAccessToken() で有効トークンを取得
+      let token = getSavedToken() || (await getValidAccessToken());
       if (!token) {
-        // 保存トークンなし、または1時間経過で失効している場合、GISでサイレント再取得を試行
         try {
           token = await requestAccessToken(false);
         } catch (e) {
@@ -910,7 +942,6 @@ function App() {
         }
       } else if (retryCount < maxRetries) {
         retryCount++;
-        // GISスクリプト初期化待機等を考慮して500ms毎に最大1回まで再試行（合計2回試行）
         setTimeout(tryAutoSync, 500);
       }
     };
@@ -1126,6 +1157,18 @@ function App() {
       <ThemeModal
         isOpen={isThemeModalOpen}
         onClose={() => setIsThemeModalOpen(false)}
+      />
+
+      {/* リフレッシュトークン失効時のみ表示する超淡色プリズム・ホワイト仕様の再認証トースト */}
+      <SyncToast
+        errorState={reauthErrorState}
+        onDismiss={() =>
+          setReauthErrorState({
+            hasError: false,
+            message: null,
+            requireReauth: false,
+          })
+        }
       />
     </div>
   );

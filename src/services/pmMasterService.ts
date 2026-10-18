@@ -26,6 +26,7 @@ import type {
   PMMasterLog,
   PMCycleType,
   PMCalcBasis,
+  PMSchedulePreview,
 } from "../types/pm";
 
 // ─────────────────────────────────────────
@@ -131,13 +132,13 @@ export function calculateNextScheduledDate(
   switch (master.cycleType) {
     case "shift_cycle": {
       // 出勤・シフト連動: baseDateStr の翌日（今日より前なら今日）から最大90日間探索
-      const startEpoch = Math.max(
-        Math.floor(new Date(by, bm - 1, bd).getTime() / 86400000) + 1,
-        Math.floor(new Date().setHours(0, 0, 0, 0) / 86400000)
-      );
+      const baseEpoch = Math.floor(Date.UTC(by, bm - 1, bd) / 86400000);
+      const now = new Date();
+      const todayEpoch = Math.floor(Date.UTC(now.getFullYear(), now.getMonth(), now.getDate()) / 86400000);
+      const startEpoch = Math.max(baseEpoch + 1, todayEpoch);
       for (let i = 0; i < 90; i++) {
-        const candidateDate = new Date((startEpoch + i) * 86400000);
-        const candidateStr = formatDateStr(candidateDate);
+        const d = new Date((startEpoch + i) * 86400000);
+        const candidateStr = `${d.getUTCFullYear()}-${pad2(d.getUTCMonth() + 1)}-${pad2(d.getUTCDate())}`;
         if (isMasterShiftTimingMatch(candidateStr, master, events, settings)) {
           return candidateStr;
         }
@@ -190,6 +191,83 @@ export function calculateNextScheduledDate(
   }
 
   return formatDateStr(nextDate);
+}
+
+/**
+ * 日付の4勤2休シフト種別（休1、休2、勤1、早1、遅1など）の短縮ラベルを生成する純粋関数
+ */
+export function getShiftShortLabel(
+  targetDate: string,
+  events: CalendarEvent[] = [],
+  settings?: PMSettings | null
+): string {
+  const info = resolveDateShiftInfo(targetDate, events, settings);
+  if (info.isRestDay) {
+    return `休${info.consecutiveIndex || 1}`;
+  }
+  if (info.isEarlyShift) {
+    return `早${info.earlyStreakIndex || info.consecutiveIndex || 1}`;
+  }
+  if (info.isLateShift) {
+    return `遅${info.lateStreakIndex || info.consecutiveIndex || 1}`;
+  }
+  return `勤${info.consecutiveIndex || 1}`;
+}
+
+/**
+ * 起算日と周期設定から次回・次々回の予定日およびシフト情報を算出する純粋関数
+ */
+export function calculateFuturePMSchedules(
+  baseDate: string,
+  master: Pick<
+    PMMaster,
+    | "cycleType"
+    | "cycleValue"
+    | "calcBasis"
+    | "timingCategory"
+    | "timingDay"
+    | "cycleInterval"
+    | "cycleIntervalOffset"
+  >,
+  events: CalendarEvent[] = [],
+  settings?: PMSettings | null
+): PMSchedulePreview {
+  // 基準日（今回予定日）が空または無効な場合は直近の次回予定日を算出
+  let nextDate = baseDate;
+  if (!nextDate || !/^\d{4}-\d{2}-\d{2}$/.test(nextDate)) {
+    nextDate = calculateNextScheduledDate(master, undefined, events, settings);
+  }
+
+  const nextShiftLabel = getShiftShortLabel(nextDate, events, settings);
+
+  // cycleInterval > 1（隔サイクル等）の場合、nextDateのサイクルを起点オフセットとして次サイクル予定日を探索
+  const cycleInterval = master.cycleInterval && master.cycleInterval > 1 ? master.cycleInterval : 1;
+  let effectiveOffset = master.cycleIntervalOffset;
+  if (master.cycleType === "shift_cycle" && cycleInterval > 1) {
+    const baseCycle = calculateCycleIndex(nextDate, events, settings);
+    effectiveOffset = (((baseCycle % cycleInterval) + cycleInterval) % cycleInterval);
+  }
+
+  // 次回予定日（今回予定日から1周期先を算出）
+  const afterNextDate = calculateNextScheduledDate(
+    {
+      ...master,
+      calcBasis: "fixed_date",
+      nextScheduledDate: nextDate,
+      cycleIntervalOffset: effectiveOffset,
+    },
+    nextDate,
+    events,
+    settings
+  );
+  const afterNextShiftLabel = getShiftShortLabel(afterNextDate, events, settings);
+
+  return {
+    nextDate,
+    nextShiftLabel,
+    afterNextDate,
+    afterNextShiftLabel,
+  };
 }
 
 // ─────────────────────────────────────────

@@ -263,8 +263,8 @@ export function TaskDetailModal({
       >
         {/* ─── ヘッダー ─── */}
         <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
-          <span style={{ fontSize: "0.72rem", fontWeight: 700, color: C.charcoalLight, letterSpacing: "0.08em", textTransform: "uppercase" }}>
-            TASK DETAILS
+          <span style={{ fontSize: "0.75rem", fontWeight: 700, color: C.charcoalLight, letterSpacing: "0.05em" }}>
+            タスク詳細
           </span>
           <button
             type="button"

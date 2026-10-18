@@ -223,7 +223,7 @@ describe("Tasks コンポーネント", () => {
     });
 
     // 詳細モーダルは開いていないこと
-    expect(screen.queryByText("TASK DETAILS")).not.toBeInTheDocument();
+    expect(screen.queryByText("タスク詳細")).not.toBeInTheDocument();
   });
 
   // ─── 一覧からの直接削除 ───
@@ -270,7 +270,7 @@ describe("Tasks コンポーネント", () => {
     await user.click(row);
 
     // 詳細モーダルが開く
-    expect(screen.getByText("TASK DETAILS")).toBeInTheDocument();
+    expect(screen.getByText("タスク詳細")).toBeInTheDocument();
     expect(screen.getByDisplayValue("企画書作成")).toBeInTheDocument();
     expect(screen.getAllByText("リサーチ").length).toBeGreaterThanOrEqual(1);
 
@@ -306,7 +306,7 @@ describe("Tasks コンポーネント", () => {
     render(<Tasks />);
 
     await user.click(screen.getByTestId("task-item-row"));
-    expect(screen.getByText("TASK DETAILS")).toBeInTheDocument();
+    expect(screen.getByText("タスク詳細")).toBeInTheDocument();
 
     const deleteBtn = screen.getByTestId("detail-task-delete-btn");
     await user.click(deleteBtn);
@@ -365,7 +365,7 @@ describe("Tasks コンポーネント", () => {
     render(<Tasks />);
 
     await user.click(screen.getByTestId("task-item-row"));
-    expect(screen.getByText("TASK DETAILS")).toBeInTheDocument();
+    expect(screen.getByText("タスク詳細")).toBeInTheDocument();
 
     const subtaskInput = screen.getByPlaceholderText(/サブタスクを追加…/);
     await user.type(subtaskInput, "ホテル予約{Enter}");
@@ -642,7 +642,7 @@ describe("Tasks コンポーネント", () => {
     expect(screen.queryByTestId("subtask-list")).not.toBeInTheDocument();
     expect(screen.queryByText("サブタスクA")).not.toBeInTheDocument();
     // 親タスクの詳細モーダルは開いていないこと
-    expect(screen.queryByText("TASK DETAILS")).not.toBeInTheDocument();
+    expect(screen.queryByText("タスク詳細")).not.toBeInTheDocument();
 
     // 再度クリックして展開する
     await user.click(collapseBtn);
@@ -683,7 +683,7 @@ describe("Tasks コンポーネント", () => {
     ]);
 
     // 親タスクの詳細モーダルは開いていないこと
-    expect(screen.queryByText("TASK DETAILS")).not.toBeInTheDocument();
+    expect(screen.queryByText("タスク詳細")).not.toBeInTheDocument();
   });
 
   it("インセット・コンテナ内の「サブタスクを追加」ボタンからインラインでサブタスクを追加できる", async () => {

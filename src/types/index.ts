@@ -78,6 +78,25 @@ export interface TaskItem {
 // Calendar モジュール
 // ─────────────────────────────────────────
 
+/** Google Calendar API 書き込み必須スコープ */
+export const REQUIRED_SCOPE = "https://www.googleapis.com/auth/calendar.events";
+
+/** Google Calendar API 予定作成・更新ペイロード */
+export interface CalendarMutationPayload {
+  summary?: string;
+  description?: string;
+  start?: { dateTime?: string; date?: string; timeZone?: string };
+  end?: { dateTime?: string; date?: string; timeZone?: string };
+  location?: string;
+}
+
+/** Google Calendar API 同期・通信エラーステート */
+export interface SyncErrorState {
+  hasError: boolean;
+  message: string | null;
+  requireReauth: boolean;
+}
+
 /** カレンダー予定1件 */
 export interface CalendarEvent {
   id: string;
@@ -90,6 +109,8 @@ export interface CalendarEvent {
   endTime: string;
   note: string;
   googleEventId?: string;
+  /** 同期元の Google Calendar ID（デフォルト: "primary"、サブカレンダー「出勤予定」等の場合はそのID） */
+  googleCalendarId?: string;
   /** 出勤計算専用予定（カレンダー画面やダッシュボード予定一覧には非表示） */
   isShiftOnly?: boolean;
   createdAt: Timestamp | null;

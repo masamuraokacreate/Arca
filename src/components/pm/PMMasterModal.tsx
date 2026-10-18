@@ -18,6 +18,7 @@ import {
   ChevronUp,
   ChevronDown,
   RotateCw,
+  Sparkles,
 } from "lucide-react";
 import { collection, onSnapshot, query, orderBy } from "firebase/firestore";
 import { db } from "../../lib/firebase";
@@ -31,6 +32,7 @@ import type {
   PMCalcBasis,
   PMTimingCategory,
   PMSettings,
+  PMSchedulePreview,
 } from "../../types/pm";
 import type { NoteItem, CalendarEvent } from "../../types";
 import {
@@ -39,8 +41,11 @@ import {
   deletePMMaster,
   subscribePMMasterLogs,
   calculateNextScheduledDate,
+  calculateFuturePMSchedules,
+  todayStr,
   DEFAULT_PM_MASTERS,
 } from "../../services/pmMasterService";
+import { generatePMTasksWithAI } from "../../services/pmTaskAiService";
 import { ConfirmModal } from "../notes/ConfirmModal";
 
 export interface PMMasterModalProps {
@@ -130,6 +135,14 @@ export function PMMasterModal({
   const [tasks, setTasks] = useState<PMTaskTemplate[]>([]);
   const [newItemName, setNewItemName] = useState("");
   const [newTaskContent, setNewTaskContent] = useState("");
+  const [baseDate, setBaseDate] = useState<string>("");
+
+  // AI手順自動要約・生成ステート (Gemini API)
+  const [isAiCardOpen, setIsAiCardOpen] = useState(false);
+  const [aiInputText, setAiInputText] = useState("");
+  const [isAiGenerating, setIsAiGenerating] = useState(false);
+  const [aiError, setAiError] = useState<string | null>(null);
+  const [aiPreviewTasks, setAiPreviewTasks] = useState<string[]>([]);
 
   // 過去ログ
   const [logs, setLogs] = useState<PMMasterLog[]>([]);
@@ -214,12 +227,41 @@ export function PMMasterModal({
       setTasks(selectedMaster.taskTemplates || []);
       setNewItemName("");
       setNewTaskContent("");
+      setBaseDate(selectedMaster.nextScheduledDate || todayStr());
+      setIsAiCardOpen(false);
+      setAiInputText("");
+      setAiPreviewTasks([]);
+      setAiError(null);
     } else {
       setTitle("");
       setItems([]);
       setTasks([]);
+      setBaseDate(todayStr());
+      setIsAiCardOpen(false);
+      setAiInputText("");
+      setAiPreviewTasks([]);
+      setAiError(null);
     }
   }, [selectedMaster]);
+
+  // リアルタイム次回・次々回予定プレビュー算出（周期・タイミング・基準日変更に即座追従）
+  const schedulePreview = useMemo<PMSchedulePreview | null>(() => {
+    if (!baseDate) return null;
+    const isShift = cycleType === "shift_cycle";
+    return calculateFuturePMSchedules(
+      baseDate,
+      {
+        cycleType,
+        cycleValue: Number(cycleValue) || 1,
+        calcBasis,
+        timingCategory: isShift ? timingCategory : undefined,
+        timingDay: isShift ? Number(timingDay) || 1 : undefined,
+        cycleInterval: isShift ? Number(cycleInterval) || 1 : undefined,
+      },
+      events,
+      settings
+    );
+  }, [baseDate, cycleType, cycleValue, calcBasis, timingCategory, timingDay, cycleInterval, events, settings]);
 
   // Escapeキーで閉じる（滑らかなトランジション連動）
   useEffect(() => {
@@ -310,22 +352,23 @@ export function PMMasterModal({
         itemTemplates: items,
         taskTemplates: tasks,
         createdAt: selectedMaster?.createdAt,
-        lastCompletedAt: selectedMaster?.lastCompletedAt,
-        nextScheduledDate: calculateNextScheduledDate(
-          {
-            cycleType,
-            cycleValue: Number(cycleValue) || 1,
-            timingCategory: isShift ? timingCategory : undefined,
-            timingDay: isShift ? Number(timingDay) || 1 : undefined,
-            cycleInterval: isShift ? Number(cycleInterval) || 1 : undefined,
-            calcBasis,
-            lastCompletedAt: selectedMaster?.lastCompletedAt,
-            nextScheduledDate: selectedMaster?.nextScheduledDate,
-          },
-          undefined,
-          events,
-          settings
-        ),
+        nextScheduledDate:
+          schedulePreview?.nextDate ||
+          calculateNextScheduledDate(
+            {
+              cycleType,
+              cycleValue: Number(cycleValue) || 1,
+              timingCategory: isShift ? timingCategory : undefined,
+              timingDay: isShift ? Number(timingDay) || 1 : undefined,
+              cycleInterval: isShift ? Number(cycleInterval) || 1 : undefined,
+              calcBasis,
+              lastCompletedAt: selectedMaster?.lastCompletedAt,
+              nextScheduledDate: selectedMaster?.nextScheduledDate,
+            },
+            baseDate || undefined,
+            events,
+            settings
+          ),
       });
       setToastMsg("管理台帳を更新しました");
       setTimeout(() => setToastMsg(null), 2500);
@@ -403,6 +446,49 @@ export function PMMasterModal({
       t.sortOrder = i + 1;
     });
     setTasks(newTasks);
+  };
+
+  // ── AI自動要約・手順生成ハンドラ (Gemini API) ──
+  const handleGenerateAiTasks = async () => {
+    if (!aiInputText.trim() || isAiGenerating) return;
+    setIsAiGenerating(true);
+    setAiError(null);
+    setAiPreviewTasks([]);
+    try {
+      const generated = await generatePMTasksWithAI(aiInputText);
+      if (generated.length === 0) {
+        setAiError("手順を抽出できませんでした。もう少し具体的な作業文章を入力してください。");
+      } else {
+        setAiPreviewTasks(generated);
+      }
+    } catch (err: unknown) {
+      console.error("AIタスク生成エラー:", err);
+      const msg = err instanceof Error ? err.message : "手順の生成に失敗しました。";
+      setAiError(msg);
+    } finally {
+      setIsAiGenerating(false);
+    }
+  };
+
+  const handleApplyAiTasks = (mode: "replace" | "append") => {
+    if (aiPreviewTasks.length === 0 || !selectedId) return;
+    const newTemplates: PMTaskTemplate[] = aiPreviewTasks.map((content, idx) => ({
+      id: `task-${Date.now()}-${idx}-${Math.random().toString(36).slice(2, 6)}`,
+      masterId: selectedId,
+      content,
+      sortOrder: mode === "replace" ? idx + 1 : tasks.length + idx + 1,
+    }));
+
+    if (mode === "replace") {
+      setTasks(newTemplates);
+    } else {
+      setTasks((prev) => [...prev, ...newTemplates]);
+    }
+    setAiPreviewTasks([]);
+    setAiInputText("");
+    setIsAiCardOpen(false);
+    setToastMsg("AI生成手順を反映しました");
+    setTimeout(() => setToastMsg(null), 2500);
   };
 
   // 周期表示文字列のヘルパー
@@ -1103,46 +1189,71 @@ export function PMMasterModal({
                       </div>
                     </div>
 
-                    {/* 目安工数（分） */}
+                    {/* 今回予定日（開始日）ピッカー */}
                     <div>
                       <label style={{ display: "block", fontSize: "0.7rem", fontWeight: 700, color: C.charcoalLight, marginBottom: "0.3rem" }}>
-                        目安工数（分）
+                        今回予定日（開始日）
                       </label>
-                      <div style={{ position: "relative" }}>
-                        <input
-                          type="number"
-                          min={1}
-                          step={5}
-                          value={estimatedMinutes}
-                          onChange={(e) => setEstimatedMinutes(e.target.value)}
-                          placeholder="例: 30"
-                          style={{
-                            width: "100%",
-                            boxSizing: "border-box",
-                            padding: "0.5rem 2rem 0.5rem 0.7rem",
-                            borderRadius: "10px",
-                            border: "none",
-                            background: "var(--bg-card-solid)",
-                            fontSize: "0.8rem",
-                            color: "var(--text-main)",
-                            outline: "none",
-                          }}
-                        />
-                        <span style={{ position: "absolute", right: "0.7rem", top: "50%", transform: "translateY(-50%)", fontSize: "0.75rem", color: C.charcoalLight }}>
-                          分
-                        </span>
-                      </div>
+                      <input
+                        type="date"
+                        value={baseDate}
+                        onChange={(e) => setBaseDate(e.target.value)}
+                        data-testid="pm-base-date-picker"
+                        style={{
+                          width: "100%",
+                          boxSizing: "border-box",
+                          padding: "0.5rem 0.7rem",
+                          borderRadius: "10px",
+                          border: "none",
+                          background: "var(--bg-card-solid)",
+                          fontSize: "0.8rem",
+                          color: "var(--text-main)",
+                          outline: "none",
+                        }}
+                      />
                     </div>
                   </div>
 
-                  {/* 次回予定日・最終実施日のステータス表示 */}
-                  <div style={{ display: "flex", gap: "1.5rem", fontSize: "0.72rem", color: C.charcoalLight, paddingTop: "0.2rem" }}>
-                    <span>
-                      次回予定日: <strong style={{ color: C.goldDark }}>{selectedMaster.nextScheduledDate || "未算出"}</strong>
-                    </span>
-                    <span>
-                      最終実施日: {selectedMaster.lastCompletedAt ? selectedMaster.lastCompletedAt.slice(0, 10) : "未実施"}
-                    </span>
+                  {/* 最終実施日・今回・次回プレビューのステータス表示 */}
+                  <div
+                    data-testid="pm-modal-schedule-preview"
+                    style={{
+                      background: "rgba(197, 160, 89, 0.08)",
+                      borderRadius: "12px",
+                      padding: "0.75rem 1rem",
+                      display: "flex",
+                      flexWrap: "wrap",
+                      alignItems: "center",
+                      gap: "1.2rem",
+                      fontSize: "0.76rem",
+                      color: C.charcoalMid,
+                      border: "1px solid rgba(197, 160, 89, 0.18)",
+                    }}
+                  >
+                    <div>
+                      最終実施日:{" "}
+                      <span>
+                        {selectedMaster.lastCompletedAt
+                          ? selectedMaster.lastCompletedAt.slice(0, 10)
+                          : "未実施"}
+                      </span>
+                    </div>
+                    <div>
+                      今回:{" "}
+                      <strong style={{ color: C.goldDark, fontWeight: 750 }}>
+                        {schedulePreview
+                          ? `${schedulePreview.nextDate} (${schedulePreview.nextShiftLabel})`
+                          : selectedMaster.nextScheduledDate || "未算出"}
+                      </strong>
+                    </div>
+                    {schedulePreview && (
+                      <div>
+                        次回:{" "}
+                        <strong style={{ color: C.sage, fontWeight: 700 }}>
+                          {`${schedulePreview.afterNextDate} (${schedulePreview.afterNextShiftLabel})`}
+                        </strong>
+                      </div>
+                    )}
                   </div>
                 </div>
 
@@ -1157,14 +1268,258 @@ export function PMMasterModal({
                     gap: "0.8rem",
                   }}
                 >
-                  <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+                  <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: "0.6rem" }}>
                     <h3 style={{ margin: 0, fontSize: "0.88rem", fontWeight: 750, color: C.charcoal }}>
                       タスク詳細
                     </h3>
-                    <span style={{ fontSize: "0.7rem", color: C.charcoalLight }}>
-                      ※カレンダー実行画面でチェック可能
-                    </span>
+
+                    <div style={{ display: "flex", alignItems: "center", gap: "0.8rem" }}>
+                      {/* 作業時間目安（旧: 工数目安） */}
+                      <div style={{ display: "flex", alignItems: "center", gap: "0.4rem" }}>
+                        <label style={{ fontSize: "0.72rem", fontWeight: 700, color: C.charcoalLight }}>
+                          作業時間目安
+                        </label>
+                        <div style={{ position: "relative", width: "76px" }}>
+                          <input
+                            type="number"
+                            min={1}
+                            step={5}
+                            value={estimatedMinutes}
+                            onChange={(e) => setEstimatedMinutes(e.target.value)}
+                            placeholder="30"
+                            data-testid="pm-estimated-minutes-input"
+                            style={{
+                              width: "100%",
+                              boxSizing: "border-box",
+                              padding: "0.35rem 1.6rem 0.35rem 0.55rem",
+                              borderRadius: "8px",
+                              border: "none",
+                              background: "var(--bg-card-solid)",
+                              fontSize: "0.78rem",
+                              fontWeight: 650,
+                              color: "var(--text-main)",
+                              outline: "none",
+                            }}
+                          />
+                          <span
+                            style={{
+                              position: "absolute",
+                              right: "0.5rem",
+                              top: "50%",
+                              transform: "translateY(-50%)",
+                              fontSize: "0.72rem",
+                              color: C.charcoalLight,
+                              pointerEvents: "none",
+                            }}
+                          >
+                            分
+                          </span>
+                        </div>
+                      </div>
+
+                      {/* AI自動要約・生成ボタン */}
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setIsAiCardOpen((prev) => !prev);
+                          setAiError(null);
+                        }}
+                        data-testid="pm-ai-task-toggle-btn"
+                        style={{
+                          display: "inline-flex",
+                          alignItems: "center",
+                          gap: "0.35rem",
+                          background: isAiCardOpen ? C.goldDark : "rgba(197, 160, 89, 0.15)",
+                          color: isAiCardOpen ? "#FFFFFF" : C.goldDark,
+                          border: "none",
+                          padding: "0.35rem 0.65rem",
+                          borderRadius: "8px",
+                          fontSize: "0.74rem",
+                          fontWeight: 700,
+                          cursor: "pointer",
+                          transition: "all 0.15s ease",
+                        }}
+                      >
+                        <Sparkles size={13} />
+                        <span>AI手順作成</span>
+                      </button>
+                    </div>
                   </div>
+
+                  {/* AI手順自動生成カード（開閉） */}
+                  {isAiCardOpen && (
+                    <div
+                      data-testid="pm-ai-task-card"
+                      style={{
+                        background: "var(--bg-card-solid)",
+                        borderRadius: "12px",
+                        padding: "0.9rem",
+                        display: "flex",
+                        flexDirection: "column",
+                        gap: "0.7rem",
+                        border: "1px solid rgba(197, 160, 89, 0.25)",
+                        boxShadow: "0 2px 8px rgba(0,0,0,0.04)",
+                        animation: "pm-overlay-in 0.18s ease",
+                      }}
+                    >
+                      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+                        <div style={{ display: "flex", alignItems: "center", gap: "0.4rem" }}>
+                          <Sparkles size={14} style={{ color: C.goldDark }} />
+                          <span style={{ fontSize: "0.76rem", fontWeight: 750, color: C.charcoal }}>
+                            AI作業手順の自動要約（レシピ・マニュアル解析）
+                          </span>
+                        </div>
+                        <button
+                          type="button"
+                          onClick={() => setIsAiCardOpen(false)}
+                          style={{
+                            background: "transparent",
+                            border: "none",
+                            padding: "0.15rem",
+                            cursor: "pointer",
+                            color: C.charcoalLight,
+                          }}
+                        >
+                          <X size={14} />
+                        </button>
+                      </div>
+
+                      <p style={{ margin: 0, fontSize: "0.7rem", color: C.charcoalLight, lineHeight: 1.4 }}>
+                        マニュアル、手順メモ、レシピ等の文章を貼り付けてください。Gemini APIが要約し、丸番号（①, ②, ③...）付きの保全タスクに変換します。
+                      </p>
+
+                      <textarea
+                        value={aiInputText}
+                        onChange={(e) => setAiInputText(e.target.value)}
+                        placeholder="例: エアコンの前面パネルを持ち上げて外し、内部のエアフィルターを取り出します。掃除機で大まかなホコリを吸い取ってから、中性洗剤でぬるま湯洗いします。陰干しで完全に乾いたら元通りにセットして完了です。"
+                        rows={3}
+                        data-testid="pm-ai-input-textarea"
+                        style={{
+                          width: "100%",
+                          boxSizing: "border-box",
+                          padding: "0.5rem 0.65rem",
+                          borderRadius: "8px",
+                          border: "1px solid rgba(0,0,0,0.08)",
+                          background: "var(--bg-nav-track)",
+                          fontSize: "0.76rem",
+                          color: "var(--text-main)",
+                          outline: "none",
+                          resize: "vertical",
+                          fontFamily: "inherit",
+                        }}
+                      />
+
+                      {aiError && (
+                        <div
+                          style={{
+                            fontSize: "0.7rem",
+                            color: C.danger,
+                            background: "rgba(224, 86, 74, 0.08)",
+                            padding: "0.4rem 0.6rem",
+                            borderRadius: "6px",
+                          }}
+                        >
+                          {aiError}
+                        </div>
+                      )}
+
+                      {aiPreviewTasks.length > 0 ? (
+                        <div style={{ display: "flex", flexDirection: "column", gap: "0.5rem" }}>
+                          <span style={{ fontSize: "0.72rem", fontWeight: 700, color: C.sage }}>
+                            生成プレビュー（{aiPreviewTasks.length}ステップ）:
+                          </span>
+                          <div style={{ display: "flex", flexDirection: "column", gap: "0.3rem" }}>
+                            {aiPreviewTasks.map((step, sIdx) => (
+                              <div
+                                key={sIdx}
+                                style={{
+                                  fontSize: "0.74rem",
+                                  color: C.charcoal,
+                                  background: "rgba(82, 121, 111, 0.06)",
+                                  padding: "0.35rem 0.6rem",
+                                  borderRadius: "6px",
+                                }}
+                              >
+                                {step}
+                              </div>
+                            ))}
+                          </div>
+                          <div style={{ display: "flex", gap: "0.5rem", marginTop: "0.3rem" }}>
+                            <button
+                              type="button"
+                              onClick={() => handleApplyAiTasks("replace")}
+                              data-testid="pm-ai-apply-replace-btn"
+                              style={{
+                                flex: 1,
+                                padding: "0.45rem",
+                                borderRadius: "8px",
+                                border: "none",
+                                background: C.gold,
+                                color: "#FFFFFF",
+                                fontSize: "0.74rem",
+                                fontWeight: 700,
+                                cursor: "pointer",
+                              }}
+                            >
+                              既存タスクを上書き反映
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => handleApplyAiTasks("append")}
+                              data-testid="pm-ai-apply-append-btn"
+                              style={{
+                                flex: 1,
+                                padding: "0.45rem",
+                                borderRadius: "8px",
+                                border: "1px solid rgba(0,0,0,0.12)",
+                                background: "transparent",
+                                color: C.charcoal,
+                                fontSize: "0.74rem",
+                                fontWeight: 600,
+                                cursor: "pointer",
+                              }}
+                            >
+                              末尾に追加
+                            </button>
+                          </div>
+                        </div>
+                      ) : (
+                        <div style={{ display: "flex", justifyContent: "flex-end" }}>
+                          <button
+                            type="button"
+                            onClick={handleGenerateAiTasks}
+                            disabled={!aiInputText.trim() || isAiGenerating}
+                            data-testid="pm-ai-submit-btn"
+                            style={{
+                              display: "inline-flex",
+                              alignItems: "center",
+                              gap: "0.35rem",
+                              padding: "0.45rem 1rem",
+                              borderRadius: "8px",
+                              border: "none",
+                              background: aiInputText.trim() && !isAiGenerating ? C.gold : "rgba(0,0,0,0.06)",
+                              color: aiInputText.trim() && !isAiGenerating ? "#FFFFFF" : C.charcoalLight,
+                              fontSize: "0.75rem",
+                              fontWeight: 700,
+                              cursor: aiInputText.trim() && !isAiGenerating ? "pointer" : "default",
+                            }}
+                          >
+                            {isAiGenerating ? (
+                              <>
+                                <RotateCw size={12} className="animate-spin" />
+                                <span>要約生成中…</span>
+                              </>
+                            ) : (
+                              <>
+                                <Sparkles size={13} />
+                                <span>手順を要約生成</span>
+                              </>
+                            )}
+                          </button>
+                        </div>
+                      )}
+                    </div>
+                  )}
 
                   {/* 手順追加入力 */}
                   <div style={{ display: "flex", gap: "0.5rem" }}>
@@ -1211,83 +1566,88 @@ export function PMMasterModal({
                         手順が登録されていません
                       </p>
                     ) : (
-                      tasks.map((t, idx) => (
-                        <div
-                          key={t.id}
-                          style={{
-                            display: "flex",
-                            alignItems: "center",
-                            gap: "0.6rem",
-                            background: "var(--bg-card-solid)",
-                            padding: "0.45rem 0.75rem",
-                            borderRadius: "10px",
-                            boxShadow: "0 1px 2px rgba(0,0,0,0.03)",
-                          }}
-                        >
-                          <span
+                      tasks.map((t, idx) => {
+                        const hasCircledPrefix = /^[\u2460-\u2473\u3251-\u325f]/.test(t.content);
+                        return (
+                          <div
+                            key={t.id}
                             style={{
-                              fontSize: "0.72rem",
-                              fontWeight: 700,
-                              color: C.charcoalLight,
-                              width: "1.2rem",
+                              display: "flex",
+                              alignItems: "center",
+                              gap: "0.6rem",
+                              background: "var(--bg-card-solid)",
+                              padding: "0.45rem 0.75rem",
+                              borderRadius: "10px",
+                              boxShadow: "0 1px 2px rgba(0,0,0,0.03)",
                             }}
                           >
-                            {idx + 1}.
-                          </span>
-                          <span style={{ flex: 1, fontSize: "0.78rem", color: C.charcoal }}>
-                            {t.content}
-                          </span>
-                          <div style={{ display: "flex", alignItems: "center", gap: "0.2rem" }}>
-                            <button
-                              type="button"
-                              onClick={() => handleMoveTask(idx, "up")}
-                              disabled={idx === 0}
-                              style={{
-                                background: "none",
-                                border: "none",
-                                padding: "0.2rem",
-                                cursor: idx === 0 ? "default" : "pointer",
-                                color: idx === 0 ? "rgba(0,0,0,0.15)" : C.charcoalLight,
-                              }}
-                            >
-                              <ChevronUp size={14} />
-                            </button>
-                            <button
-                              type="button"
-                              onClick={() => handleMoveTask(idx, "down")}
-                              disabled={idx === tasks.length - 1}
-                              style={{
-                                background: "none",
-                                border: "none",
-                                padding: "0.2rem",
-                                cursor: idx === tasks.length - 1 ? "default" : "pointer",
-                                color: idx === tasks.length - 1 ? "rgba(0,0,0,0.15)" : C.charcoalLight,
-                              }}
-                            >
-                              <ChevronDown size={14} />
-                            </button>
-                            <button
-                              type="button"
-                              onClick={() => handleRemoveTask(t.id)}
-                              style={{
-                                background: "none",
-                                border: "none",
-                                padding: "0.2rem",
-                                cursor: "pointer",
-                                color: C.charcoalLight,
-                                marginLeft: "0.3rem",
-                              }}
-                            >
-                              <X size={14} />
-                            </button>
+                            {!hasCircledPrefix && (
+                              <span
+                                style={{
+                                  fontSize: "0.72rem",
+                                  fontWeight: 700,
+                                  color: C.charcoalLight,
+                                  width: "1.2rem",
+                                }}
+                              >
+                                {idx + 1}.
+                              </span>
+                            )}
+                            <span style={{ flex: 1, fontSize: "0.78rem", color: C.charcoal }}>
+                              {t.content}
+                            </span>
+                            <div style={{ display: "flex", alignItems: "center", gap: "0.2rem" }}>
+                              <button
+                                type="button"
+                                onClick={() => handleMoveTask(idx, "up")}
+                                disabled={idx === 0}
+                                style={{
+                                  background: "none",
+                                  border: "none",
+                                  padding: "0.2rem",
+                                  cursor: idx === 0 ? "default" : "pointer",
+                                  color: idx === 0 ? "rgba(0,0,0,0.15)" : C.charcoalLight,
+                                }}
+                              >
+                                <ChevronUp size={14} />
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => handleMoveTask(idx, "down")}
+                                disabled={idx === tasks.length - 1}
+                                style={{
+                                  background: "none",
+                                  border: "none",
+                                  padding: "0.2rem",
+                                  cursor: idx === tasks.length - 1 ? "default" : "pointer",
+                                  color: idx === tasks.length - 1 ? "rgba(0,0,0,0.15)" : C.charcoalLight,
+                                }}
+                              >
+                                <ChevronDown size={14} />
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => handleRemoveTask(t.id)}
+                                style={{
+                                  background: "none",
+                                  border: "none",
+                                  padding: "0.2rem",
+                                  cursor: "pointer",
+                                  color: C.charcoalLight,
+                                  marginLeft: "0.3rem",
+                                }}
+                              >
+                                <X size={14} />
+                              </button>
+                            </div>
                           </div>
-                        </div>
-                      ))
+                        );
+                      })
                     )}
                   </div>
                 </div>
 
-                {/* 3. Aether Core 連携テンプレート定義 */}
+                {/* 3. 購入物・関連ノート連携 */}
                 <div
                   style={{
                     background: "var(--bg-nav-track)",
@@ -1301,7 +1661,7 @@ export function PMMasterModal({
                   <div style={{ display: "flex", alignItems: "center", gap: "0.4rem" }}>
                     <BookOpen size={16} color={C.goldDark} />
                     <h3 style={{ margin: 0, fontSize: "0.88rem", fontWeight: 750, color: C.charcoal }}>
-                      Aether Core 連携定義
+                      購入物・関連ノート連携
                     </h3>
                   </div>
 

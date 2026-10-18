@@ -250,13 +250,15 @@ export function ShiftOverrideModal({
               </p>
               <div style={{ display: "flex", alignItems: "center", gap: "0.45rem", marginTop: "0.2rem" }}>
                 <span
+                  className={autoShift.type === "holiday" ? "shift-badge-holiday" : "shift-badge-work"}
                   style={{
-                    fontSize: "0.86rem",
+                    fontSize: "0.8rem",
                     fontWeight: 700,
-                    color: autoShift.type === "holiday" ? C.sage : C.goldDark,
                     display: "inline-flex",
                     alignItems: "center",
-                    gap: "0.25rem",
+                    gap: "0.3rem",
+                    padding: "0.25rem 0.65rem",
+                    borderRadius: "9999px",
                   }}
                 >
                   {autoShift.type === "holiday" ? (
@@ -426,6 +428,7 @@ export function ShiftOverrideModal({
             <button
               type="button"
               onClick={() => setType("work")}
+              className={type === "work" ? "shift-badge-work" : ""}
               style={{
                 display: "flex",
                 alignItems: "center",
@@ -433,9 +436,9 @@ export function ShiftOverrideModal({
                 gap: "0.35rem",
                 padding: "0.55rem 0",
                 borderRadius: "10px",
-                border: "none",
-                background: type === "work" ? "#FDFCFA" : "transparent",
-                color: type === "work" ? C.goldDark : C.charcoalLight,
+                border: type === "work" ? undefined : "1px solid transparent",
+                background: type === "work" ? undefined : "transparent",
+                color: type === "work" ? undefined : C.charcoalLight,
                 fontWeight: type === "work" ? 700 : 500,
                 fontSize: "0.85rem",
                 cursor: "pointer",
@@ -452,6 +455,7 @@ export function ShiftOverrideModal({
                 setType("holiday");
                 setShiftName("");
               }}
+              className={type === "holiday" ? "shift-badge-holiday" : ""}
               style={{
                 display: "flex",
                 alignItems: "center",
@@ -459,9 +463,9 @@ export function ShiftOverrideModal({
                 gap: "0.35rem",
                 padding: "0.55rem 0",
                 borderRadius: "10px",
-                border: "none",
-                background: type === "holiday" ? "#FDFCFA" : "transparent",
-                color: type === "holiday" ? C.sage : C.charcoalLight,
+                border: type === "holiday" ? undefined : "1px solid transparent",
+                background: type === "holiday" ? undefined : "transparent",
+                color: type === "holiday" ? undefined : C.charcoalLight,
                 fontWeight: type === "holiday" ? 700 : 500,
                 fontSize: "0.85rem",
                 cursor: "pointer",
@@ -487,16 +491,15 @@ export function ShiftOverrideModal({
                     key={num}
                     type="button"
                     onClick={() => setStreakNumber(num)}
+                    className={isSelected ? (type === "work" ? "shift-badge-work" : "shift-badge-holiday") : ""}
                     style={{
                       padding: "0.5rem 0",
                       borderRadius: "10px",
-                      border: "none",
+                      border: isSelected ? undefined : "1px solid transparent",
                       background: isSelected
-                        ? type === "work"
-                          ? C.gold
-                          : C.sage
+                        ? undefined
                         : "rgba(0, 0, 0, 0.04)",
-                      color: isSelected ? "#FDFCFA" : C.charcoal,
+                      color: isSelected ? undefined : C.charcoal,
                       fontSize: "0.85rem",
                       fontWeight: isSelected ? 700 : 500,
                       cursor: "pointer",

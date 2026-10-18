@@ -12,7 +12,7 @@
  */
 
 import React, { useEffect, useRef, useCallback, useState } from "react";
-import type { FourTwoCycleRange } from "../../services/pmCycleService";
+import { isWorkEvent, type FourTwoCycleRange } from "../../services/pmCycleService";
 import type { CalendarEvent, TaskItem } from "../../types";
 import { CycleDayCard } from "./CycleDayCard";
 
@@ -145,6 +145,9 @@ export const CycleBoard: React.FC<CycleBoardProps> = ({
         {cycleRange.days.map((day) => {
           const isSelected = day.date === selectedDate;
 
+          // この日の出勤予定（シフト時間のカッコ書き表示用）
+          const workEvent = events.find((e) => e.date === day.date && isWorkEvent(e.title));
+
           // この日の予定（isShiftOnly を除外）
           const dayEvents = events
             .filter((e) => e.date === day.date && !e.isShiftOnly)
@@ -170,6 +173,7 @@ export const CycleBoard: React.FC<CycleBoardProps> = ({
               key={day.date}
               day={day}
               isSelected={isSelected}
+              workEvent={workEvent}
               events={dayEvents}
               tasks={dayTasks}
               onClick={() => onSelectDate(day.date)}

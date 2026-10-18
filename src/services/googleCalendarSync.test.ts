@@ -18,7 +18,22 @@ import {
   applyShiftStatusToGoogleCalendar,
   addMinutesToTime,
   GoogleCalendarApiError,
+  createGoogleEvent,
+  updateGoogleEvent,
+  deleteGoogleEvent,
+  toSyncErrorState,
 } from "./googleCalendarSync";
+import {
+  REQUIRED_SCOPE,
+  GOOGLE_OAUTH_SCOPES,
+  LS_TOKEN,
+  LS_EXPIRY,
+  GOOGLE_REAUTH_REQUIRED_EVENT,
+  hasWritePermission,
+  getValidAccessToken,
+  exchangeAuthCode,
+  clearGoogleConnection,
+} from "./googleAuth";
 import {
   collection,
   addDoc,
@@ -649,11 +664,11 @@ describe("googleCalendarSync", () => {
       const fetchCall = (globalThis.fetch as Mock).mock.calls[0];
       expect(fetchCall[1].method).toBe("POST");
 
-      // Firestore の updateDoc で googleEventId が紐付けられて更新されること
+      // Firestore の updateDoc で googleEventId が紐付けられ、タイトルに時間カッコ書きが付与されて更新されること
       expect(updateDoc).toHaveBeenCalledWith(
         "events/ev-unlinked",
         expect.objectContaining({
-          title: "遅番",
+          title: "遅番(15時)",
           startTime: "15:00",
           endTime: "23:30",
           googleEventId: "new-gid-from-unlinked",
@@ -877,5 +892,221 @@ describe("googleCalendarSync", () => {
       expect(updateDoc).toHaveBeenCalledTimes(1);
     });
   });
+
+  describe("Phase 1: 書き込み権限昇格と予定変更メソッド (googleAuthService / googleCalendarClient)", () => {
+    it("REQUIRED_SCOPE が https://www.googleapis.com/auth/calendar.events であり、readonly スコープを含まない", () => {
+      expect(REQUIRED_SCOPE).toBe("https://www.googleapis.com/auth/calendar.events");
+      expect(GOOGLE_OAUTH_SCOPES).toContain(REQUIRED_SCOPE);
+      expect(GOOGLE_OAUTH_SCOPES).not.toContain("https://www.googleapis.com/auth/calendar.readonly");
+    });
+
+    it("fetchPrimaryCalendarEvents のクエリパラメータに singleEvents=true が含まれている", async () => {
+      globalThis.fetch = vi.fn().mockResolvedValue({
+        ok: true,
+        status: 200,
+        text: async () => JSON.stringify({ items: [] }),
+      });
+
+      await fetchPrimaryCalendarEvents("test-token");
+      const calledUrl = (globalThis.fetch as Mock).mock.calls[0][0] as string;
+      expect(calledUrl).toContain("singleEvents=true");
+    });
+
+    it("createGoogleEvent / updateGoogleEvent(PATCH) / deleteGoogleEvent がそれぞれ正しいHTTPメソッドで呼び出される", async () => {
+      globalThis.fetch = vi.fn().mockResolvedValue({
+        ok: true,
+        status: 200,
+        text: async () => JSON.stringify({ id: "ev-100" }),
+      });
+
+      await createGoogleEvent(
+        {
+          summary: "新規シフト",
+          start: { dateTime: "2026-10-17T06:00:00.000Z" },
+          end: { dateTime: "2026-10-17T14:30:00.000Z" },
+        },
+        "primary",
+        "token-123"
+      );
+      expect((globalThis.fetch as Mock).mock.calls[0][1].method).toBe("POST");
+
+      await updateGoogleEvent(
+        "ev-100",
+        { summary: "変更後シフト" },
+        "primary",
+        "token-123"
+      );
+      expect((globalThis.fetch as Mock).mock.calls[1][1].method).toBe("PATCH");
+
+      await deleteGoogleEvent("ev-100", "primary", "token-123");
+      expect((globalThis.fetch as Mock).mock.calls[2][1].method).toBe("DELETE");
+    });
+
+    it("batchUpdateShiftEvents で 403 スコープ不足エラーが発生した場合、握り潰さず GoogleCalendarApiError を throw し Firestore を更新しない", async () => {
+      globalThis.fetch = vi.fn().mockResolvedValue({
+        ok: false,
+        status: 403,
+        text: async () => JSON.stringify({ error: { code: 403, message: "Insufficient Permission" } }),
+      });
+
+      const existingEvents: CalendarEvent[] = [
+        createMockEvent({
+          id: "ev-shift-1",
+          title: "早番",
+          date: "2026-10-17",
+          startTime: "06:00",
+          endTime: "14:30",
+          googleEventId: "gid-shift-1",
+        }),
+      ];
+
+      await expect(
+        batchUpdateShiftEvents(
+          "readonly-token",
+          ["2026-10-17"],
+          { title: "遅番", startTime: "15:00", endTime: "23:30" },
+          existingEvents
+        )
+      ).rejects.toThrow(GoogleCalendarApiError);
+
+      // エラー時は Firestore の updateDoc が呼ばれないこと（ロールバック保証）
+      expect(updateDoc).not.toHaveBeenCalled();
+    });
+
+    it("toSyncErrorState が 401/403 のとき requireReauth: true を返し、404/410 のとき削除済みメッセージを返す", () => {
+      const err403 = new GoogleCalendarApiError(403, "/events", "Forbidden");
+      expect(toSyncErrorState(err403)).toEqual({
+        state: {
+          hasError: true,
+          message: "予定の変更を送信できませんでした",
+          requireReauth: true,
+        },
+        isDeletedRemotely: false,
+      });
+
+      const err404 = new GoogleCalendarApiError(404, "/events/1", "Not Found");
+      expect(toSyncErrorState(err404)).toEqual({
+        state: {
+          hasError: true,
+          message: "この予定は既に削除されています",
+          requireReauth: false,
+        },
+        isDeletedRemotely: true,
+      });
+
+      expect(typeof hasWritePermission()).toBe("boolean");
+    });
+  });
+
+  describe("Phase 2: OAuth 認可コードフローとトークン完全自動更新 (googleAuth / Single-flight)", () => {
+    beforeEach(() => {
+      clearGoogleConnection();
+    });
+
+    it("localStorage の arca_g_expiry が現在時刻より5分以上未来であれば、fetch を呼ばずにそのまま arca_g_token を返す", async () => {
+      const futureExpiry = Date.now() + 15 * 60 * 1000; // 15分後
+      localStorage.setItem(LS_TOKEN, "valid-cached-token");
+      localStorage.setItem(LS_EXPIRY, String(futureExpiry));
+
+      globalThis.fetch = vi.fn();
+
+      const token = await getValidAccessToken();
+      expect(token).toBe("valid-cached-token");
+      expect(globalThis.fetch).not.toHaveBeenCalled();
+    });
+
+    it("期限切れ（または残り5分未満）の場合に Single-flight で /api/v1/auth/google/refresh を1回だけ呼び出し localStorage を更新する", async () => {
+      const nearExpiry = Date.now() + 2 * 60 * 1000; // 残り2分（5分未満）
+      localStorage.setItem(LS_TOKEN, "expiring-token");
+      localStorage.setItem(LS_EXPIRY, String(nearExpiry));
+
+      const refreshedExpiry = Date.now() + 3600 * 1000;
+      globalThis.fetch = vi.fn().mockImplementation(
+        () =>
+          new Promise((resolve) =>
+            setTimeout(
+              () =>
+                resolve({
+                  ok: true,
+                  status: 200,
+                  json: async () => ({
+                    accessToken: "refreshed-access-token-xyz",
+                    expiresAt: refreshedExpiry,
+                  }),
+                }),
+              20
+            )
+          )
+      );
+
+      // 同時に3回呼び出しても Single-flight ロックにより fetch は1回のみ実行される
+      const [t1, t2, t3] = await Promise.all([
+        getValidAccessToken(),
+        getValidAccessToken(),
+        getValidAccessToken(),
+      ]);
+
+      expect(t1).toBe("refreshed-access-token-xyz");
+      expect(t2).toBe("refreshed-access-token-xyz");
+      expect(t3).toBe("refreshed-access-token-xyz");
+      expect(globalThis.fetch).toHaveBeenCalledTimes(1);
+      expect((globalThis.fetch as Mock).mock.calls[0][0]).toBe(
+        "/api/v1/auth/google/refresh"
+      );
+      expect(localStorage.getItem(LS_TOKEN)).toBe("refreshed-access-token-xyz");
+      expect(localStorage.getItem(LS_EXPIRY)).toBe(String(refreshedExpiry));
+    });
+
+    it("exchangeAuthCode が POST /api/v1/auth/google/exchange を呼び出し accessToken と expiresAt を localStorage に保存する", async () => {
+      const targetExpiry = Date.now() + 3600 * 1000;
+      globalThis.fetch = vi.fn().mockResolvedValue({
+        ok: true,
+        status: 200,
+        json: async () => ({
+          accessToken: "exchanged-token-abc",
+          expiresAt: targetExpiry,
+          scope: GOOGLE_OAUTH_SCOPES.join(" "),
+        }),
+      });
+
+      const res = await exchangeAuthCode("auth-code-12345");
+      expect(res.accessToken).toBe("exchanged-token-abc");
+      expect(res.expiresAt).toBe(targetExpiry);
+      expect(localStorage.getItem(LS_TOKEN)).toBe("exchanged-token-abc");
+      expect(localStorage.getItem(LS_EXPIRY)).toBe(String(targetExpiry));
+      expect((globalThis.fetch as Mock).mock.calls[0][0]).toBe(
+        "/api/v1/auth/google/exchange"
+      );
+    });
+
+    it("リフレッシュトークン自体が無効化された場合（401）は GOOGLE_REAUTH_REQUIRED_EVENT を発火し null を返す", async () => {
+      localStorage.setItem(LS_TOKEN, "expired-token");
+      localStorage.setItem(LS_EXPIRY, String(Date.now() - 1000));
+
+      globalThis.fetch = vi.fn().mockResolvedValue({
+        ok: false,
+        status: 401,
+        json: async () => ({
+          error: "invalid_grant",
+          requireReauth: true,
+          message: "Google連携の再認証が必要です",
+        }),
+      });
+
+      let receivedMessage = "";
+      const listener = (e: Event) => {
+        receivedMessage = (e as CustomEvent<{ message: string }>).detail.message;
+      };
+      window.addEventListener(GOOGLE_REAUTH_REQUIRED_EVENT, listener);
+
+      const token = await getValidAccessToken();
+      window.removeEventListener(GOOGLE_REAUTH_REQUIRED_EVENT, listener);
+
+      expect(token).toBeNull();
+      expect(receivedMessage).toBe("Google連携の再認証が必要です");
+    });
+  });
 });
+
+
 

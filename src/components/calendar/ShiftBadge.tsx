@@ -76,10 +76,8 @@ export function ShiftBadge({
       onClick={onClick}
       data-testid={testId}
       title={shift.isOverridden ? "手動設定中（クリックで変更・自動判定に戻す）" : "Googleカレンダー連動中（クリックで手動調整）"}
-      className={`inline-flex items-center border-none font-semibold tracking-[0.02em] select-none ${
-        isWork
-          ? "bg-amber-500/10 text-amber-800 dark:bg-amber-400/25 dark:text-amber-200"
-          : "bg-teal-500/10 text-teal-800 dark:bg-teal-400/25 dark:text-teal-200"
+      className={`inline-flex items-center font-semibold tracking-[0.02em] select-none ${
+        isWork ? "shift-badge-work" : "shift-badge-holiday"
       } ${className || ""}`}
       style={{
         gap: isSmall ? "0.3rem" : "0.4rem",

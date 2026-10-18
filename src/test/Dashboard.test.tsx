@@ -430,7 +430,42 @@ describe("Dashboard コンポーネント", () => {
     expect(screen.getByTestId("shift-edit-modal")).toBeInTheDocument();
     expect(screen.getByText("出勤時間・シフト変更")).toBeInTheDocument();
     expect(screen.getByText("今回の4連勤")).toBeInTheDocument();
-    expect(screen.getByText("次の早番")).toBeInTheDocument();
+    expect(screen.getByText("次回の早番")).toBeInTheDocument();
+    expect(screen.queryByText("Googleカレンダーも同期更新")).not.toBeInTheDocument();
+  });
+
+  it("ダッシュボード上の早番・遅番表示に出勤時間がカッコ書きで明記されること", () => {
+    const now = new Date();
+    const todayStr = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")}`;
+
+    (onSnapshot as Mock).mockImplementation((q: any, callback: (snap: unknown) => void) => {
+      const isEventsQuery =
+        q?._query?.path?.segments?.includes("events") || JSON.stringify(q || {}).includes("events");
+
+      if (isEventsQuery) {
+        callback({
+          docs: [
+            {
+              id: "ev-shift-today",
+              data: () => ({
+                title: "早番",
+                date: todayStr,
+                startTime: "06:00",
+                endTime: "14:30",
+                isShiftOnly: true,
+              }),
+            },
+          ],
+        });
+      } else {
+        callback({ docs: [], exists: () => false, data: () => ({}) });
+      }
+      return vi.fn();
+    });
+
+    render(<Dashboard />);
+    // CycleDayCard および ShiftBadge 上に「早番(6時)」と表示されること
+    expect(screen.getAllByText(/早番\(6時\)/).length).toBeGreaterThanOrEqual(1);
   });
 
   it("無題の空ノートおよび削除済みノート（isDeleted: true）はダッシュボードに表示されないこと", () => {
@@ -489,10 +524,10 @@ describe("Dashboard コンポーネント", () => {
     const dateRange = screen.getByText(/\d{2}\/\d{2}\([日月火水木金土]\)～\d{2}\/\d{2}\([日月火水木金土]\)/);
     expect(dateRange).toHaveClass("dark:text-stone-100");
 
-    // 出勤/休日ステータスバッジが高明度トーン（dark:text-amber-200 または dark:text-teal-200）を持つこと
+    // 出勤/休日ステータスバッジが統一クラス（shift-badge-work または shift-badge-holiday）を持つこと
     const shiftBadge = screen.getByTestId("dashboard-shift-badge");
     const badgeClass = shiftBadge.getAttribute("class") || "";
-    expect(badgeClass).toMatch(/dark:text-(amber|teal)-200/);
+    expect(badgeClass).toMatch(/shift-badge-(work|holiday)/);
 
     // ダッシュボードカード（レシピ・メモ等）が他ページと統一された dark:bg-[var(--bg-card-solid)] を持つこと
     const mealCard = screen.getByTestId("meal-shopping-card");

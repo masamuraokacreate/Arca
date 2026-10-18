@@ -91,7 +91,7 @@ export const DashboardTasksCard: React.FC<DashboardTasksCardProps> = ({
   return (
     <div
       data-testid="dashboard-tasks-card"
-      className="bg-white dark:bg-[var(--bg-card-solid)] rounded-2xl p-4 sm:p-5 shadow-xs flex flex-col h-full overflow-hidden border-none transition-all"
+      className="arca-surface-card bg-white dark:bg-[var(--bg-card-solid)] rounded-2xl p-4 sm:p-5 shadow-xs flex flex-col h-full overflow-hidden border-none transition-all"
       style={{
         boxShadow: "0 2px 10px rgba(0, 0, 0, 0.025), 0 1px 3px rgba(0, 0, 0, 0.02)",
       }}

@@ -38,6 +38,8 @@ export interface CalendarDayCellProps {
   onSelectDate: (dateStr: string) => void;
   /** PM実行ポップオーバーを開くハンドラ */
   onOpenPMExecution?: (dateStr: string, masters: PMMaster[]) => void;
+  /** PMオーバーライドポップオーバーを開くハンドラ */
+  onOpenPMOverride?: (master: PMMaster, anchorRect: DOMRect) => void;
 }
 
 /** 出勤時間帯に応じたマイクロピルのスタイル */
@@ -100,6 +102,67 @@ export function getShiftTimeStyle(startTime?: string, isSelected?: boolean): {
   }
 }
 
+/** 日付数字のピルスタイリング（ダッシュボード4勤2休シフト連動） */
+export function getDayNumberPillStyle({
+  isSelected: _isSelected = false,
+  isRest,
+  isWork,
+  inMonth,
+  isSun,
+  isSat,
+  isToday,
+}: {
+  isSelected: boolean;
+  isRest: boolean;
+  isWork: boolean;
+  inMonth: boolean;
+  isSun: boolean;
+  isSat: boolean;
+  isToday: boolean;
+}): { className: string; style: React.CSSProperties } {
+  const baseClass =
+    "inline-flex items-center justify-center min-w-[26px] px-2 py-0.5 rounded-full text-[0.8rem] font-semibold transition-all select-none leading-none";
+
+  if (!inMonth) {
+    return {
+      className: `${baseClass} opacity-35 text-stone-400 dark:text-stone-600 bg-transparent`,
+      style: {},
+    };
+  }
+
+  // 休日（ライト: アイスブルー透過 / ダーク: スカイブルー透過）
+  if (isRest || isSun) {
+    return {
+      className: `${baseClass} shift-badge-holiday`,
+      style: {
+        ...(isToday ? { outline: "2px solid var(--accent-gold, #C5A059)", outlineOffset: "1px" } : {}),
+      },
+    };
+  }
+
+  // 出勤日（控えめなスレート透過）
+  if (isWork) {
+    return {
+      className: `${baseClass} shift-badge-work`,
+      style: {
+        ...(isToday ? { outline: "2px solid var(--accent-gold, #C5A059)", outlineOffset: "1px" } : {}),
+      },
+    };
+  }
+
+  // 通常日（土曜日など）/ フォールバック
+  return {
+    className: `${baseClass} ${
+      isSat
+        ? "text-sky-700 dark:text-sky-300 bg-sky-50 dark:bg-sky-950/30"
+        : "shift-badge-work"
+    }`,
+    style: {
+      ...(isToday ? { outline: "2px solid var(--accent-gold, #C5A059)", outlineOffset: "1px" } : {}),
+    },
+  };
+}
+
 export function CalendarDayCell({
   dateStr,
   day,
@@ -117,8 +180,9 @@ export function CalendarDayCell({
   showShift,
   onSelectDate,
   onOpenPMExecution,
+  onOpenPMOverride,
 }: CalendarDayCellProps) {
-  const isWork = !!shift;
+  const isWork = Boolean(shift?.isWork);
 
   // 当日PMの完了判定（もしlastCompletedAtが今日であれば完了アイコンに変化）
   const isAllPMCompleted =
@@ -128,17 +192,32 @@ export function CalendarDayCell({
 
   const handlePMIndicatorClick = (e: React.MouseEvent) => {
     e.stopPropagation();
-    if (onOpenPMExecution) {
+    if (onOpenPMOverride && pmMasters.length > 0) {
+      onOpenPMOverride(pmMasters[0], e.currentTarget.getBoundingClientRect());
+    } else if (onOpenPMExecution) {
       onOpenPMExecution(dateStr, pmMasters);
     } else {
       onSelectDate(dateStr);
     }
   };
 
+  const pillStyle = getDayNumberPillStyle({
+    isSelected,
+    isRest,
+    isWork,
+    inMonth,
+    isSun,
+    isSat,
+    isToday,
+  });
+
   return (
     <button
       type="button"
       onClick={() => onSelectDate(dateStr)}
+      className={`calendar-cell ${
+        isSelected ? "calendar-cell-selected" : isToday ? "calendar-cell-today" : ""
+      }`}
       style={{
         position: "relative",
         display: "flex",
@@ -147,13 +226,6 @@ export function CalendarDayCell({
         justifyContent: "space-between",
         minHeight: "54px",
         padding: "0.35rem 0.2rem 0.3rem",
-        background: isSelected
-          ? C.gold
-          : isToday
-          ? C.goldFaint2
-          : isRest
-          ? "rgba(82, 121, 111, 0.04)"
-          : "transparent",
         border: "none",
         borderRadius: "10px",
         cursor: "pointer",
@@ -162,7 +234,7 @@ export function CalendarDayCell({
         userSelect: "none",
       }}
     >
-      {/* 上部ヘッダー：日付数字 & PM専用巡回インジケータ */}
+      {/* 上部ヘッダー：日付数字（ピル表示） & PM専用巡回インジケータ */}
       <div
         style={{
           width: "100%",
@@ -173,22 +245,9 @@ export function CalendarDayCell({
         }}
       >
         <span
-          style={{
-            fontSize: "0.82rem",
-            fontWeight: isSelected ? 750 : isToday ? 700 : 500,
-            color: isSelected
-              ? "#FDFCFA"
-              : !inMonth
-              ? C.charcoalXLight
-              : isToday
-              ? C.goldDark
-              : isSun
-              ? C.danger
-              : isSat
-              ? "#5A7DA0"
-              : C.charcoal,
-            lineHeight: 1,
-          }}
+          className={pillStyle.className}
+          style={pillStyle.style}
+          data-testid={`day-pill-${dateStr}`}
         >
           {day}
         </span>
@@ -216,20 +275,18 @@ export function CalendarDayCell({
               height: "18px",
               borderRadius: "50%",
               backgroundColor: isSelected
-                ? "rgba(255, 255, 255, 0.28)"
+                ? "var(--accent-gold-faint3, rgba(197, 160, 89, 0.3))"
                 : isAllPMCompleted
                 ? "rgba(82, 121, 111, 0.15)"
-                : "rgba(197, 160, 89, 0.18)",
+                : "var(--accent-gold-faint2, rgba(197, 160, 89, 0.18))",
               color: isSelected
-                ? "#FFFFFF"
+                ? "var(--accent-gold-dark, #B88E3E)"
                 : isAllPMCompleted
                 ? "#52796F"
-                : "#B88E3E",
+                : "var(--accent-gold-dark, #B88E3E)",
               cursor: "pointer",
               transition: "transform 0.15s ease, background-color 0.15s ease",
-              boxShadow: isSelected
-                ? "none"
-                : "0 1px 3px rgba(0, 0, 0, 0.06)",
+              boxShadow: "0 1px 3px rgba(0, 0, 0, 0.06)",
             }}
             onMouseEnter={(e) => {
               e.currentTarget.style.transform = "scale(1.15)";
@@ -261,8 +318,8 @@ export function CalendarDayCell({
           {isWork ? (
             shift?.startTime ? (
               <span
-                className={getShiftTimeStyle(shift.startTime, isSelected).className}
-                style={getShiftTimeStyle(shift.startTime, isSelected).style}
+                className={getShiftTimeStyle(shift.startTime, false).className}
+                style={getShiftTimeStyle(shift.startTime, false).style}
                 data-testid="shift-time-pill"
               >
                 {shift.startTime}
@@ -272,7 +329,7 @@ export function CalendarDayCell({
                 style={{
                   width: "0.75rem",
                   height: "0.75rem",
-                  color: isSelected ? "#FDFCFA" : C.goldDark,
+                  color: isSelected ? C.goldDark : C.goldDark,
                 }}
                 aria-label="出勤"
                 data-testid="cell-work-sun-icon"
@@ -283,7 +340,7 @@ export function CalendarDayCell({
               style={{
                 width: "0.72rem",
                 height: "0.72rem",
-                color: isSelected ? "#FDFCFA" : C.sage,
+                color: isSelected ? C.sage : C.sage,
                 opacity: 0.85,
               }}
               aria-label="休日"
@@ -293,7 +350,7 @@ export function CalendarDayCell({
         </div>
       )}
 
-      {/* 下部ドットインジケータ（予定・タスク・PM補助ドット） */}
+      {/* 下部ドットインジケータ（予定・タスクの補助ドット。PMドットは削除） */}
       <div style={{ display: "flex", gap: "2.5px", minHeight: "5px", alignItems: "center" }}>
         {hasEvent && (
           <span
@@ -301,7 +358,7 @@ export function CalendarDayCell({
               width: "4px",
               height: "4px",
               borderRadius: "50%",
-              background: isSelected ? "#FDFCFA" : C.gold,
+              background: C.gold,
             }}
             title="予定あり"
           />
@@ -312,20 +369,9 @@ export function CalendarDayCell({
               width: "4px",
               height: "4px",
               borderRadius: "50%",
-              background: isSelected ? "rgba(255,255,255,0.75)" : C.charcoalLight,
+              background: C.charcoalLight,
             }}
             title="タスク期限あり"
-          />
-        )}
-        {hasPM && (
-          <span
-            style={{
-              width: "4px",
-              height: "4px",
-              borderRadius: "50%",
-              background: isSelected ? "#FFFFFF" : "#52796F",
-            }}
-            title="PM周期保全あり"
           />
         )}
       </div>

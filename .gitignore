@@ -16,6 +16,10 @@ dist-ssr
 .env
 .env.*
 !.env.example
+functions/.env
+functions/.env.*
+functions/lib/
+functions/node_modules/
 
 # Editor directories and files
 .vscode/*

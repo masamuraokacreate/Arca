@@ -802,16 +802,18 @@ export function PMExecutionPopover({
 
                       <div style={{ flex: 1, minWidth: 0 }}>
                         <div style={{ display: "flex", alignItems: "center", gap: "0.4rem" }}>
-                          <span
-                            style={{
-                              fontSize: "0.68rem",
-                              fontWeight: 700,
-                              color: isChecked ? C.charcoalLight : C.charcoalMid,
-                              width: "16px",
-                            }}
-                          >
-                            {idx + 1}.
-                          </span>
+                          {!/^[\u2460-\u2473\u3251-\u325f]/.test(task.content) && (
+                            <span
+                              style={{
+                                fontSize: "0.68rem",
+                                fontWeight: 700,
+                                color: isChecked ? C.charcoalLight : C.charcoalMid,
+                                width: "16px",
+                              }}
+                            >
+                              {idx + 1}.
+                            </span>
+                          )}
                           <span
                             style={{
                               fontSize: "0.82rem",

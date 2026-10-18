@@ -27,6 +27,14 @@ service cloud.firestore {
     //       - maxTouchPoints: number (任意, 0〜50) - タッチポイント数 (iPad/タブレット判定用)
     //   - maxTouchPoints: number (任意, 0〜50) - ルート直下にも配置可能なタッチポイント数
     //
+    // Collection: system_secrets
+    // Document ID: google_oauth 等
+    // 用途: Cloud Functions (Firebase Admin SDK) 専用の機密情報（OAuth リフレッシュトークン等）の保管
+    // フィールド一覧 (google_oauth):
+    //   - refreshToken: string (必須) - Google OAuth 2.0 リフレッシュトークン
+    //   - updatedAt: number (必須) - 更新日時ミリ秒タイムスタンプ
+    // アクセス権限: クライアントサイド（ブラウザ）からの直接読み書きは管理者を含め完全禁止 (allow read, write: if false;)
+    //
     // その他アプリケーションコレクション:
     //   events, tasks, notes, recipes, shift_settings, pm_templates, pm_logs,
     //   finance_transactions, task_lists, lists, pm_masters など
@@ -154,12 +162,21 @@ service cloud.firestore {
       allow update: if false;
     }
 
-    // 2. 一般アプリケーションデータコレクション（ホワイトリスト管理者のみアクセス可能）
-    match /{collectionName}/{docId} {
-      allow read, write: if collectionName != 'auth_errors' && isAdmin();
+    // 2. システム機密情報コレクション (system_secrets)
+    // Phase 2 (OAuth 認可コードフローとトークン完全自動更新) で使用するリフレッシュトークン等 (system_secrets/google_oauth) を保管。
+    // Cloud Functions (Firebase Admin SDK) からのみ読み書きし、クライアントサイド（ブラウザ）からの直接アクセスは
+    // 管理者であっても一切禁止（XSS等で万が一クライアントが侵害されても refreshToken が流出しないように保護）
+    match /system_secrets/{docId} {
+      allow read, write: if false;
     }
 
-    // 3. デフォルト拒否（多層防御・未定義パスへのアクセスを完全遮断）
+    // 3. 一般アプリケーションデータコレクション（ホワイトリスト管理者のみアクセス可能）
+    // ※ auth_errors と system_secrets は個別の厳格なルールを適用するためワイルドカード対象から除外
+    match /{collectionName}/{docId} {
+      allow read, write: if collectionName != 'auth_errors' && collectionName != 'system_secrets' && isAdmin();
+    }
+
+    // 4. デフォルト拒否（多層防御・未定義パスへのアクセスを完全遮断）
     match /{document=**} {
       allow read, write: if false;
     }

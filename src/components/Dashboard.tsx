@@ -31,7 +31,7 @@ import {
 } from "firebase/firestore";
 import { ChevronLeft, ChevronRight } from "lucide-react";
 import { db } from "../lib/firebase";
-import type { CalendarEvent, TaskItem, NoteItem, SyncStatus } from "../types";
+import type { CalendarEvent, TaskItem, NoteItem, SyncStatus, SyncErrorState } from "../types";
 import type { PMSettings } from "../types/pm";
 import type { Recipe } from "../types/recipe";
 import { subscribeRecipes } from "../lib/recipeStorage";
@@ -42,8 +42,13 @@ import {
   getCycleDateRangeLabel,
   getAdjacentCycleAnchor,
   isWorkEvent,
+  formatShiftTitleWithTime,
 } from "../services/pmCycleService";
 import { useGoogleAuth } from "../hooks/useGoogleAuth";
+import { wasGoogleConnected } from "../services/googleAuthService";
+import {
+  toSyncErrorState,
+} from "../services/googleCalendarClient";
 import {
   syncGoogleCalendarToArca,
   createGoogleCalendarEvent,
@@ -56,6 +61,7 @@ import { ShiftBadge } from "./calendar/ShiftBadge";
 import { AddEventModal } from "./dashboard/AddEventModal";
 import { CycleBoard } from "./dashboard/CycleBoard";
 import { SubGrid } from "./dashboard/SubGrid";
+import { SyncToast } from "./common/SyncToast";
 
 // ---------- ユーティリティ ----------
 function toDateStr(y: number, m: number, d: number): string {
@@ -84,6 +90,11 @@ export default function Dashboard({ onNavigate, onSelectNote, onSelectRecipe }: 
   // Google カレンダー同期
   const { isSignedIn, accessToken, signIn } = useGoogleAuth();
   const [syncStatus, setSyncStatus] = useState<SyncStatus>("idle");
+  const [syncErrorState, setSyncErrorState] = useState<SyncErrorState>({
+    hasError: false,
+    message: null,
+    requireReauth: false,
+  });
 
   // Firestore データ
   const [events, setEvents] = useState<CalendarEvent[]>([]);
@@ -184,8 +195,20 @@ export default function Dashboard({ onNavigate, onSelectNote, onSelectRecipe }: 
     return () => unsubSettings();
   }, [today]);
 
-  // シフト判定（オーバーライド優先）
-  const currentShift = resolveShiftInfo(today, events, pmSettings);
+  // シフト判定（オーバーライド優先・ダッシュボード表示用に開始時刻をカッコ書きで明記）
+  const rawCurrentShift = resolveShiftInfo(today, events, pmSettings);
+  const todayWorkEvent = events.find((e) => e.date === today && isWorkEvent(e.title));
+  const currentShift =
+    rawCurrentShift.type === "work" && rawCurrentShift.shiftName
+      ? {
+          ...rawCurrentShift,
+          shiftName: formatShiftTitleWithTime(
+            rawCurrentShift.shiftName,
+            todayWorkEvent?.startTime,
+            false
+          ),
+        }
+      : rawCurrentShift;
 
   // 4勤2休サイクル（6日間）の計算
   const cycleRange = useMemo(() => {
@@ -248,7 +271,20 @@ export default function Dashboard({ onNavigate, onSelectNote, onSelectRecipe }: 
     [today]
   );
 
-  // 予定の直接追加（Googleカレンダー連動付き）
+  // APIエラーハンドラ（404/410時は再フェッチ、401/403時は再認証ボタン付きトースト表示）
+  const handleGoogleMutationError = useCallback(
+    (err: unknown) => {
+      console.error("Dashboard Google Calendar mutation error:", err);
+      const { state, isDeletedRemotely } = toSyncErrorState(err, "予定の変更を送信できませんでした");
+      setSyncErrorState(state);
+      if (isDeletedRemotely && isSignedIn && accessToken) {
+        void handleManualSync();
+      }
+    },
+    [isSignedIn, accessToken, handleManualSync]
+  );
+
+  // 予定の直接追加（Googleカレンダー連動付き・失敗時ロールバック）
   const handleAddEvent = useCallback(
     async (data: {
       title: string;
@@ -257,30 +293,67 @@ export default function Dashboard({ onNavigate, onSelectNote, onSelectRecipe }: 
       endTime: string;
       note: string;
     }) => {
+      const prevEvents = [...events];
       let googleEventId: string | undefined;
-      if (isSignedIn && accessToken) {
+      const shouldPushToGoogle = (isSignedIn && Boolean(accessToken)) || wasGoogleConnected();
+
+      if (shouldPushToGoogle) {
+        if (!isSignedIn || !accessToken) {
+          setSyncErrorState({
+            hasError: true,
+            message: "予定の変更を送信できませんでした",
+            requireReauth: true,
+          });
+          return;
+        }
         try {
           googleEventId = await createGoogleCalendarEvent(accessToken, data);
         } catch (gErr) {
-          console.error("Failed to push event to Google Calendar:", gErr);
+          setEvents(prevEvents);
+          handleGoogleMutationError(gErr);
+          return;
         }
       }
 
-      await addDoc(collection(db, "events"), {
-        ...data,
-        googleEventId: googleEventId || null,
-        createdAt: serverTimestamp(),
-      });
+      try {
+        await addDoc(collection(db, "events"), {
+          ...data,
+          googleEventId: googleEventId || null,
+          googleCalendarId: googleEventId ? "primary" : null,
+          createdAt: serverTimestamp(),
+        });
+      } catch (err) {
+        setEvents(prevEvents);
+        handleGoogleMutationError(err);
+      }
     },
-    [isSignedIn, accessToken]
+    [events, isSignedIn, accessToken, handleGoogleMutationError]
   );
 
-  // 手動オーバーライド保存ハンドラ（Google カレンダー ＆ Firestore 連携）
+  // 手動オーバーライド保存ハンドラ（Google カレンダー ＆ Firestore 連携・失敗時ロールバック）
   const handleSaveShiftOverride = useCallback(
     async (
       override: any,
       details?: { startTime?: string; endTime?: string }
     ) => {
+      const prevPmSettings = pmSettings;
+      const prevEvents = [...events];
+      const existingWorkEv = events.find((e) => e.date === today && isWorkEvent(e.title));
+      const requiresGoogleSync =
+        (isSignedIn && Boolean(accessToken)) ||
+        wasGoogleConnected() ||
+        Boolean(existingWorkEv?.googleEventId);
+
+      const formattedOverrideShiftName =
+        override?.type === "work"
+          ? formatShiftTitleWithTime(
+              override.shiftName || "出勤",
+              details?.startTime || existingWorkEv?.startTime,
+              true
+            ) || (override.shiftName || "出勤").trim()
+          : override?.shiftName;
+
+      // 楽観的ローカル更新
       setPmSettings((prev) => {
         const current = prev || { ...DEFAULT_PM_SETTINGS };
         const newOverrides = { ...(current.overrides || {}) };
@@ -291,12 +364,52 @@ export default function Dashboard({ onNavigate, onSelectNote, onSelectRecipe }: 
             date: today,
             type: override.type,
             streakNumber: override.streakNumber,
-            shiftName: override.shiftName,
+            shiftName: formattedOverrideShiftName,
             updatedAt: new Date().toISOString(),
           };
         }
         return { ...current, overrides: newOverrides };
       });
+
+      if (override?.type === "holiday") {
+        setEvents((prev) => prev.filter((e) => !(e.date === today && isWorkEvent(e.title))));
+      } else if (override?.type === "work") {
+        const title = formattedOverrideShiftName || "出勤";
+        setEvents((prev) => {
+          const next = [...prev];
+          const idx = next.findIndex((e) => e.date === today && isWorkEvent(e.title));
+          if (idx >= 0) {
+            next[idx] = {
+              ...next[idx],
+              title,
+              startTime: details?.startTime || next[idx].startTime,
+              endTime: details?.endTime || next[idx].endTime,
+            };
+          } else {
+            next.push({
+              id: `opt-${today}-${Date.now()}`,
+              title,
+              date: today,
+              startTime: details?.startTime || "06:00",
+              endTime: details?.endTime || "14:30",
+              note: "",
+              createdAt: null,
+            });
+          }
+          return next;
+        });
+      }
+
+      if (requiresGoogleSync && (!isSignedIn || !accessToken)) {
+        setPmSettings(prevPmSettings);
+        setEvents(prevEvents);
+        setSyncErrorState({
+          hasError: true,
+          message: "予定の変更を送信できませんでした",
+          requireReauth: true,
+        });
+        return;
+      }
 
       try {
         await applyShiftStatusToGoogleCalendar(
@@ -305,50 +418,24 @@ export default function Dashboard({ onNavigate, onSelectNote, onSelectRecipe }: 
             date: today,
             type: override?.type || "holiday",
             streakNumber: override?.streakNumber,
-            shiftName: override?.shiftName,
+            shiftName: formattedOverrideShiftName,
             startTime: details?.startTime,
             endTime: details?.endTime,
             isReset: override === null,
           },
-          events
+          prevEvents
         );
-
-        if (override?.type === "holiday") {
-          setEvents((prev) => prev.filter((e) => !(e.date === today && isWorkEvent(e.title))));
-        } else if (override?.type === "work") {
-          const title = (override.shiftName || "出勤").trim();
-          setEvents((prev) => {
-            const next = [...prev];
-            const idx = next.findIndex((e) => e.date === today && isWorkEvent(e.title));
-            if (idx >= 0) {
-              next[idx] = {
-                ...next[idx],
-                title,
-                startTime: details?.startTime || next[idx].startTime,
-                endTime: details?.endTime || next[idx].endTime,
-              };
-            } else {
-              next.push({
-                id: `opt-${today}-${Date.now()}`,
-                title,
-                date: today,
-                startTime: details?.startTime || "06:00",
-                endTime: details?.endTime || "14:30",
-                note: "",
-                createdAt: null,
-              });
-            }
-            return next;
-          });
-        }
       } catch (err) {
-        console.error("Failed to save shift override:", err);
+        // エラー時は画面上の変更を元の状態へロールバック
+        setPmSettings(prevPmSettings);
+        setEvents(prevEvents);
+        handleGoogleMutationError(err);
       }
     },
-    [today, isSignedIn, accessToken, events]
+    [today, isSignedIn, accessToken, events, pmSettings, handleGoogleMutationError]
   );
 
-  // ── 4連勤ワンシフト一括 / シフト時間一括更新ハンドラ（カレンダーと統合） ──
+  // ── 4連勤ワンシフト一括 / シフト時間一括更新ハンドラ（カレンダーと統合・失敗時ロールバック） ──
   const handleSaveShiftBatch = useCallback(
     async (params: {
       dates: string[];
@@ -357,49 +444,70 @@ export default function Dashboard({ onNavigate, onSelectNote, onSelectRecipe }: 
       endTime: string;
       scope: "single" | "four_day";
     }) => {
+      const prevEvents = [...events];
+      const formattedTitle =
+        formatShiftTitleWithTime(params.title, params.startTime, true) || params.title;
+      const hasLinkedEvents = events.some(
+        (e) => params.dates.includes(e.date) && isWorkEvent(e.title) && Boolean(e.googleEventId)
+      );
+      const requiresGoogleSync =
+        (isSignedIn && Boolean(accessToken)) || wasGoogleConnected() || hasLinkedEvents;
+
+      // 楽観的ローカル更新（Firestore snapshot前の即時反映）
+      setEvents((prev) => {
+        const next = [...prev];
+        for (const d of params.dates) {
+          const idx = next.findIndex((e) => e.date === d && isWorkEvent(e.title));
+          if (idx >= 0) {
+            next[idx] = {
+              ...next[idx],
+              title: formattedTitle,
+              startTime: params.startTime,
+              endTime: params.endTime,
+            };
+          } else {
+            next.push({
+              id: `opt-${d}-${Date.now()}`,
+              title: formattedTitle,
+              date: d,
+              startTime: params.startTime,
+              endTime: params.endTime,
+              note: "",
+              createdAt: null,
+            });
+          }
+        }
+        return next;
+      });
+
+      if (requiresGoogleSync && (!isSignedIn || !accessToken)) {
+        setEvents(prevEvents);
+        setSyncErrorState({
+          hasError: true,
+          message: "予定の変更を送信できませんでした",
+          requireReauth: true,
+        });
+        return;
+      }
+
       try {
         await batchUpdateShiftEvents(
           isSignedIn ? accessToken : null,
           params.dates,
           {
-            title: params.title,
+            title: formattedTitle,
             startTime: params.startTime,
             endTime: params.endTime,
           },
-          events
+          prevEvents
         );
-
-        // 楽観的ローカル更新（Firestore snapshot前の即時反映）
-        setEvents((prev) => {
-          const next = [...prev];
-          for (const d of params.dates) {
-            const idx = next.findIndex((e) => e.date === d && isWorkEvent(e.title));
-            if (idx >= 0) {
-              next[idx] = {
-                ...next[idx],
-                title: params.title,
-                startTime: params.startTime,
-                endTime: params.endTime,
-              };
-            } else {
-              next.push({
-                id: `opt-${d}-${Date.now()}`,
-                title: params.title,
-                date: d,
-                startTime: params.startTime,
-                endTime: params.endTime,
-                note: "",
-                createdAt: null,
-              });
-            }
-          }
-          return next;
-        });
       } catch (err) {
-        console.error("Failed to batch update shift events from Dashboard:", err);
+        // エラー時は画面上の変更を元の状態へロールバック
+        setEvents(prevEvents);
+        handleGoogleMutationError(err);
       }
     },
-    [isSignedIn, accessToken, events]
+    [isSignedIn, accessToken, events, handleGoogleMutationError]
   );
 
   return (
@@ -519,6 +627,14 @@ export default function Dashboard({ onNavigate, onSelectNote, onSelectRecipe }: 
         onNavigate={onNavigate}
         onSelectNote={onSelectNote}
         onSelectRecipe={onSelectRecipe}
+      />
+
+      {/* Google Calendar API 通信エラー・再認証トースト */}
+      <SyncToast
+        errorState={syncErrorState}
+        onDismiss={() =>
+          setSyncErrorState({ hasError: false, message: null, requireReauth: false })
+        }
       />
     </div>
   );

@@ -17,6 +17,12 @@ import {
   Timestamp,
 } from "firebase/firestore";
 import { db, auth } from "../lib/firebase";
+import {
+  getValidAccessToken,
+  resolveValidAccessToken,
+} from "./googleAuthService";
+
+export { getValidAccessToken };
 
 // ─────────────────────────────────────────
 // 型定義
@@ -292,13 +298,14 @@ export async function getOrCreateFolder(
   folderName: string,
   parentFolderId: string = "root"
 ): Promise<string> {
+  const activeToken = (await resolveValidAccessToken(accessToken)) || accessToken;
   const query = `name = '${folderName}' and mimeType = 'application/vnd.google-apps.folder' and '${parentFolderId}' in parents and trashed = false`;
   const searchUrl = `https://www.googleapis.com/drive/v3/files?q=${encodeURIComponent(query)}&fields=files(id, name)&spaces=drive`;
 
   const searchRes = await fetch(searchUrl, {
     method: "GET",
     headers: {
-      Authorization: `Bearer ${accessToken}`,
+      Authorization: `Bearer ${activeToken}`,
     },
   });
 
@@ -318,7 +325,7 @@ export async function getOrCreateFolder(
   const createRes = await fetch("https://www.googleapis.com/drive/v3/files", {
     method: "POST",
     headers: {
-      Authorization: `Bearer ${accessToken}`,
+      Authorization: `Bearer ${activeToken}`,
       "Content-Type": "application/json",
     },
     body: JSON.stringify({
@@ -341,22 +348,24 @@ export async function getOrCreateFolder(
 
 /** バックアップ保存用フォルダ（/800_Arca/810_バックアップ）を取得または自動作成 */
 export async function getOrCreateBackupFolder(accessToken: string): Promise<string> {
-  const arcaFolderId = await getOrCreateFolder(accessToken, "800_Arca", "root");
-  const backupFolderId = await getOrCreateFolder(accessToken, "810_バックアップ", arcaFolderId);
+  const activeToken = (await resolveValidAccessToken(accessToken)) || accessToken;
+  const arcaFolderId = await getOrCreateFolder(activeToken, "800_Arca", "root");
+  const backupFolderId = await getOrCreateFolder(activeToken, "810_バックアップ", arcaFolderId);
   return backupFolderId;
 }
 
 /** Google Drive API v3 の Multipart Upload を使用してバックアップファイルを直接保存 */
 export async function backupToGoogleDrive(
-  accessToken: string,
+  accessToken?: string | null,
   preloadedData?: BackupData
 ): Promise<BackupResult> {
-  if (!accessToken) {
+  const activeToken = await resolveValidAccessToken(accessToken);
+  if (!activeToken) {
     throw new Error("Google Driveのアクセストークンが見つかりません。再接続してください。");
   }
 
   // 保存先フォルダ（/800_Arca/810_バックアップ）を取得または作成
-  const backupFolderId = await getOrCreateBackupFolder(accessToken);
+  const backupFolderId = await getOrCreateBackupFolder(activeToken);
 
   const backup = preloadedData || (await generateBackupData());
   const dateStr = formatDateTimeForFileName(new Date(backup.exportedAt));
@@ -383,7 +392,7 @@ export async function backupToGoogleDrive(
   const response = await fetch("https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart", {
     method: "POST",
     headers: {
-      Authorization: `Bearer ${accessToken}`,
+      Authorization: `Bearer ${activeToken}`,
       "Content-Type": `multipart/related; boundary=${boundary}`,
     },
     body: multipartBody,

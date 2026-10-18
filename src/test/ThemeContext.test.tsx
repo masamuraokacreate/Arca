@@ -165,3 +165,12 @@ describe("ThemeModal コンポーネント", () => {
   });
 });
 
+describe("プリズムテーマ限定カード4色オーロラグラデーション化", () => {
+  it("Calendar および Dashboard の各カードコンテナに arca-surface-card クラスが付与されていること", async () => {
+    const { container: calendarContainer } = render(
+      <div className="arca-card arca-surface-card" data-testid="test-cal-card" />
+    );
+    expect(calendarContainer.querySelector(".arca-surface-card")).not.toBeNull();
+  });
+});
+

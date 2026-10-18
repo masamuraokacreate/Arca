@@ -27,23 +27,34 @@ import { Clock, RotateCw, Play } from "lucide-react";
 import { logger } from "../services/loggerService";
 import {
   syncGoogleCalendarToArca,
-  createGoogleCalendarEvent,
-  updateGoogleCalendarEvent,
-  deleteGoogleCalendarEvent,
+  formatToGoogleEventBody,
   batchUpdateShiftEvents,
   applyShiftStatusToGoogleCalendar,
   addMinutesToTime,
-  GoogleCalendarApiError,
 } from "../services/googleCalendarSync";
-import type { CalendarEvent, CalendarTask, SyncStatus } from "../types";
+import {
+  createGoogleEvent,
+  updateGoogleEvent,
+  deleteGoogleEvent,
+  toSyncErrorState,
+  GoogleCalendarApiError,
+} from "../services/googleCalendarClient";
+import {
+  requestWritePermission,
+  wasGoogleConnected,
+} from "../services/googleAuthService";
+import type { CalendarEvent, CalendarTask, SyncStatus, SyncErrorState } from "../types";
 import type { PMSettings, PMLogItem, PMMaster } from "../types/pm";
 import { C } from "../lib/designSystem";
 import { useUndoToast } from "../hooks/useUndoToast";
 import { UndoToast } from "./common/UndoToast";
+import { SyncToast } from "./common/SyncToast";
 import {
   resolveShiftInfo,
+  resolveDateShiftInfo,
   DEFAULT_PM_SETTINGS,
   isWorkEvent,
+  formatShiftTitleWithTime,
 } from "../services/pmCycleService";
 import { subscribePMMasters, isMasterShiftTimingMatch } from "../services/pmMasterService";
 import { ShiftOverrideModal } from "./calendar/ShiftOverrideModal";
@@ -52,6 +63,7 @@ import { ShiftEditModal } from "./calendar/ShiftEditModal";
 import { CalendarDayCell } from "./calendar/CalendarDayCell";
 import { PMMasterModal } from "./pm/PMMasterModal";
 import { PMExecutionPopover } from "./pm/PMExecutionPopover";
+import { PMOverridePopover } from "./pm/PMOverridePopover";
 
 type Task = CalendarTask;
 
@@ -456,7 +468,7 @@ function AddEventForm({
 
   return (
     <div
-      className="arca-card"
+      className="arca-card arca-surface-card"
       onKeyDown={(e) => {
         if (e.key === "Escape") reset();
       }}
@@ -646,7 +658,7 @@ function AddTaskForm({
 
   return (
     <div
-      className="arca-card"
+      className="arca-card arca-surface-card"
       onKeyDown={(e) => {
         if (e.key === "Escape") reset();
       }}
@@ -735,6 +747,7 @@ function MonthGrid({
   onPrevMonth,
   onNextMonth,
   onOpenPMExecution,
+  onOpenPMOverride,
 }: {
   year: number;
   month: number;
@@ -752,6 +765,7 @@ function MonthGrid({
   onPrevMonth: () => void;
   onNextMonth: () => void;
   onOpenPMExecution?: (dateStr: string, masters: PMMaster[]) => void;
+  onOpenPMOverride?: (master: PMMaster, anchorRect: DOMRect) => void;
 }) {
   const { firstDay, daysInMonth, daysInPrev } = monthMeta(year, month);
 
@@ -780,6 +794,12 @@ function MonthGrid({
       }
     }
   }
+
+  // シフトが設定されているかどうか（出勤イベント、アンカー日、またはオーバーライドが存在する場合）
+  const hasShiftConfig =
+    events.some((e) => isWorkEvent(e.title)) ||
+    Boolean(settings?.manualAnchorDate) ||
+    Object.keys(settings?.overrides || {}).length > 0;
 
   const cells: { dateStr: string; day: number; inMonth: boolean; isSun: boolean; isSat: boolean }[] = [];
 
@@ -823,7 +843,7 @@ function MonthGrid({
   }
 
   return (
-    <div className="arca-card" style={{ padding: "1.25rem 1.4rem", borderRadius: "20px" }}>
+    <div className="arca-card arca-surface-card" style={{ padding: "1.25rem 1.4rem", borderRadius: "20px" }}>
       {/* 月ナビゲーションヘッダー */}
       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: "1.1rem" }}>
         <h2 style={{ fontSize: "1.05rem", fontWeight: 700, color: C.charcoal, margin: 0, letterSpacing: "-0.01em" }}>
@@ -867,10 +887,16 @@ function MonthGrid({
           const mastersForDate = pmMastersMap?.get(dateStr) || [];
           const hasPM = mastersForDate.length > 0;
 
-          // シフト状態
-          const shift = shiftMap.get(dateStr);
-          const isWork = !!shift;
-          const isRest = inMonth && shiftMap.size > 0 && !isWork;
+          // シフト状態（既存の4勤2休・アンカー判定ロジックを流用して算出）
+          const shiftInfo = resolveDateShiftInfo(dateStr, events, settings);
+          const rawShift = shiftMap.get(dateStr);
+          const isWork = shiftInfo.isWorkDay;
+          const isRest = inMonth && shiftInfo.isRestDay;
+          const shift = {
+            isWork,
+            title: rawShift?.title || shiftInfo.shiftTitle,
+            startTime: rawShift?.startTime,
+          };
 
           return (
             <CalendarDayCell
@@ -888,15 +914,16 @@ function MonthGrid({
               pmMasters={mastersForDate}
               shift={shift}
               isRest={isRest}
-              showShift={shiftMap.size > 0}
+              showShift={hasShiftConfig}
               onSelectDate={onSelectDate}
               onOpenPMExecution={onOpenPMExecution}
+              onOpenPMOverride={onOpenPMOverride}
             />
           );
         })}
       </div>
 
-      {/* 凡例ガイド */}
+      {/* 凡例ガイド（PMドットのみ削除し、予定・タスク・出勤・休日を維持） */}
       <div
         style={{
           marginTop: "1rem",
@@ -920,21 +947,13 @@ function MonthGrid({
           <span>タスク</span>
         </div>
         <div style={{ display: "flex", alignItems: "center", gap: "0.35rem" }}>
-          <span style={{ width: "6px", height: "6px", borderRadius: "50%", background: "#4A72B2" }} />
-          <span>PM</span>
+          <span className="shift-badge-work" style={{ fontSize: "0.6rem", fontWeight: 650, padding: "0.05rem 0.25rem", borderRadius: "3px" }}>勤</span>
+          <span>出勤</span>
         </div>
-        {shiftMap.size > 0 && (
-          <>
-            <div style={{ display: "flex", alignItems: "center", gap: "0.35rem" }}>
-              <span style={{ fontSize: "0.6rem", fontWeight: 650, color: C.goldDark, background: C.goldFaint, padding: "0.05rem 0.25rem", borderRadius: "3px" }}>勤</span>
-              <span>出勤</span>
-            </div>
-            <div style={{ display: "flex", alignItems: "center", gap: "0.35rem" }}>
-              <span style={{ fontSize: "0.6rem", fontWeight: 650, color: C.sage, background: "rgba(82, 121, 111, 0.12)", padding: "0.05rem 0.25rem", borderRadius: "3px" }}>休</span>
-              <span>休日</span>
-            </div>
-          </>
-        )}
+        <div style={{ display: "flex", alignItems: "center", gap: "0.35rem" }}>
+          <span className="shift-badge-holiday" style={{ fontSize: "0.6rem", fontWeight: 650, padding: "0.05rem 0.25rem", borderRadius: "3px" }}>休</span>
+          <span>休日</span>
+        </div>
       </div>
     </div>
   );
@@ -1130,9 +1149,24 @@ export default function Calendar() {
   const [showPMExecutionPopover, setShowPMExecutionPopover] = useState(false);
   const [pmExecutionDate, setPmExecutionDate] = useState<string>(today);
   const [pmExecutionMasters, setPmExecutionMasters] = useState<PMMaster[]>([]);
+  const [activePMOverride, setActivePMOverride] = useState<{
+    master: PMMaster;
+    anchorRect: DOMRect;
+  } | null>(null);
 
   const { isReady, isSignedIn, accessToken, signIn, signOut } = useGoogleAuth();
   const { toast, showUndoToast, showMessageToast, dismissToast, triggerUndo } = useUndoToast<CalendarEvent>();
+
+  // Google Calendar API 通信・同期エラーステート (SyncToast 用)
+  const [syncError, setSyncError] = useState<SyncErrorState>({
+    hasError: false,
+    message: null,
+    requireReauth: false,
+  });
+
+  const dismissSyncError = useCallback(() => {
+    setSyncError({ hasError: false, message: null, requireReauth: false });
+  }, []);
 
   // ── Firestore: events リアルタイム購読 ──
   useEffect(() => {
@@ -1188,30 +1222,49 @@ export default function Calendar() {
   }, [selectedDate]);
 
   // ── Google Calendar 双方向同期（マイカレンダー限定） ──
-  const syncCalendar = useCallback(async () => {
-    if (!isSignedIn || !accessToken) return;
+  const syncCalendar = useCallback(async (tokenOverride?: string) => {
+    const tokenToUse = tokenOverride || accessToken;
+    if (!tokenToUse) return;
     try {
       setSyncStatus("syncing");
       logger.info("google_api", "Google Calendar: Sync started");
-      await syncGoogleCalendarToArca(accessToken, events.length > 0 ? events : undefined);
+      await syncGoogleCalendarToArca(tokenToUse, events.length > 0 ? events : undefined);
       setSyncStatus("done");
+      dismissSyncError();
       logger.success("google_api", "Google Calendar: Sync completed");
       setTimeout(() => {
         setSyncStatus("idle");
       }, 3000);
-    } catch (err: any) {
+    } catch (err: unknown) {
       console.error("[Google Calendar Sync Error] 同期に失敗しました:", err);
       setSyncStatus("error");
-      logger.error("google_api", "Google Calendar: Sync failed", err?.message || err);
-      const isScope = err?.status === 403 || err?.message?.includes("403") || err?.message?.includes("SCOPE");
-      showMessageToast(
-        isScope
-          ? "Googleカレンダーの権限が不足しています。再同意・再接続してください。"
-          : "Googleカレンダーの同期に失敗しました。再接続をお試しください。"
-      );
+      const errMsg = err instanceof Error ? err.message : String(err);
+      logger.error("google_api", "Google Calendar: Sync failed", errMsg);
+      const { state } = toSyncErrorState(err, "予定の変更を送信できませんでした");
+      setSyncError(state);
     }
-  }, [isSignedIn, accessToken, events, showMessageToast]);
+  }, [accessToken, events, dismissSyncError]);
 
+  // ── 再認証ボタン押下時のハンドラ（必ず SyncToast の onClick から呼び出される） ──
+  const handleReauth = useCallback(async () => {
+    const newToken = await requestWritePermission();
+    dismissSyncError();
+    if (newToken) {
+      await syncCalendar(newToken);
+    }
+  }, [dismissSyncError, syncCalendar]);
+
+  // ── API変更エラー共通ハンドラ（401/403再認証案内、404/410削除済み通知＋再フェッチ） ──
+  const handleMutationError = useCallback(
+    (err: unknown, defaultMessage = "予定の変更を送信できませんでした") => {
+      const { state, isDeletedRemotely } = toSyncErrorState(err, defaultMessage);
+      setSyncError(state);
+      if (isDeletedRemotely) {
+        void syncCalendar();
+      }
+    },
+    [syncCalendar]
+  );
 
   // ── Firestore: tasks リアルタイム購読 ──
   useEffect(() => {
@@ -1257,7 +1310,6 @@ export default function Calendar() {
     }
 
     // 2. 出勤・シフト連動（shift_cycle）のマッピング
-    // 表示月（viewYear, viewMonth）の前後カレンダー表示範囲（前月1日〜翌月末日）の日付を走査して合致日に配置
     const shiftMasters = pmMasters.filter((m) => m.cycleType === "shift_cycle");
     if (shiftMasters.length > 0) {
       const startDate = new Date(viewYear, viewMonth - 1, 1);
@@ -1301,15 +1353,28 @@ export default function Calendar() {
   // ── 選択日のシフト情報（手動オーバーライド優先） ──
   const selectedShift = resolveShiftInfo(selectedDate, events, pmSettings);
 
-
-
-  // ── シフト手動調整（Google Calendar ＆ Firestore 連携） ──
+  // ── シフト手動調整（Google Calendar ＆ Firestore 連携・エラー時ロールバック付き） ──
   const handleSaveShiftOverride = useCallback(
     async (
       override: any,
       details?: { startTime?: string; endTime?: string }
     ) => {
-      // 1. ローカル PM 設定を即時楽観的更新（0ms 反映）
+      // ロールバック用に操作前の状態を保持
+      const prevSettingsSnapshot = pmSettings
+        ? { ...pmSettings, overrides: { ...(pmSettings.overrides || {}) } }
+        : null;
+      const prevEventsSnapshot = [...events];
+
+      const formattedOverrideShiftName =
+        override && override.type === "work"
+          ? formatShiftTitleWithTime(
+              override.shiftName || "出勤",
+              details?.startTime,
+              true
+            ) || (override.shiftName || "出勤").trim()
+          : override?.shiftName;
+
+      // 1. ローカル PM 設定および events を即時楽観的更新
       setPmSettings((prev) => {
         const current = prev || { ...DEFAULT_PM_SETTINGS };
         const newOverrides = { ...(current.overrides || {}) };
@@ -1320,41 +1385,18 @@ export default function Calendar() {
             date: selectedDate,
             type: override.type,
             streakNumber: override.streakNumber,
-            shiftName: override.shiftName,
+            shiftName: formattedOverrideShiftName,
             updatedAt: new Date().toISOString(),
           };
         }
         return { ...current, overrides: newOverrides };
       });
 
-      // 2. Google カレンダー ＆ Firestore イベント ＆ PM設定 を一括連携
-      try {
-        await applyShiftStatusToGoogleCalendar(
-          isSignedIn ? accessToken : null,
-          {
-            date: selectedDate,
-            type: override?.type || "holiday",
-            streakNumber: override?.streakNumber,
-            shiftName: override?.shiftName,
-            startTime: details?.startTime,
-            endTime: details?.endTime,
-            isReset: override === null,
-          },
-          events
-        );
-
-        // 楽観的ローカル events 更新
-        if (override === null) {
-          showMessageToast("シフト状態を自動判定に戻しました");
-        } else if (override.type === "holiday") {
+      if (override !== null) {
+        if (override.type === "holiday") {
           setEvents((prev) => prev.filter((e) => !(e.date === selectedDate && isWorkEvent(e.title))));
-          showMessageToast(
-            isSignedIn
-              ? "休日に設定し、Googleカレンダーの出勤予定を削除しました"
-              : "シフト状態を休日に設定しました"
-          );
         } else {
-          const title = (override.shiftName || "出勤").trim();
+          const title = formattedOverrideShiftName || "出勤";
           setEvents((prev) => {
             const next = [...prev];
             const idx = next.findIndex((e) => e.date === selectedDate && isWorkEvent(e.title));
@@ -1378,6 +1420,35 @@ export default function Calendar() {
             }
             return next;
           });
+        }
+      }
+
+      // 2. Google カレンダー ＆ Firestore イベント ＆ PM設定 を一括連携
+      try {
+        await applyShiftStatusToGoogleCalendar(
+          isSignedIn ? accessToken : null,
+          {
+            date: selectedDate,
+            type: override?.type || "holiday",
+            streakNumber: override?.streakNumber,
+            shiftName: formattedOverrideShiftName,
+            startTime: details?.startTime,
+            endTime: details?.endTime,
+            isReset: override === null,
+          },
+          prevEventsSnapshot
+        );
+
+        if (override === null) {
+          showMessageToast("シフト状態を自動判定に戻しました");
+        } else if (override.type === "holiday") {
+          showMessageToast(
+            isSignedIn
+              ? "休日に設定し、Googleカレンダーの出勤予定を削除しました"
+              : "シフト状態を休日に設定しました"
+          );
+        } else {
+          const title = formattedOverrideShiftName || "出勤";
           showMessageToast(
             isSignedIn
               ? `出勤（${title}）をGoogleカレンダーと連携して保存しました`
@@ -1388,13 +1459,16 @@ export default function Calendar() {
         logger.info("firestore", `Calendar: Applied shift status for ${selectedDate}`, override);
       } catch (err) {
         console.error("Failed to apply shift status from calendar:", err);
-        showMessageToast("シフトの保存に失敗しました");
+        // エラー発生時は画面上の変更を元の状態へロールバック
+        setPmSettings(prevSettingsSnapshot);
+        setEvents(prevEventsSnapshot);
+        handleMutationError(err, "予定の変更を送信できませんでした");
       }
     },
-    [selectedDate, isSignedIn, accessToken, events, showMessageToast]
+    [selectedDate, isSignedIn, accessToken, events, pmSettings, showMessageToast, handleMutationError]
   );
 
-  // ── 4連勤ワンシフト一括 / シフト時間一括更新ハンドラ ──
+  // ── 4連勤ワンシフト一括 / シフト時間一括更新ハンドラ（エラー時ロールバック付き） ──
   const handleSaveShiftBatch = useCallback(
     async (params: {
       dates: string[];
@@ -1403,63 +1477,67 @@ export default function Calendar() {
       endTime: string;
       scope: "single" | "four_day";
     }) => {
+      // ロールバック用に操作前の予定一覧を保持
+      const prevEventsSnapshot = [...events];
+      const formattedTitle =
+        formatShiftTitleWithTime(params.title, params.startTime, true) || params.title;
+
+      // 楽観的ローカル更新
+      setEvents((prev) => {
+        const next = [...prev];
+        for (const d of params.dates) {
+          const idx = next.findIndex((e) => e.date === d && isWorkEvent(e.title));
+          if (idx >= 0) {
+            next[idx] = {
+              ...next[idx],
+              title: formattedTitle,
+              startTime: params.startTime,
+              endTime: params.endTime,
+            };
+          } else {
+            next.push({
+              id: `opt-${d}-${Date.now()}`,
+              title: formattedTitle,
+              date: d,
+              startTime: params.startTime,
+              endTime: params.endTime,
+              note: "",
+              createdAt: null,
+            });
+          }
+        }
+        return next;
+      });
+
       try {
         await batchUpdateShiftEvents(
           isSignedIn ? accessToken : null,
           params.dates,
           {
-            title: params.title,
+            title: formattedTitle,
             startTime: params.startTime,
             endTime: params.endTime,
           },
-          events
+          prevEventsSnapshot
         );
 
-        // 楽観的ローカル更新（Firestore snapshot前の即時反映）
-        setEvents((prev) => {
-          const next = [...prev];
-          for (const d of params.dates) {
-            const idx = next.findIndex((e) => e.date === d && isWorkEvent(e.title));
-            if (idx >= 0) {
-              next[idx] = {
-                ...next[idx],
-                title: params.title,
-                startTime: params.startTime,
-                endTime: params.endTime,
-              };
-            } else {
-              next.push({
-                id: `opt-${d}-${Date.now()}`,
-                title: params.title,
-                date: d,
-                startTime: params.startTime,
-                endTime: params.endTime,
-                note: "",
-                createdAt: null,
-              });
-            }
-          }
-          return next;
-        });
-
-        logger.info("firestore", `Calendar: Batch updated shift times: "${params.title}" (${params.dates.join(", ")})`, params);
+        logger.info("firestore", `Calendar: Batch updated shift times: "${formattedTitle}" (${params.dates.join(", ")})`, params);
         showMessageToast(
           params.scope === "four_day"
-            ? `4連勤のシフト時間を「${params.title} (${params.startTime}〜${params.endTime})」に一括変更しました`
-            : `シフト時間を「${params.title} (${params.startTime}〜${params.endTime})」に変更しました`
+            ? `4連勤のシフト時間を「${formattedTitle} (${params.startTime}〜${params.endTime})」に一括変更しました`
+            : `シフト時間を「${formattedTitle} (${params.startTime}〜${params.endTime})」に変更しました`
         );
       } catch (err) {
         console.error("Failed to batch update shift events:", err);
-        showMessageToast("シフト時間の変更に失敗しました");
+        // APIエラー時は変更前の状態にロールバックし、SyncToast を表示
+        setEvents(prevEventsSnapshot);
+        handleMutationError(err, "予定の変更を送信できませんでした");
       }
     },
-    [isSignedIn, accessToken, events, showMessageToast]
+    [isSignedIn, accessToken, events, showMessageToast, handleMutationError]
   );
 
-
-
-
-  // ── 予定追加（Google Calendar 連動） ──
+  // ── 予定追加（Google Calendar API POST 連動 & ロールバック対応） ──
   const handleAddEvent = useCallback(async (data: {
     title: string;
     date: string;
@@ -1467,28 +1545,46 @@ export default function Calendar() {
     endTime: string;
     note: string;
   }) => {
-    let googleEventId: string | undefined;
-    if (isSignedIn && accessToken) {
-      try {
-        googleEventId = await createGoogleCalendarEvent(accessToken, data);
-      } catch (gErr) {
-        console.error("Failed to push event to Google Calendar:", gErr);
-        showMessageToast("Googleカレンダーへの反映に失敗しました");
-      }
-    }
+    const prevEventsSnapshot = [...events];
+    const optimisticId = `opt-add-${Date.now()}`;
 
-    const docRef = await addDoc(collection(db, "events"), {
-      ...data,
-      googleEventId: googleEventId || null,
-      createdAt: serverTimestamp(),
-    });
-    logger.info("firestore", `Calendar: Created event "${data.title}" (${data.date})`, {
-      id: docRef.id,
-      title: data.title,
-      date: data.date,
-      googleEventId: googleEventId || null,
-    });
-  }, [isSignedIn, accessToken, showMessageToast]);
+    // 楽観的追加
+    setEvents((prev) => [
+      ...prev,
+      {
+        id: optimisticId,
+        ...data,
+        createdAt: null,
+      },
+    ]);
+
+    try {
+      let googleEventId: string | undefined;
+      if (isSignedIn || wasGoogleConnected()) {
+        const payload = formatToGoogleEventBody(data);
+        const created = await createGoogleEvent(payload, "primary", accessToken);
+        googleEventId = created.id;
+      }
+
+      const docRef = await addDoc(collection(db, "events"), {
+        ...data,
+        googleEventId: googleEventId || null,
+        googleCalendarId: "primary",
+        createdAt: serverTimestamp(),
+      });
+      logger.info("firestore", `Calendar: Created event "${data.title}" (${data.date})`, {
+        id: docRef.id,
+        title: data.title,
+        date: data.date,
+        googleEventId: googleEventId || null,
+      });
+    } catch (err) {
+      console.error("Failed to push event to Google Calendar:", err);
+      // 画面上の変更を元の状態へロールバック
+      setEvents(prevEventsSnapshot);
+      handleMutationError(err, "予定の変更を送信できませんでした");
+    }
+  }, [isSignedIn, accessToken, events, handleMutationError]);
 
   // ── タスク追加（選択日 / 今日 を期限として保存） ──
   const handleAddTask = useCallback(async (title: string, dueDate: string) => {
@@ -1507,15 +1603,20 @@ export default function Calendar() {
     }
   }, [showMessageToast]);
 
-  // ── 予定削除（Undo対応 & Google Calendar 連動） ──
+  // ── 予定削除（Google Calendar API DELETE 連動 & ロールバック・404/410ハンドリング対応） ──
   const handleDeleteEvent = useCallback(async (event: CalendarEvent) => {
+    const prevEventsSnapshot = [...events];
+
+    // 楽観的削除
+    setEvents((prev) => prev.filter((e) => e.id !== event.id));
+
     try {
-      if (isSignedIn && accessToken && event.googleEventId) {
-        try {
-          await deleteGoogleCalendarEvent(accessToken, event.googleEventId);
-        } catch (gErr) {
-          console.error("Failed to delete event from Google Calendar:", gErr);
-        }
+      if ((isSignedIn || wasGoogleConnected() || Boolean(event.googleEventId)) && event.googleEventId) {
+        await deleteGoogleEvent(
+          event.googleEventId,
+          event.googleCalendarId || "primary",
+          accessToken
+        );
       }
 
       await deleteDoc(doc(db, "events", event.id));
@@ -1525,89 +1626,103 @@ export default function Calendar() {
         message: `予定「${event.title}」を削除しました`,
         item: event,
         onUndo: async (restoredEvent) => {
-          let newGId: string | undefined;
-          if (isSignedIn && accessToken) {
-            try {
-              newGId = await createGoogleCalendarEvent(accessToken, {
+          try {
+            let newGId: string | undefined;
+            const targetCalId = restoredEvent.googleCalendarId || "primary";
+            if (isSignedIn || wasGoogleConnected()) {
+              const payload = formatToGoogleEventBody({
                 title: restoredEvent.title,
                 date: restoredEvent.date,
                 startTime: restoredEvent.startTime,
                 endTime: restoredEvent.endTime,
                 note: restoredEvent.note,
               });
-            } catch (gErr) {
-              console.error("Failed to restore event to Google Calendar:", gErr);
+              const created = await createGoogleEvent(payload, targetCalId, accessToken);
+              newGId = created.id;
             }
-          }
 
-          const docRef = await addDoc(collection(db, "events"), {
-            title: restoredEvent.title,
-            date: restoredEvent.date,
-            startTime: restoredEvent.startTime || "",
-            endTime: restoredEvent.endTime || "",
-            note: restoredEvent.note || "",
-            googleEventId: newGId || null,
-            createdAt: serverTimestamp(),
-          });
-          logger.info("firestore", `Calendar: Restored event "${restoredEvent.title}" (${docRef.id})`);
+            const docRef = await addDoc(collection(db, "events"), {
+              title: restoredEvent.title,
+              date: restoredEvent.date,
+              startTime: restoredEvent.startTime || "",
+              endTime: restoredEvent.endTime || "",
+              note: restoredEvent.note || "",
+              googleEventId: newGId || null,
+              googleCalendarId: targetCalId,
+              createdAt: serverTimestamp(),
+            });
+            logger.info("firestore", `Calendar: Restored event "${restoredEvent.title}" (${docRef.id})`);
+          } catch (undoErr) {
+            console.error("Failed to restore event to Google Calendar:", undoErr);
+            handleMutationError(undoErr, "予定の変更を送信できませんでした");
+          }
         },
       });
-    } catch (e) {
-      console.error("Delete event failed", e);
+    } catch (err) {
+      console.error("Delete event failed:", err);
+      // 404 / 410（他端末で既に削除済みの予定）の場合
+      if (err instanceof GoogleCalendarApiError && err.isNotFoundOrGone()) {
+        await deleteDoc(doc(db, "events", event.id)).catch(() => {});
+        handleMutationError(err, "この予定は既に削除されています");
+        return;
+      }
+      // 401 / 403 / 通信エラー等の場合は元の状態にロールバック
+      setEvents(prevEventsSnapshot);
+      handleMutationError(err, "予定の変更を送信できませんでした");
     }
-  }, [isSignedIn, accessToken, showUndoToast]);
+  }, [isSignedIn, accessToken, events, showUndoToast, handleMutationError]);
 
-  // ── 予定更新（Google Calendar 連動） ──
+  // ── 予定更新（Google Calendar API PATCH 連動 & ロールバック・404/410ハンドリング対応） ──
   const handleUpdateEvent = useCallback(async (
     id: string,
     data: Partial<Omit<CalendarEvent, "id" | "createdAt">>
   ) => {
-    const existing = events.find((e) => e.id === id);
-    let newGoogleEventId: string | undefined = existing?.googleEventId;
+    const prevEventsSnapshot = [...events];
+    const existing = prevEventsSnapshot.find((e) => e.id === id);
+    if (!existing) return;
 
-    if (isSignedIn && accessToken) {
-      const eventPayload = {
-        title: data.title !== undefined ? data.title : existing?.title || "",
-        date: data.date !== undefined ? data.date : existing?.date || "",
-        startTime: data.startTime !== undefined ? data.startTime : existing?.startTime,
-        endTime: data.endTime !== undefined ? data.endTime : existing?.endTime,
-        note: data.note !== undefined ? data.note : existing?.note,
-      };
+    // 楽観的更新
+    setEvents((prev) =>
+      prev.map((e) => (e.id === id ? { ...e, ...data } : e))
+    );
 
-      if (existing?.googleEventId) {
-        try {
-          await updateGoogleCalendarEvent(accessToken, existing.googleEventId, eventPayload);
-        } catch (gErr) {
-          console.error("Failed to update event on Google Calendar:", gErr);
-          // 404 等で更新失敗した場合は新規作成へフォールバック
-          if (gErr instanceof GoogleCalendarApiError && gErr.status === 404) {
-            try {
-              newGoogleEventId = await createGoogleCalendarEvent(accessToken, eventPayload);
-            } catch (cErr) {
-              console.error("Failed to fallback create event on Google Calendar:", cErr);
-              showMessageToast("Googleカレンダーの更新に失敗しました");
-            }
-          } else {
-            showMessageToast("Googleカレンダーの更新に失敗しました");
-          }
-        }
-      } else {
-        // 未紐付けの場合は Google カレンダーに新規作成して紐付け
-        try {
-          newGoogleEventId = await createGoogleCalendarEvent(accessToken, eventPayload);
-        } catch (gErr) {
-          console.error("Failed to push unlinked event to Google Calendar:", gErr);
-          showMessageToast("Googleカレンダーへの反映に失敗しました");
+    let newGoogleEventId: string | undefined = existing.googleEventId;
+    const targetCalId = existing.googleCalendarId || "primary";
+
+    try {
+      if (isSignedIn || wasGoogleConnected() || Boolean(existing.googleEventId)) {
+        const eventPayload = {
+          title: data.title !== undefined ? data.title : existing.title || "",
+          date: data.date !== undefined ? data.date : existing.date || "",
+          startTime: data.startTime !== undefined ? data.startTime : existing.startTime,
+          endTime: data.endTime !== undefined ? data.endTime : existing.endTime,
+          note: data.note !== undefined ? data.note : existing.note,
+        };
+        const mutationBody = formatToGoogleEventBody(eventPayload);
+
+        if (existing.googleEventId) {
+          // PUT ではなく必ず PATCH メソッドを使用する updateGoogleEvent を呼び出す
+          await updateGoogleEvent(existing.googleEventId, mutationBody, targetCalId, accessToken);
+        } else {
+          const created = await createGoogleEvent(mutationBody, targetCalId, accessToken);
+          newGoogleEventId = created.id;
         }
       }
-    }
 
-    await updateDoc(doc(db, "events", id), {
-      ...data,
-      ...(newGoogleEventId !== undefined ? { googleEventId: newGoogleEventId || null } : {}),
-    });
-    logger.info("firestore", `Calendar: Updated event (ID: ${id})`, data);
-  }, [isSignedIn, accessToken, events, showMessageToast]);
+      await updateDoc(doc(db, "events", id), {
+        ...data,
+        ...(newGoogleEventId !== undefined ? { googleEventId: newGoogleEventId || null } : {}),
+        googleCalendarId: targetCalId,
+      });
+      logger.info("firestore", `Calendar: Updated event (ID: ${id})`, data);
+    } catch (err) {
+      console.error("Failed to update event on Google Calendar:", err);
+      // 画面上の変更を元の状態へロールバック
+      setEvents(prevEventsSnapshot);
+      // 404/410 の場合は「この予定は既に削除されています」を表示し再フェッチ、401/403 の場合は再認証ボタン付き SyncToast を表示
+      handleMutationError(err, "予定の変更を送信できませんでした");
+    }
+  }, [isSignedIn, accessToken, events, handleMutationError]);
 
   // ── 月ナビゲーション ──
   const goPrevMonth = useCallback(() => {
@@ -1752,7 +1867,7 @@ export default function Calendar() {
             month={viewMonth}
             selectedDate={selectedDate}
             today={today}
-            events={visibleEvents}
+            events={events}
             eventDates={eventDates}
             taskDueDates={taskDueDates}
             pmDates={pmDates}
@@ -1762,6 +1877,9 @@ export default function Calendar() {
             onPrevMonth={goPrevMonth}
             onNextMonth={goNextMonth}
             onOpenPMExecution={handleOpenPMExecution}
+            onOpenPMOverride={(master, anchorRect) => {
+              setActivePMOverride({ master, anchorRect });
+            }}
           />
         </div>
 
@@ -1772,7 +1890,7 @@ export default function Calendar() {
           style={{ animation: "arca-module-in 0.22s ease" }}
         >
           {/* ── 予定セクション ── */}
-          <div className="arca-card" style={{ padding: "1.15rem 1.4rem", borderRadius: "20px" }}>
+          <div className="arca-card arca-surface-card" style={{ padding: "1.15rem 1.4rem", borderRadius: "20px" }}>
             <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: "0.65rem" }}>
               <p style={{ ...sectionLabelStyle, margin: 0 }}>予定</p>
               {selectedShift.type === "work" && (
@@ -1823,7 +1941,7 @@ export default function Calendar() {
           </div>
 
           {/* ── タスク期限セクション ── */}
-          <div className="arca-card" style={{ padding: "1.15rem 1.4rem", borderRadius: "20px" }}>
+          <div className="arca-card arca-surface-card" style={{ padding: "1.15rem 1.4rem", borderRadius: "20px" }}>
             <p style={sectionLabelStyle}>タスク期限</p>
 
             {dayTasks.length === 0 ? (
@@ -1848,7 +1966,7 @@ export default function Calendar() {
 
           {/* ── PM管理台帳 実行連携セクション ── */}
           {selectedDateMasters.length > 0 && (
-            <div className="arca-card" style={{ padding: "1.15rem 1.4rem", borderRadius: "20px" }}>
+            <div className="arca-card arca-surface-card" style={{ padding: "1.15rem 1.4rem", borderRadius: "20px" }}>
               <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: "0.75rem" }}>
                 <div style={{ display: "flex", alignItems: "center", gap: "0.45rem" }}>
                   <RotateCw style={{ width: "0.85rem", height: "0.85rem", color: "#C5A059" }} />
@@ -1999,11 +2117,37 @@ export default function Calendar() {
         }}
       />
 
+      {/* ─── PM個別日程オーバーライド ポップオーバー ─── */}
+      {activePMOverride && (
+        <PMOverridePopover
+          isOpen={Boolean(activePMOverride)}
+          master={activePMOverride.master}
+          anchorRect={activePMOverride.anchorRect}
+          currentDate={activePMOverride.master.nextScheduledDate || today}
+          events={events}
+          settings={pmSettings}
+          onClose={() => setActivePMOverride(null)}
+          onSaved={(_newDate) => {
+            setActivePMOverride(null);
+            showMessageToast("PM次回予定日を更新しました");
+          }}
+        />
+      )}
+
+      {/* ─── Google Calendar API 通信エラー・再認証トースト ─── */}
+      <SyncToast
+        errorState={syncError}
+        onReauth={handleReauth}
+        onDismiss={dismissSyncError}
+      />
+
       {/* ─── 共通 Undo トースト ─── */}
       <UndoToast toast={toast} onUndo={triggerUndo} onDismiss={dismissToast} />
     </div>
   );
 }
+
+export { Calendar as CalendarView };
 
 // ─────────────────────────────────────────
 // セクションラベル・空表示スタイル定数

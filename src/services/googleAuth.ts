@@ -1,67 +1,35 @@
 /**
  * src/services/googleAuth.ts
- * Google OAuth 2.0 認証サービス定数・トークン管理
- * 
-/**
- * 要求スコープ:
- * - Google Calendar: https://www.googleapis.com/auth/calendar (カレンダー一覧・読み書き)
- * - Google Calendar Events: https://www.googleapis.com/auth/calendar.events
- * - Google Calendar Readonly: https://www.googleapis.com/auth/calendar.readonly
- * - Google Tasks: https://www.googleapis.com/auth/tasks
- * - Google Drive: https://www.googleapis.com/auth/drive.file
+ * Google OAuth 2.0 認証サービス定数・トークン自動更新管理（Phase 2: Cloud Functions 連携）
  */
 
-export const GOOGLE_OAUTH_SCOPES = [
-  "https://www.googleapis.com/auth/calendar",
-  "https://www.googleapis.com/auth/calendar.events",
-  "https://www.googleapis.com/auth/calendar.readonly",
-  "https://www.googleapis.com/auth/tasks",
-  "https://www.googleapis.com/auth/drive.file",
-  "https://www.googleapis.com/auth/gmail.readonly",
-].join(" ");
+export {
+  REQUIRED_SCOPE,
+  GOOGLE_OAUTH_SCOPES,
+  LS_TOKEN,
+  LS_EXPIRY,
+  LS_SCOPE,
+  LS_CONNECTED,
+  TOKEN_REFRESH_BUFFER_MS,
+  GOOGLE_AUTH_CHANGED_EVENT,
+  GOOGLE_REAUTH_REQUIRED_EVENT,
+  loadSavedToken,
+  getSavedToken,
+  saveToken,
+  saveTokenWithExpiry,
+  clearSavedToken,
+  clearGoogleConnection,
+  wasGoogleConnected,
+  hasWritePermission,
+  exchangeAuthCode,
+  getValidAccessToken,
+  resolveValidAccessToken,
+  notifyReauthRequired,
+  requestWritePermission,
+  type ExchangeAuthCodeResult,
+} from "./googleAuthService";
 
-export const LS_TOKEN = "arca_g_token";
-export const LS_EXPIRY = "arca_g_expiry";
-
-/** 保存されている有効なアクセストークンを取得する */
-export function loadSavedToken(): string | null {
-  try {
-    const token = localStorage.getItem(LS_TOKEN);
-    const expiry = localStorage.getItem(LS_EXPIRY);
-    if (token && expiry && Date.now() < parseInt(expiry, 10)) {
-      return token;
-    }
-  } catch {
-    // localStorage アクセス不可環境のフォールバック
-  }
-  clearSavedToken();
-  return null;
-}
-
-/** loadSavedToken のエイリアス（仕様書互換） */
-export const getSavedToken = loadSavedToken;
-
-/** アクセストークンと有効期限（秒）を保存する */
-export function saveToken(token: string, expiresIn: number): void {
-  try {
-    localStorage.setItem(LS_TOKEN, token);
-    // 有効期限の60秒前に期限切れとみなすマージン
-    localStorage.setItem(LS_EXPIRY, String(Date.now() + (expiresIn - 60) * 1000));
-  } catch {
-    // localStorage エラー無視
-  }
-}
-
-/** 保存されたアクセストークンを破棄する */
-export function clearSavedToken(): void {
-  try {
-    localStorage.removeItem(LS_TOKEN);
-    localStorage.removeItem(LS_EXPIRY);
-  } catch {
-    // localStorage エラー無視
-  }
-}
-
+import { resolveValidAccessToken } from "./googleAuthService";
 import { syncGoogleCalendarToArca } from "./googleCalendarSync";
 import { syncAllGoogleTasks } from "./googleTasksSync";
 
@@ -69,9 +37,10 @@ import { syncAllGoogleTasks } from "./googleTasksSync";
 let isSyncAllInProgress = false;
 
 /**
- * 有効なGoogleアクセストークンを用いて、カレンダーおよび全タスクリストを一度に同期する
+ * 有効なGoogleアクセストークンを用いて、カレンダーおよび全タスクリストを一度に同期する。
+ * 引数 token が省略または期限切れ間近の場合は getValidAccessToken() で自動更新する。
  */
-export async function syncAllGoogleData(token: string): Promise<{
+export async function syncAllGoogleData(token?: string | null): Promise<{
   calendar: { added: number; updated: number };
   tasks: { added: number; updated: number };
 }> {
@@ -81,9 +50,17 @@ export async function syncAllGoogleData(token: string): Promise<{
   isSyncAllInProgress = true;
 
   try {
+    const activeToken =
+      token && token !== localStorage.getItem("arca_g_token")
+        ? token
+        : await resolveValidAccessToken(token);
+    if (!activeToken) {
+      return { calendar: { added: 0, updated: 0 }, tasks: { added: 0, updated: 0 } };
+    }
+
     const [calendarRes, tasksRes] = await Promise.allSettled([
-      syncGoogleCalendarToArca(token),
-      syncAllGoogleTasks(token),
+      syncGoogleCalendarToArca(activeToken),
+      syncAllGoogleTasks(activeToken),
     ]);
 
     const calendar = calendarRes.status === "fulfilled" ? calendarRes.value : { added: 0, updated: 0 };
@@ -101,4 +78,3 @@ export async function syncAllGoogleData(token: string): Promise<{
     isSyncAllInProgress = false;
   }
 }
-

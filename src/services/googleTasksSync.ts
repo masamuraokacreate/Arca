@@ -21,6 +21,10 @@ import {
 } from "firebase/firestore";
 import { db } from "../lib/firebase";
 import {
+  getValidAccessToken,
+  resolveValidAccessToken,
+} from "./googleAuthService";
+import {
   getTaskLists,
   getTasks,
   addTask as gAddTask,
@@ -35,6 +39,8 @@ import {
   type GTask,
 } from "../lib/googleTasks";
 import type { TaskItem, ListItem, SubTaskItem } from "../types";
+
+export { getValidAccessToken };
 
 export const SHOPPING_LIST_NAMES = ["買い物リスト", "買い物", "お買い物", "Shopping List", "Shopping"];
 
@@ -188,7 +194,8 @@ export async function syncGoogleTasksForList(
   listId: string = "default",
   providedExistingTasks?: TaskItem[]
 ): Promise<{ added: number; updated: number }> {
-  const gTasks: GTask[] = await getTasks(token, googleListId);
+  const activeToken = (await resolveValidAccessToken(token)) || token;
+  const gTasks: GTask[] = await getTasks(activeToken, googleListId);
   let added = 0;
   let updated = 0;
 
@@ -450,7 +457,7 @@ export async function syncGoogleTasksForList(
  * 全Google Tasksリスト（マイタスク、買い物リスト、カスタムリスト）を一括同期
  */
 export async function syncAllGoogleTasks(
-  token: string
+  token?: string | null
 ): Promise<{ added: number; updated: number }> {
   if (isTasksSyncInProgress) {
     return { added: 0, updated: 0 };
@@ -458,7 +465,11 @@ export async function syncAllGoogleTasks(
   isTasksSyncInProgress = true;
 
   try {
-    const lists = await getTaskLists(token);
+    const activeToken = (await resolveValidAccessToken(token)) || "";
+    if (!activeToken) {
+      return { added: 0, updated: 0 };
+    }
+    const lists = await getTaskLists(activeToken);
     if (!lists || lists.length === 0) {
       return { added: 0, updated: 0 };
     }
@@ -478,7 +489,7 @@ export async function syncAllGoogleTasks(
       }
 
       try {
-        const res = await syncGoogleTasksForList(token, gl.id, listId);
+        const res = await syncGoogleTasksForList(activeToken, gl.id, listId);
         totalAdded += res.added;
         totalUpdated += res.updated;
       } catch (err) {

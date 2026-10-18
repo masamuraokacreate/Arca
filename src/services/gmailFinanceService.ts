@@ -25,9 +25,15 @@ import {
 } from "firebase/firestore";
 import { db } from "../lib/firebase";
 import {
+  getValidAccessToken,
+  resolveValidAccessToken,
+} from "./googleAuthService";
+import {
   normalizeAmountNumber,
   normalizeDateString,
 } from "../utils/csvReconcile";
+
+export { getValidAccessToken };
 
 /**
  * Gmail カード利用速報検索クエリ生成ヘルパー (指定日数)
@@ -502,7 +508,7 @@ export interface FetchCardNoticeOptions {
  * @param optionsOrDays 検索対象日数、またはオプション（targetMonth, days等）
  */
 export async function fetchAndProcessCardNoticeEmails(
-  token: string,
+  token: string | null | undefined,
   existingTransactions: ExpenseTransaction[],
   optionsOrDays?: number | FetchCardNoticeOptions
 ): Promise<{
@@ -511,7 +517,8 @@ export async function fetchAndProcessCardNoticeEmails(
   skippedCount: number;
   totalFound: number;
 }> {
-  if (!token) {
+  const activeToken = await resolveValidAccessToken(token);
+  if (!activeToken) {
     throw new Error("有効なGoogleアクセストークンがありません。");
   }
 
@@ -538,7 +545,7 @@ export async function fetchAndProcessCardNoticeEmails(
     )}&maxResults=100${pageToken ? `&pageToken=${encodeURIComponent(pageToken)}` : ""}`;
 
     const listRes: Response = await fetch(listUrl, {
-      headers: { Authorization: `Bearer ${token}` },
+      headers: { Authorization: `Bearer ${activeToken}` },
     });
 
     if (!listRes.ok) {
@@ -600,7 +607,7 @@ export async function fetchAndProcessCardNoticeEmails(
     try {
       const msgUrl = `https://gmail.googleapis.com/gmail/v1/users/me/messages/${msg.id}?format=full`;
       const msgRes = await fetch(msgUrl, {
-        headers: { Authorization: `Bearer ${token}` },
+        headers: { Authorization: `Bearer ${activeToken}` },
       });
 
       if (!msgRes.ok) continue;

@@ -23,12 +23,17 @@ import {
   Circle,
   Plus,
 } from "lucide-react";
-import type { CycleDayInfo } from "../../services/pmCycleService";
+import {
+  formatShiftTitleWithTime,
+  isWorkEvent,
+  type CycleDayInfo,
+} from "../../services/pmCycleService";
 import type { CalendarEvent, TaskItem } from "../../types";
 
 export interface CycleDayCardProps {
   day: CycleDayInfo;
   isSelected: boolean;
+  workEvent?: CalendarEvent;
   events: CalendarEvent[];
   tasks: TaskItem[];
   onClick: () => void;
@@ -40,6 +45,7 @@ export interface CycleDayCardProps {
 export const CycleDayCard: React.FC<CycleDayCardProps> = ({
   day,
   isSelected,
+  workEvent,
   events,
   tasks,
   onClick,
@@ -50,8 +56,12 @@ export const CycleDayCard: React.FC<CycleDayCardProps> = ({
   const [taskInput, setTaskInput] = useState("");
   const isWork = day.shift.type === "work";
   const streakNum = day.shift.streakNumber || 1;
-  const shiftLabel = day.shift.shiftName
-    ? day.shift.shiftName
+  const formattedShiftName =
+    isWork && day.shift.shiftName
+      ? formatShiftTitleWithTime(day.shift.shiftName, workEvent?.startTime, false)
+      : day.shift.shiftName;
+  const shiftLabel = formattedShiftName
+    ? formattedShiftName
     : isWork
     ? `出勤 ${streakNum}日目`
     : `休日 ${streakNum}日目`;
@@ -75,7 +85,7 @@ export const CycleDayCard: React.FC<CycleDayCardProps> = ({
       <div
         data-testid={`cycle-day-card-${day.date}`}
         data-selected="true"
-        className="cycle-day-card-focused flex-[2] min-w-[270px] sm:min-w-[280px] h-full bg-white dark:bg-[var(--bg-card-solid)] rounded-2xl p-4 ring-1.5 ring-amber-500/40 dark:ring-amber-400/30 flex flex-col transition-all duration-300 ease-out overflow-hidden select-none snap-center"
+        className="cycle-day-card-focused arca-surface-card flex-[2] min-w-[270px] sm:min-w-[280px] h-full bg-white dark:bg-[var(--bg-card-solid)] rounded-2xl p-4 ring-1.5 ring-amber-500/40 dark:ring-amber-400/30 flex flex-col transition-all duration-300 ease-out overflow-hidden select-none snap-center"
         style={{
           boxShadow:
             "0 8px 24px -4px rgba(197, 160, 89, 0.15), 0 2px 6px rgba(0, 0, 0, 0.04)",
@@ -109,18 +119,16 @@ export const CycleDayCard: React.FC<CycleDayCardProps> = ({
           </div>
 
           <div className="flex items-center gap-2 shrink-0">
-            {/* シフトバッジ (出勤: アンバー系 / 休日: ピンク系) */}
+            {/* シフトバッジ (出勤日 / 休日) */}
             <span
               className={`inline-flex items-center gap-1 text-xs font-medium px-2.5 py-0.5 rounded-full leading-tight transition-colors ${
-                isWork
-                  ? "bg-amber-500/10 text-amber-800 dark:bg-amber-400/25 dark:text-amber-200"
-                  : "bg-pink-100/70 text-pink-700 border border-pink-200/50 dark:bg-pink-950/40 dark:text-pink-300 dark:border-pink-800/40"
+                isWork ? "shift-badge-work" : "shift-badge-holiday"
               }`}
             >
               {isWork ? (
-                <Sun size={11} className="shrink-0 text-amber-600 dark:text-amber-300" />
+                <Sun size={11} className="shrink-0" />
               ) : (
-                <Moon size={11} className="shrink-0 text-pink-500 dark:text-pink-300" />
+                <Moon size={11} className="shrink-0" />
               )}
               <span>{shiftLabel}</span>
             </span>
@@ -169,7 +177,7 @@ export const CycleDayCard: React.FC<CycleDayCardProps> = ({
                       </span>
                     )}
                     <span className="text-[#475569] dark:text-stone-200 truncate flex-1 font-medium">
-                      {e.title}
+                      {isWorkEvent(e.title) ? formatShiftTitleWithTime(e.title, e.startTime, false) : e.title}
                     </span>
                   </div>
                 ))
@@ -263,7 +271,7 @@ export const CycleDayCard: React.FC<CycleDayCardProps> = ({
           onClick();
         }
       }}
-      className="flex-1 min-w-[120px] h-full bg-white dark:bg-[var(--bg-card-solid)] rounded-2xl p-3.5 shadow-xs flex flex-col justify-between cursor-pointer hover:bg-stone-50/70 dark:hover:brightness-110 transition-all duration-300 ease-out overflow-hidden select-none outline-none border-none group snap-center"
+      className="arca-surface-card flex-1 min-w-[120px] h-full bg-white dark:bg-[var(--bg-card-solid)] rounded-2xl p-3.5 shadow-xs flex flex-col justify-between cursor-pointer hover:bg-stone-50/70 dark:hover:brightness-110 transition-all duration-300 ease-out overflow-hidden select-none outline-none border-none group snap-center"
       style={{
         boxShadow: "0 2px 10px rgba(0, 0, 0, 0.025), 0 1px 3px rgba(0, 0, 0, 0.02)",
       }}
@@ -297,12 +305,10 @@ export const CycleDayCard: React.FC<CycleDayCardProps> = ({
         <div className="flex items-center justify-between gap-1 mt-1">
           <span
             className={`inline-flex items-center gap-1 text-[0.68rem] font-semibold px-1.5 py-0.5 rounded-md leading-tight transition-colors ${
-              isWork
-                ? "bg-amber-500/10 text-amber-800 dark:bg-amber-400/25 dark:text-amber-200"
-                : "bg-pink-100/70 text-pink-700 border border-pink-200/50 dark:bg-pink-950/40 dark:text-pink-300 dark:border-pink-800/40"
+              isWork ? "shift-badge-work" : "shift-badge-holiday"
             }`}
           >
-            {isWork ? <Sun size={10} className="shrink-0 text-amber-600 dark:text-amber-300" /> : <Moon size={10} className="shrink-0 text-pink-500 dark:text-pink-300" />}
+            {isWork ? <Sun size={10} className="shrink-0" /> : <Moon size={10} className="shrink-0" />}
             <span className="truncate">{shiftLabel}</span>
           </span>
         </div>
@@ -318,7 +324,9 @@ export const CycleDayCard: React.FC<CycleDayCardProps> = ({
         </div>
         {events.length > 0 && (
           <p className="text-[0.68rem] text-stone-400 dark:text-stone-500 truncate m-0 pl-4 leading-tight">
-            {events[0].title}
+            {isWorkEvent(events[0].title)
+              ? formatShiftTitleWithTime(events[0].title, events[0].startTime, false)
+              : events[0].title}
           </p>
         )}
 
